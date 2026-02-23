@@ -1,21 +1,20 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     View,
     Text,
-    FlatList,
     ActivityIndicator,
     StatusBar,
     TouchableOpacity,
-    Animated,
     Modal,
     ScrollView,
     TextInput,
     Alert,
-    RefreshControl
+    RefreshControl,
+    KeyboardAvoidingView,
+    Platform
 } from 'react-native';
 import {
     Activity,
-    Plus,
     X,
     ChevronDown,
     ChevronLeft,
@@ -23,12 +22,23 @@ import {
     Check,
     User,
     Circle,
+    EllipsisVertical,
+    Search,
+    CalendarRange,
+    PlusCircle,
+    Eraser,
+    MessageCircle,
 } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getAppointments, createAppointment } from '../api/appointments';
+import { getAppointments, createAppointment, updateAppointment, deleteAppointment } from '../api/appointments';
 import { getClinics } from '../api/clinics';
 import { getSlots } from '../api/slots';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { FlashList } from '@shopify/flash-list';
+import { getChatNotifications, type IncomingNotificationMessage } from '../api/notifications';
+import IncomingMessageBubble from '../components/IncomingMessageBubble';
+import { io, type Socket } from 'socket.io-client';
+import { SOCKET_URL } from '../config/env';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -51,9 +61,18 @@ const toYMD = (date: Date) => {
     return `${y}-${m}-${d}`;
 };
 
+const parseDateOnly = (value?: string) => {
+    if (!value) return null;
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return null;
+    d.setHours(0, 0, 0, 0);
+    return d;
+};
+
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<string, { dot: string; badge: string; label: string; dotColor: string }> = {
+    booked: { dot: 'bg-indigo-500', badge: 'bg-indigo-100', label: 'text-indigo-700', dotColor: '#4338ca' },
     confirmed: { dot: 'bg-green-500', badge: 'bg-green-100', label: 'text-green-700', dotColor: '#15803d' },
     pending: { dot: 'bg-yellow-500', badge: 'bg-yellow-100', label: 'text-yellow-700', dotColor: '#a16207' },
     cancelled: { dot: 'bg-red-500', badge: 'bg-red-100', label: 'text-red-600', dotColor: '#dc2626' },
@@ -69,27 +88,6 @@ const StatusBadge = ({ status }: { status: string }) => {
             <Circle size={8} color={s.dotColor} fill={s.dotColor} style={{ marginRight: 6 }} />
             <Text className={`text-xs font-bold ${s.label}`}>{status ?? 'Unknown'}</Text>
         </View>
-    );
-};
-
-// ─── Animated list item ───────────────────────────────────────────────────────
-
-const AnimatedListItem = ({ children, index }: { children: React.ReactNode; index: number }) => {
-    const fadeAnim = useRef(new Animated.Value(0)).current;
-    const translateY = useRef(new Animated.Value(20)).current;
-
-    useEffect(() => {
-        Animated.parallel([
-            Animated.timing(fadeAnim, { toValue: 1, duration: 400, delay: index * 100, useNativeDriver: true }),
-            Animated.timing(translateY, { toValue: 0, duration: 400, delay: index * 100, useNativeDriver: true }),
-        ]).start();
-    }, []);
-
-    // Animated.View doesn't support className; style is required here
-    return (
-        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY }] }}>
-            {children}
-        </Animated.View>
     );
 };
 
@@ -281,11 +279,130 @@ const AppointmentsScreen = () => {
     const [availableSlots, setAvailableSlots] = useState<string[]>([]);
     const [slotDuration, setSlotDuration] = useState(30);
     const [loadingSlots, setLoadingSlots] = useState(false);
+    const [rescheduleModalVisible, setRescheduleModalVisible] = useState(false);
+    const [editingAppointmentId, setEditingAppointmentId] = useState<number | null>(null);
+    const [rescheduleDate, setRescheduleDate] = useState('');
+    const [rescheduleStart, setRescheduleStart] = useState('');
+    const [rescheduleEnd, setRescheduleEnd] = useState('');
+    const [incomingMessage, setIncomingMessage] = useState<IncomingNotificationMessage | null>(null);
+    const lastNotifCheckAtRef = useRef(new Date(Date.now() - 2 * 60 * 1000).toISOString());
+    const bubbleHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const highlightHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const socketRef = useRef<Socket | null>(null);
+    const [showSearch, setShowSearch] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [filterModalVisible, setFilterModalVisible] = useState(false);
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
+    const [headerMenuVisible, setHeaderMenuVisible] = useState(false);
+    const [openCardMenuId, setOpenCardMenuId] = useState<number | null>(null);
+    const [highlightedPairKey, setHighlightedPairKey] = useState<string | null>(null);
 
     useEffect(() => {
         fetchAppointments();
         fetchClinicsData();
     }, []);
+
+    const checkIncomingNotifications = React.useCallback(async () => {
+        try {
+            const data = await getChatNotifications(lastNotifCheckAtRef.current);
+            lastNotifCheckAtRef.current = new Date().toISOString();
+            if (data?.latestMessage) {
+                setIncomingMessage(data.latestMessage);
+                if (bubbleHideTimerRef.current) {
+                    clearTimeout(bubbleHideTimerRef.current);
+                }
+                bubbleHideTimerRef.current = setTimeout(() => {
+                    setIncomingMessage(null);
+                }, 5000);
+            }
+        } catch {
+            // ignore periodic notification errors
+        }
+    }, []);
+
+    useEffect(() => {
+        checkIncomingNotifications();
+        const interval = setInterval(checkIncomingNotifications, 7000);
+        return () => {
+            clearInterval(interval);
+            if (bubbleHideTimerRef.current) {
+                clearTimeout(bubbleHideTimerRef.current);
+            }
+            if (highlightHideTimerRef.current) {
+                clearTimeout(highlightHideTimerRef.current);
+            }
+        };
+    }, [checkIncomingNotifications]);
+
+    useFocusEffect(
+        React.useCallback(() => {
+            checkIncomingNotifications();
+        }, [checkIncomingNotifications])
+    );
+
+    useEffect(() => {
+        if (appointments.length === 0) return;
+        const pairs = Array.from(
+            new Map(
+                appointments
+                    .filter((a) => a?.patient_id && a?.doctor_id)
+                    .map((a) => [`${a.patient_id}:${a.doctor_id}`, { patientId: a.patient_id, doctorId: a.doctor_id, patientName: a?.patient?.full_name || 'Patient' }])
+            ).values()
+        );
+        if (pairs.length === 0) return;
+
+        const socket = io(SOCKET_URL, {
+            transports: ['websocket', 'polling'],
+            timeout: 4000,
+            reconnection: true,
+            reconnectionDelay: 500,
+            reconnectionDelayMax: 2000,
+        });
+        socketRef.current = socket;
+
+        const joinAllRooms = () => {
+            pairs.forEach((p) => socket.emit('join_chat', { patientId: p.patientId, doctorId: p.doctorId }));
+        };
+        socket.on('connect', joinAllRooms);
+        socket.on('receive_message', (msg: any) => {
+            if (!msg || msg.sender !== 'PATIENT') return;
+            const sender = pairs.find((p) => p.patientId === msg.patient_id && p.doctorId === msg.doctor_id);
+            if (!sender) return;
+            const pairKey = `${msg.patient_id}:${msg.doctor_id}`;
+            setHighlightedPairKey(pairKey);
+            if (highlightHideTimerRef.current) {
+                clearTimeout(highlightHideTimerRef.current);
+            }
+            highlightHideTimerRef.current = setTimeout(() => {
+                setHighlightedPairKey((prev) => (prev === pairKey ? null : prev));
+            }, 12000);
+            setIncomingMessage({
+                senderName: sender.patientName,
+                senderRole: 'PATIENT',
+                preview: msg.content || '',
+                createdAt: msg.created_at || new Date().toISOString(),
+                patientId: msg.patient_id,
+                doctorId: msg.doctor_id,
+            });
+            if (bubbleHideTimerRef.current) {
+                clearTimeout(bubbleHideTimerRef.current);
+            }
+            bubbleHideTimerRef.current = setTimeout(() => {
+                setIncomingMessage(null);
+            }, 5000);
+        });
+        if (socket.connected) joinAllRooms();
+
+        return () => {
+            socket.removeAllListeners();
+            socket.disconnect();
+            socketRef.current = null;
+            if (highlightHideTimerRef.current) {
+                clearTimeout(highlightHideTimerRef.current);
+            }
+        };
+    }, [appointments]);
 
     useEffect(() => {
         if (formData.clinic_id && formData.date) fetchSlotsData();
@@ -366,16 +483,136 @@ const AppointmentsScreen = () => {
         }
     };
 
-    if (loading) {
-        return (
-            <View className="flex-1 justify-center items-center bg-gray-50">
-                <ActivityIndicator size="large" color="#2563eb" />
-                <Text className="text-gray-400 mt-3 text-sm">Loading appointments...</Text>
-            </View>
-        );
-    }
+    const toDateInput = (value: string) => {
+        if (!value) return '';
+        const d = new Date(value);
+        if (Number.isNaN(d.getTime())) return '';
+        return d.toISOString().split('T')[0];
+    };
 
-    const renderItem = ({ item, index }: { item: any; index: number }) => {
+    const toTimeInput = (value: string) => {
+        if (!value) return '';
+        if (value.includes(':') && value.length <= 5) return value;
+        const d = new Date(value);
+        if (Number.isNaN(d.getTime())) return '';
+        const hh = String(d.getUTCHours()).padStart(2, '0');
+        const mm = String(d.getUTCMinutes()).padStart(2, '0');
+        return `${hh}:${mm}`;
+    };
+
+    const handleStatusChange = async (appointmentId: number, status: 'CANCELLED' | 'COMPLETED') => {
+        try {
+            await updateAppointment({ appointmentId, status });
+            setAppointments((prev) => prev.map((a) => a.appointment_id === appointmentId ? { ...a, status } : a));
+        } catch (error) {
+            console.error(error);
+            Alert.alert('Error', 'Failed to update appointment');
+        }
+    };
+
+    const confirmStatusChange = (appointmentId: number, status: 'CANCELLED' | 'COMPLETED') => {
+        const actionLabel = status === 'CANCELLED' ? 'cancel' : 'complete';
+        Alert.alert(
+            `${status === 'CANCELLED' ? 'Cancel' : 'Complete'} appointment`,
+            `Are you sure you want to ${actionLabel} this appointment?`,
+            [
+                { text: 'No', style: 'cancel' },
+                { text: 'Yes', onPress: () => handleStatusChange(appointmentId, status) },
+            ]
+        );
+    };
+
+    const handleDeleteAppointment = async (appointmentId: number) => {
+        Alert.alert('Delete appointment', 'Are you sure?', [
+            { text: 'No', style: 'cancel' },
+            {
+                text: 'Delete',
+                style: 'destructive',
+                onPress: async () => {
+                    try {
+                        await deleteAppointment(appointmentId);
+                        setAppointments((prev) => prev.filter((a) => a.appointment_id !== appointmentId));
+                    } catch (error) {
+                        console.error(error);
+                        Alert.alert('Error', 'Failed to delete appointment');
+                    }
+                }
+            }
+        ]);
+    };
+
+    const openReschedule = (item: any) => {
+        setEditingAppointmentId(item.appointment_id);
+        setRescheduleDate(toDateInput(item.appointment_date));
+        setRescheduleStart(toTimeInput(item.start_time));
+        setRescheduleEnd(toTimeInput(item.end_time));
+        setRescheduleModalVisible(true);
+    };
+
+    const handleReschedule = async () => {
+        if (!editingAppointmentId || !rescheduleDate || !rescheduleStart || !rescheduleEnd) {
+            Alert.alert('Error', 'Please fill date, start and end time');
+            return;
+        }
+        Alert.alert('Confirm reschedule', 'Apply this new date and time?', [
+            { text: 'No', style: 'cancel' },
+            {
+                text: 'Yes',
+                onPress: async () => {
+                    try {
+                        await updateAppointment({
+                            appointmentId: editingAppointmentId,
+                            appointment_date: rescheduleDate,
+                            start_time: rescheduleStart,
+                            end_time: rescheduleEnd,
+                            status: 'BOOKED',
+                        });
+                        setAppointments((prev) =>
+                            prev.map((a) =>
+                                a.appointment_id === editingAppointmentId
+                                    ? { ...a, appointment_date: rescheduleDate, start_time: rescheduleStart, end_time: rescheduleEnd, status: 'BOOKED' }
+                                    : a
+                            )
+                        );
+                        setRescheduleModalVisible(false);
+                        setEditingAppointmentId(null);
+                    } catch (error) {
+                        console.error(error);
+                        Alert.alert('Error', 'Failed to reschedule appointment');
+                    }
+                }
+            }
+        ]);
+    };
+
+    const filteredAppointments = useMemo(() => {
+        const query = searchQuery.trim().toLowerCase();
+        const from = parseDateOnly(dateFrom);
+        const to = parseDateOnly(dateTo);
+
+        return appointments.filter((a) => {
+            const patientName = String(a?.patient?.full_name || '').toLowerCase();
+            const phone = String(a?.patient?.phone || '').toLowerCase();
+            const bookingId = String(a?.appointment_id || '');
+            const clinic = String(a?.clinic?.clinic_name || '').toLowerCase();
+            const matchesSearch = !query || patientName.includes(query) || phone.includes(query) || bookingId.includes(query) || clinic.includes(query);
+            if (!matchesSearch) return false;
+
+            if (!from && !to) return true;
+            const date = parseDateOnly(a?.appointment_date);
+            if (!date) return false;
+            if (from && date < from) return false;
+            if (to && date > to) return false;
+            return true;
+        });
+    }, [appointments, dateFrom, dateTo, searchQuery]);
+
+    const renderItem = useCallback(({ item }: { item: any }) => {
+        const statusUpper = String(item?.status || '').toUpperCase();
+        const canUpdate = statusUpper !== 'COMPLETED' && statusUpper !== 'CANCELLED';
+        const isMenuOpen = openCardMenuId === item.appointment_id;
+        const pairKey = `${item.patient_id}:${item.doctor_id}`;
+        const isHighlighted = highlightedPairKey === pairKey;
         const slotDate = item.appointment_date
             ? new Date(item.appointment_date).toLocaleDateString('en-US', {
                 weekday: 'short', month: 'short', day: 'numeric',
@@ -388,55 +625,150 @@ const AppointmentsScreen = () => {
             : 'N/A';
 
         return (
-            <AnimatedListItem index={index}>
+            <View
+                className={`rounded-2xl mb-3 px-3.5 py-3 ${isHighlighted ? 'bg-blue-50 border-2 border-blue-400' : 'bg-white border border-gray-100'}`}
+                style={isHighlighted ? { shadowColor: '#2563eb', shadowOpacity: 0.18, shadowRadius: 10, elevation: 4 } : undefined}
+            >
                 <TouchableOpacity
-                    onPress={() => navigation.navigate('Chat', { patientId: item.patient_id, doctorId: item.doctor_id, patientName: item.patient?.full_name || 'Unknown Patient' })}
+                    onPress={() => {
+                        if (isMenuOpen) {
+                            setOpenCardMenuId(null);
+                            return;
+                        }
+                        if (isHighlighted) setHighlightedPairKey(null);
+                        navigation.navigate('Chat', { patientId: item.patient_id, doctorId: item.doctor_id, patientName: item.patient?.full_name || 'Unknown Patient' });
+                    }}
                     activeOpacity={0.7}
-                    className="bg-white rounded-2xl mb-4 overflow-hidden shadow-md elevation-4"
                 >
-                    {/* Card header */}
-                    <View className="bg-blue-600 px-4 py-3 flex-row items-center">
-                        <View className="bg-white w-9 h-9 rounded-full items-center justify-center mr-3">
-                            <User size={16} color="#2563eb" />
+                    <View className="flex-row items-start">
+                        <View className="bg-blue-100 w-10 h-10 rounded-xl items-center justify-center mr-3">
+                            <User size={16} color="#1d4ed8" />
                         </View>
                         <View className="flex-1">
-                            <Text className="text-white font-bold text-base" numberOfLines={1}>
+                            <Text className="text-gray-900 font-bold text-sm" numberOfLines={1}>
                                 {item.patient?.full_name || 'Unknown Patient'}
                             </Text>
-                            <Text className="text-blue-200 text-xs">
+                            <Text className="text-gray-500 text-xs mt-0.5" numberOfLines={1}>
                                 {item.clinic?.clinic_name || 'N/A'}
                             </Text>
+                            <View className="mt-1.5 self-start px-2 py-1 rounded-md bg-gray-100">
+                                <Text className="text-[10px] font-semibold text-gray-600">Booking #{item.appointment_id}</Text>
+                            </View>
+                            {isHighlighted && (
+                                <View className="mt-1.5 self-start px-2 py-1 rounded-md bg-blue-600">
+                                    <Text className="text-[10px] font-semibold text-white">New message</Text>
+                                </View>
+                            )}
                         </View>
-                        <TouchableOpacity onPress={() => alert('Pressed')}>
+                        <View className="items-end ml-2">
                             <StatusBadge status={item.status} />
-                        </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={() => setOpenCardMenuId((prev) => (prev === item.appointment_id ? null : item.appointment_id))}
+                                className="mt-2 p-1.5 rounded-lg bg-gray-100"
+                            >
+                                {isMenuOpen ? <X size={14} color="#4b5563" /> : <EllipsisVertical size={14} color="#4b5563" />}
+                            </TouchableOpacity>
+                        </View>
                     </View>
 
-                    {/* Card body */}
-                    <View className="px-4 py-4 flex-row justify-between">
-                        <View className="flex-1 items-center">
-                            <Text className="text-gray-400 text-xs">Date</Text>
-                            <Text className="text-gray-800 font-semibold text-sm text-center mt-0.5">
-                                {slotDate}
-                            </Text>
+                    <View className="mt-3 flex-row">
+                        <View className="flex-1 bg-blue-50 rounded-xl px-3 py-2 mr-2">
+                            <Text className="text-[10px] uppercase tracking-wide text-blue-500 font-bold">Date</Text>
+                            <Text className="text-xs font-semibold text-blue-900 mt-0.5">{slotDate}</Text>
                         </View>
-                        <View className="w-px bg-gray-100 mx-2" />
-                        <View className="flex-1 items-center">
-                            <Text className="text-gray-400 text-xs">Time</Text>
-                            <Text className="text-gray-800 font-semibold text-sm mt-0.5">{slotTime}</Text>
+                        <View className="flex-1 bg-emerald-50 rounded-xl px-3 py-2 ml-2">
+                            <Text className="text-[10px] uppercase tracking-wide text-emerald-600 font-bold">Time</Text>
+                            <Text className="text-xs font-semibold text-emerald-900 mt-0.5">{slotTime}</Text>
                         </View>
-                        <View className="w-px bg-gray-100 mx-2" />
-                        <View className="flex-1 items-center">
-                            <Text className="text-gray-400 text-xs">Clinic</Text>
-                            <Text className="text-gray-800 font-semibold text-sm text-center mt-0.5" numberOfLines={2}>
-                                {item.clinic?.clinic_name || 'N/A'}
-                            </Text>
+                    </View>
+                    <View className="mt-3 flex-row justify-end">
+                        <View className="px-3 py-2 rounded-lg bg-blue-600 flex-row items-center">
+                            <MessageCircle size={12} color="#fff" />
+                            <Text className="text-white text-xs font-semibold ml-1.5">Open Chat</Text>
                         </View>
                     </View>
                 </TouchableOpacity>
-            </AnimatedListItem>
+
+                {isMenuOpen && (
+                    <View
+                        className="absolute top-12 right-3 w-52 bg-white rounded-xl border border-gray-200 overflow-hidden"
+                        style={{ zIndex: 60, elevation: 10 }}
+                    >
+                        <TouchableOpacity
+                            onPress={() => {
+                                setOpenCardMenuId(null);
+                                navigation.navigate('Chat', {
+                                    patientId: item.patient_id,
+                                    doctorId: item.doctor_id,
+                                    patientName: item.patient?.full_name || 'Unknown Patient'
+                                });
+                            }}
+                            className="px-4 py-3 border-b border-gray-100"
+                        >
+                            <Text className="text-sm text-gray-800 font-medium">Open Chat</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            disabled={!canUpdate}
+                            onPress={() => {
+                                if (!canUpdate) return;
+                                setOpenCardMenuId(null);
+                                openReschedule(item);
+                            }}
+                            className="px-4 py-3 border-b border-gray-100"
+                        >
+                            <Text className={`text-sm font-medium ${canUpdate ? 'text-gray-800' : 'text-gray-400'}`}>Reschedule appointment</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            disabled={!canUpdate}
+                            onPress={() => {
+                                if (!canUpdate) return;
+                                setOpenCardMenuId(null);
+                                confirmStatusChange(item.appointment_id, 'CANCELLED');
+                            }}
+                            className="px-4 py-3 border-b border-gray-100"
+                        >
+                            <Text className={`text-sm font-medium ${canUpdate ? 'text-red-600' : 'text-gray-400'}`}>Cancel appointment</Text>
+                        </TouchableOpacity>
+                        {canUpdate && (
+                            <TouchableOpacity
+                                onPress={() => {
+                                    setOpenCardMenuId(null);
+                                    confirmStatusChange(item.appointment_id, 'COMPLETED');
+                                }}
+                                className="px-4 py-3 border-b border-gray-100"
+                            >
+                                <Text className="text-sm text-gray-800 font-medium">Complete</Text>
+                            </TouchableOpacity>
+                        )}
+                        <TouchableOpacity
+                            onPress={() => {
+                                setOpenCardMenuId(null);
+                                handleDeleteAppointment(item.appointment_id);
+                            }}
+                            className="px-4 py-3 border-b border-gray-100"
+                        >
+                            <Text className="text-sm text-red-600 font-medium">Delete</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            onPress={() => setOpenCardMenuId(null)}
+                            className="px-4 py-3"
+                        >
+                            <Text className="text-sm text-gray-700 font-medium">Close</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+            </View>
         );
-    };
+    }, [confirmStatusChange, handleDeleteAppointment, highlightedPairKey, navigation, openCardMenuId, openReschedule]);
+
+    if (loading) {
+        return (
+            <View className="flex-1 justify-center items-center bg-gray-50">
+                <ActivityIndicator size="large" color="#2563eb" />
+                <Text className="text-gray-400 mt-3 text-sm">Loading appointments...</Text>
+            </View>
+        );
+    }
 
     return (
         <SafeAreaView className="flex-1 bg-blue-800" edges={['top', 'left', 'right']}>
@@ -444,28 +776,98 @@ const AppointmentsScreen = () => {
             <View className="flex-1 bg-gray-50">
 
                 {/* Header */}
-                <View className="bg-blue-700 px-5 pt-6 pb-8 rounded-b-3xl">
+                <View className="bg-blue-700 px-5 pt-6 pb-8 rounded-b-3xl relative">
                     <View className="flex-row justify-between items-center">
                         <View>
                             <Text className="text-white text-2xl font-bold">Appointments</Text>
                             <Text className="text-blue-200 text-sm mt-1">
-                                {appointments.length} total appointment{appointments.length !== 1 ? 's' : ''}
+                                {filteredAppointments.length} shown • {appointments.length} total
                             </Text>
                         </View>
                         <TouchableOpacity
-                            onPress={() => setModalVisible(true)}
-                            className="bg-white p-3 rounded-full shadow-md elevation-4"
+                            onPress={() => setHeaderMenuVisible((prev) => !prev)}
+                            className="bg-white p-3 rounded-full"
                         >
-                            <Plus size={24} color="#1d4ed8" />
+                            {headerMenuVisible ? <X size={22} color="#1d4ed8" /> : <EllipsisVertical size={22} color="#1d4ed8" />}
                         </TouchableOpacity>
                     </View>
+                    {headerMenuVisible && (
+                        <View
+                            className="absolute right-5 top-20 w-64 bg-white rounded-2xl border border-blue-100 overflow-hidden"
+                            style={{ zIndex: 80, elevation: 12 }}
+                        >
+                            <TouchableOpacity
+                                onPress={() => {
+                                    setShowSearch((prev) => !prev);
+                                    setHeaderMenuVisible(false);
+                                }}
+                                className="px-4 py-3 flex-row items-center border-b border-gray-100"
+                            >
+                                <Search size={14} color="#1f2937" />
+                                <Text className="text-sm text-gray-800 font-medium ml-2">{showSearch ? 'Hide Search' : 'Search Appointments'}</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={() => {
+                                    setModalVisible(true);
+                                    setHeaderMenuVisible(false);
+                                }}
+                                className="px-4 py-3 flex-row items-center border-b border-gray-100"
+                            >
+                                <PlusCircle size={14} color="#1f2937" />
+                                <Text className="text-sm text-gray-800 font-medium ml-2">New Appointment</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={() => {
+                                    setFilterModalVisible(true);
+                                    setHeaderMenuVisible(false);
+                                }}
+                                className="px-4 py-3 flex-row items-center border-b border-gray-100"
+                            >
+                                <CalendarRange size={14} color="#1f2937" />
+                                <Text className="text-sm text-gray-800 font-medium ml-2">Date Range Filter</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={() => {
+                                    setSearchQuery('');
+                                    setDateFrom('');
+                                    setDateTo('');
+                                    setOpenCardMenuId(null);
+                                    setHeaderMenuVisible(false);
+                                }}
+                                className="px-4 py-3 flex-row items-center"
+                            >
+                                <Eraser size={14} color="#1f2937" />
+                                <Text className="text-sm text-gray-800 font-medium ml-2">Clear Filters</Text>
+                            </TouchableOpacity>
+                        </View>
+                    )}
+                    {showSearch && (
+                        <View className="mt-4 bg-white/95 rounded-xl px-3 py-2.5 flex-row items-center">
+                            <Search size={16} color="#6b7280" />
+                            <TextInput
+                                className="flex-1 ml-2 text-gray-800 text-sm"
+                                placeholder="Search by patient, clinic, phone, booking id"
+                                placeholderTextColor="#9ca3af"
+                                value={searchQuery}
+                                onChangeText={setSearchQuery}
+                            />
+                        </View>
+                    )}
+                    {(dateFrom || dateTo) && (
+                        <Text className="text-blue-100 text-xs mt-2">
+                            Date filter: {dateFrom || 'Any'} to {dateTo || 'Any'}
+                        </Text>
+                    )}
                 </View>
 
                 {/* List */}
-                <FlatList
-                    data={appointments}
-                    keyExtractor={(item) => item.appointment_id?.toString() || Math.random().toString()}
+                <FlashList
+                    data={filteredAppointments}
+                    keyExtractor={(item) => item.appointment_id?.toString() || `${item.patient_id}-${item.doctor_id}`}
                     renderItem={renderItem}
+                    onScrollBeginDrag={() => {
+                        if (openCardMenuId !== null) setOpenCardMenuId(null);
+                    }}
                     contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
                     showsVerticalScrollIndicator={false}
                     refreshControl={
@@ -483,7 +885,69 @@ const AppointmentsScreen = () => {
                         </View>
                     }
                 />
+                <IncomingMessageBubble
+                    message={incomingMessage}
+                    onPress={(message) => {
+                        setIncomingMessage(null);
+                        navigation.navigate('Chat', {
+                            patientId: message.patientId,
+                            doctorId: message.doctorId,
+                            patientName: message.senderName,
+                            viewer: 'DOCTOR',
+                        });
+                    }}
+                />
             </View>
+
+            {/* Filter Modal */}
+            <Modal
+                animationType="slide"
+                transparent
+                visible={filterModalVisible}
+                onRequestClose={() => setFilterModalVisible(false)}
+            >
+                <View className="flex-1 justify-end bg-black/50">
+                    <View className="bg-white rounded-t-3xl p-6">
+                        <View className="flex-row justify-between items-center mb-4">
+                            <Text className="text-xl font-bold text-gray-800">Date Range Filter</Text>
+                            <TouchableOpacity onPress={() => setFilterModalVisible(false)} className="bg-gray-100 p-2 rounded-full">
+                                <X size={18} color="#374151" />
+                            </TouchableOpacity>
+                        </View>
+                        <View className="space-y-3">
+                            <View>
+                                <Text className="text-sm font-bold text-gray-700 mb-1">From (YYYY-MM-DD)</Text>
+                                <TextInput
+                                    className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-gray-800"
+                                    value={dateFrom}
+                                    onChangeText={setDateFrom}
+                                    placeholder="e.g. 2026-02-01"
+                                />
+                            </View>
+                            <View>
+                                <Text className="text-sm font-bold text-gray-700 mb-1">To (YYYY-MM-DD)</Text>
+                                <TextInput
+                                    className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-gray-800"
+                                    value={dateTo}
+                                    onChangeText={setDateTo}
+                                    placeholder="e.g. 2026-02-29"
+                                />
+                            </View>
+                        </View>
+                        <View className="flex-row justify-end gap-3 mt-5">
+                            <TouchableOpacity
+                                onPress={() => { setDateFrom(''); setDateTo(''); }}
+                                className="px-4 py-3 rounded-xl bg-gray-100"
+                            >
+                                <Text className="text-gray-600 font-semibold">Clear</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => setFilterModalVisible(false)} className="px-4 py-3 rounded-xl bg-blue-600">
+                                <Text className="text-white font-semibold">Apply</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
 
             {/* ── Add Appointment Modal ── */}
             <Modal
@@ -492,8 +956,13 @@ const AppointmentsScreen = () => {
                 visible={isModalVisible}
                 onRequestClose={() => { setModalVisible(false); resetForm(); }}
             >
-                <View className="flex-1 justify-end bg-black/50">
-                    <View className="bg-white rounded-t-3xl p-6 h-[92%]">
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
+                    className="flex-1"
+                >
+                    <View className="flex-1 justify-end bg-black/50">
+                        <View className="bg-white rounded-t-3xl p-6 h-[92%]">
 
                         {/* Modal header */}
                         <View className="flex-row justify-between items-center mb-6">
@@ -660,6 +1129,57 @@ const AppointmentsScreen = () => {
 
                             </View>
                         </ScrollView>
+                        </View>
+                    </View>
+                </KeyboardAvoidingView>
+            </Modal>
+
+            <Modal
+                animationType="slide"
+                transparent
+                visible={rescheduleModalVisible}
+                onRequestClose={() => setRescheduleModalVisible(false)}
+            >
+                <View className="flex-1 justify-end bg-black/50">
+                    <View className="bg-white rounded-t-3xl p-6">
+                        <Text className="text-xl font-bold text-gray-800 mb-4">Reschedule Appointment</Text>
+                        <View className="space-y-3">
+                            <View>
+                                <Text className="text-sm font-bold text-gray-700 mb-1">Date</Text>
+                                <TextInput
+                                    className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-gray-800"
+                                    placeholder="YYYY-MM-DD"
+                                    value={rescheduleDate}
+                                    onChangeText={setRescheduleDate}
+                                />
+                            </View>
+                            <View>
+                                <Text className="text-sm font-bold text-gray-700 mb-1">Start Time</Text>
+                                <TextInput
+                                    className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-gray-800"
+                                    placeholder="HH:MM"
+                                    value={rescheduleStart}
+                                    onChangeText={setRescheduleStart}
+                                />
+                            </View>
+                            <View>
+                                <Text className="text-sm font-bold text-gray-700 mb-1">End Time</Text>
+                                <TextInput
+                                    className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-gray-800"
+                                    placeholder="HH:MM"
+                                    value={rescheduleEnd}
+                                    onChangeText={setRescheduleEnd}
+                                />
+                            </View>
+                        </View>
+                        <View className="flex-row justify-end gap-3 mt-5">
+                            <TouchableOpacity onPress={() => setRescheduleModalVisible(false)} className="px-4 py-3 rounded-xl bg-gray-100">
+                                <Text className="text-gray-600 font-semibold">Close</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={handleReschedule} className="px-4 py-3 rounded-xl bg-blue-600">
+                                <Text className="text-white font-semibold">Save</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 </View>
             </Modal>

@@ -5,9 +5,11 @@ import { RootStackParamList } from './types';
 // Import all screens
 import LoginScreen from '../screens/LoginScreen';
 import TabNavigator from './TabNavigator';
+import PatientTabNavigator from './PatientTabNavigator';
 import ChatScreen from '../screens/ChatScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import PatientDetailsScreen from '../screens/PatientDetails';
+import DoctorAnnouncementsScreen from '../screens/DoctorAnnouncementsScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -30,8 +32,14 @@ const AppNavigator = ({ initialRouteName }: { initialRouteName: keyof RootStackP
             />
 
             <Stack.Screen
-                name="Main"
+                name="DoctorMain"
                 component={TabNavigator}
+                options={{ animation: 'fade' }}
+            />
+
+            <Stack.Screen
+                name="PatientMain"
+                component={PatientTabNavigator}
                 options={{ animation: 'fade' }}
             />
 
@@ -44,6 +52,12 @@ const AppNavigator = ({ initialRouteName }: { initialRouteName: keyof RootStackP
             <Stack.Screen
                 name="Profile"
                 component={ProfileScreen}
+                options={{ animation: 'slide_from_right' }}
+            />
+
+            <Stack.Screen
+                name="DoctorAnnouncements"
+                component={DoctorAnnouncementsScreen}
                 options={{ animation: 'slide_from_right' }}
             />
 

@@ -2,22 +2,32 @@ import './src/global.css';
 import React, { useEffect, useState } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
-import { getToken } from './src/api/token';
+import { getToken, getRole } from './src/api/token';
 import AppNavigator from './src/navigation';
+import type { RootStackParamList } from './src/navigation/types';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
-  const [userToken, setUserToken] = useState<string | null>(null);
+  const [initialRouteName, setInitialRouteName] = useState<keyof RootStackParamList>('Login');
 
   useEffect(() => {
     const bootstrapAsync = async () => {
       let token: string | null = null;
+      let role: string | null = null;
       try {
         token = await getToken();
+        role = await getRole();
       } catch (e) {
         // Restoring token failed
       }
-      setUserToken(token);
+      if (token && role === 'PATIENT') {
+        setInitialRouteName('PatientMain');
+      } else if (token) {
+        setInitialRouteName('DoctorMain');
+      } else {
+        setInitialRouteName('Login');
+      }
       setIsLoading(false);
     };
 
@@ -33,8 +43,10 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
-      <AppNavigator initialRouteName={userToken ? "Main" : "Login"} />
-    </NavigationContainer>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <NavigationContainer>
+        <AppNavigator initialRouteName={initialRouteName} />
+      </NavigationContainer>
+    </GestureHandlerRootView>
   );
 }

@@ -7,7 +7,6 @@ import {
     ScrollView,
     TouchableOpacity,
     StatusBar,
-    SafeAreaView
 } from 'react-native';
 import {
     User,
@@ -25,6 +24,7 @@ import { removeToken } from '../api/token';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 type ProfileScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Profile'>;
 

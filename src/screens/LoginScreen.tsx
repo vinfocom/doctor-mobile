@@ -17,8 +17,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
-import { login } from '../api/auth';
-import { setToken } from '../api/token';
+import { login, patientLogin } from '../api/auth';
+import { setAuthSession } from '../api/token';
 import { Stethoscope, Mail, Lock, Eye, EyeOff, ArrowRight, ShieldCheck } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 
@@ -29,26 +29,49 @@ const LoginScreen = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
+    const [mode, setMode] = useState<'DOCTOR' | 'PATIENT'>('DOCTOR');
+    const [patientIdentifier, setPatientIdentifier] = useState('');
     const [emailFocused, setEmailFocused] = useState(false);
     const [passwordFocused, setPasswordFocused] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
 
     const handleLogin = async () => {
-        if (!email || !password) {
-            Alert.alert('Error', 'Please enter email and password');
-            return;
-        }
         setLoading(true);
         try {
-            const response = await login(email, password);
-            if (response.token) {
-                await setToken(response.token);
-                navigation.replace('Main');
+            if (mode === 'DOCTOR') {
+                if (!email || !password) {
+                    Alert.alert('Error', 'Please enter email and password');
+                    return;
+                }
+                const response = await login(email, password);
+                if (response.token) {
+                    await setAuthSession(response.token, 'DOCTOR');
+                    navigation.replace('DoctorMain');
+                } else {
+                    Alert.alert('Error', 'Login failed: No token received');
+                }
             } else {
-                Alert.alert('Error', 'Login failed: No token received');
+                if (!patientIdentifier.trim()) {
+                    Alert.alert('Error', 'Please enter phone or telegram username');
+                    return;
+                }
+                const response = await patientLogin(patientIdentifier.trim());
+                if (response.token) {
+                    await setAuthSession(response.token, 'PATIENT');
+                    navigation.replace('PatientMain');
+                } else {
+                    Alert.alert('Error', 'Login failed: No token received');
+                }
             }
         } catch (error: any) {
-            Alert.alert('Error', error.response?.data?.error || 'Login failed');
+            const status = error?.response?.status;
+            const apiPath = error?.config?.url || '';
+            const apiBase = error?.config?.baseURL || '';
+            const message = error?.response?.data?.error || error?.message || 'Login failed';
+            const details = status
+                ? `${message}\n\nHTTP ${status}\n${apiBase}${apiPath}`
+                : `${message}\n\n${apiBase}${apiPath}`;
+            Alert.alert('Error', details);
         } finally {
             setLoading(false);
         }
@@ -78,10 +101,10 @@ const LoginScreen = () => {
                             </View>
 
                             <Text className="text-white text-4xl font-extrabold tracking-wide mb-2">
-                                Doctor Portal
+                                {mode === 'DOCTOR' ? 'Doctor Portal' : 'Patient Portal'}
                             </Text>
                             <Text className="text-blue-200 text-base text-center">
-                                Sign in to manage your patients
+                                {mode === 'DOCTOR' ? 'Sign in to manage your patients' : 'Sign in to chat with your doctor'}
                             </Text>
                         </Animated.View>
 
@@ -101,8 +124,25 @@ const LoginScreen = () => {
                                 </Text>
                             </View>
 
-                            {/* Email */}
-                            <View className="mb-5">
+                            <View className="bg-white border border-gray-200 rounded-2xl p-1 mb-5 flex-row">
+                                <TouchableOpacity
+                                    onPress={() => setMode('DOCTOR')}
+                                    className={`flex-1 py-2 rounded-xl ${mode === 'DOCTOR' ? 'bg-blue-600' : 'bg-transparent'}`}
+                                >
+                                    <Text className={`text-center font-semibold ${mode === 'DOCTOR' ? 'text-white' : 'text-gray-600'}`}>Doctor</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={() => setMode('PATIENT')}
+                                    className={`flex-1 py-2 rounded-xl ${mode === 'PATIENT' ? 'bg-blue-600' : 'bg-transparent'}`}
+                                >
+                                    <Text className={`text-center font-semibold ${mode === 'PATIENT' ? 'text-white' : 'text-gray-600'}`}>Patient</Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            {mode === 'DOCTOR' ? (
+                                <>
+                                    {/* Email */}
+                                    <View className="mb-5">
                                 <Text className="text-base font-bold text-gray-700 mb-2 ml-1">
                                     Email Address
                                 </Text>
@@ -133,8 +173,8 @@ const LoginScreen = () => {
                                 </View>
                             </View>
 
-                            {/* Password */}
-                            <View className="mb-3">
+                                    {/* Password */}
+                                    <View className="mb-3">
                                 <Text className="text-base font-bold text-gray-700 mb-2 ml-1">
                                     Password
                                 </Text>
@@ -173,12 +213,31 @@ const LoginScreen = () => {
                                 </View>
                             </View>
 
-                            {/* Forgot Password */}
-                            <TouchableOpacity className="self-end mb-8 mt-1">
+                                    {/* Forgot Password */}
+                                    <TouchableOpacity className="self-end mb-8 mt-1">
                                 <Text className="text-sm text-blue-600 font-semibold">
                                     Forgot Password?
                                 </Text>
                             </TouchableOpacity>
+                                </>
+                            ) : (
+                                <View className="mb-8">
+                                    <Text className="text-base font-bold text-gray-700 mb-2 ml-1">
+                                        Phone or Telegram Username
+                                    </Text>
+                                    <View className="flex-row items-center bg-white rounded-2xl px-4 border-2 border-gray-200">
+                                        <Mail size={20} color="#64748b" />
+                                        <TextInput
+                                            className="flex-1 py-5 px-3 text-base text-slate-800"
+                                            placeholder="e.g. 9392569600 or username"
+                                            placeholderTextColor="#9ca3af"
+                                            value={patientIdentifier}
+                                            onChangeText={setPatientIdentifier}
+                                            autoCapitalize="none"
+                                        />
+                                    </View>
+                                </View>
+                            )}
 
                             {/* Login Button */}
                             <TouchableOpacity
@@ -206,7 +265,7 @@ const LoginScreen = () => {
                                 ) : (
                                     <View className="flex-row items-center">
                                         <Text className="text-white font-extrabold text-lg mr-2 tracking-wide">
-                                            Sign In
+                                            {mode === 'DOCTOR' ? 'Sign In as Doctor' : 'Sign In as Patient'}
                                         </Text>
                                         <ArrowRight size={20} color="#fff" />
                                     </View>

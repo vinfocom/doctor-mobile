@@ -11,7 +11,9 @@ import {
     ScrollView,
     TextInput,
     Alert,
-    RefreshControl
+    RefreshControl,
+    KeyboardAvoidingView,
+    Platform
 } from 'react-native';
 import {
     User,
@@ -236,8 +238,13 @@ const Patients = () => {
                 visible={isModalVisible}
                 onRequestClose={() => setModalVisible(false)}
             >
-                <View className="flex-1 justify-end bg-black/50">
-                    <View className="bg-white rounded-t-3xl p-6 h-[85%]">
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
+                    className="flex-1"
+                >
+                    <View className="flex-1 justify-end bg-black/50">
+                        <View className="bg-white rounded-t-3xl p-6 h-[85%]">
                         <View className="flex-row justify-between items-center mb-6">
                             <Text className="text-2xl font-bold text-gray-800">Add Patient</Text>
                             <TouchableOpacity onPress={() => setModalVisible(false)} className="bg-gray-100 p-2 rounded-full">
@@ -312,8 +319,9 @@ const Patients = () => {
 
                             </View>
                         </ScrollView>
+                        </View>
                     </View>
-                </View>
+                </KeyboardAvoidingView>
             </Modal>
         </SafeAreaView>
     );

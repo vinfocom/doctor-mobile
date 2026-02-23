@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     View,
     Text,
@@ -7,8 +7,7 @@ import {
     ScrollView,
     TouchableOpacity,
     StatusBar,
-    SafeAreaView,
-    RefreshControl
+    RefreshControl,
 } from 'react-native';
 import {
     User,
@@ -25,11 +24,14 @@ import {
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { getProfile } from '../api/auth';
 import { removeToken } from '../api/token';
+import { getChatNotifications } from '../api/notifications';
+import { useSWRLite } from '../lib/useSWRLite';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-type DashboardScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Main'>;
+type DashboardScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'DoctorMain'>;
 
 const InfoCard = ({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) => (
     <View
@@ -81,34 +83,44 @@ const QuickActionButton = ({
 
 const DashboardScreen = () => {
     const navigation = useNavigation<DashboardScreenNavigationProp>();
-    const [profile, setProfile] = useState<any>(null);
-    const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [notifCount, setNotifCount] = useState(0);
+    const [announcementNotifCount, setAnnouncementNotifCount] = useState(0);
+    const lastNotifCheckAtRef = useRef<string>(new Date(Date.now() - 60 * 1000).toISOString());
+
+    const {
+        data: profileData,
+        isLoading: loading,
+        revalidate: revalidateProfile
+    } = useSWRLite('doctor:profile', getProfile);
+    const profile = profileData?.doctor;
 
     useEffect(() => {
-        fetchProfile();
+        const checkNotifications = async () => {
+            try {
+                const data = await getChatNotifications(lastNotifCheckAtRef.current);
+                lastNotifCheckAtRef.current = new Date().toISOString();
+                setNotifCount((prev) => prev + (data?.count || 0));
+                setAnnouncementNotifCount((prev) => prev + (data?.announcementCount || 0));
+            } catch {
+                // ignore periodic notification errors
+            }
+        };
+        checkNotifications();
+        const interval = setInterval(async () => {
+            await checkNotifications();
+        }, 12000);
+        return () => clearInterval(interval);
     }, []);
-
-    const fetchProfile = async () => {
-        try {
-            const data = await getProfile();
-            setProfile(data.doctor);
-        } catch (error) {
-            console.error(error);
-            Alert.alert('Error', 'Failed to fetch profile');
-        } finally {
-            setLoading(false);
-        }
-    };
 
     const onRefresh = React.useCallback(async () => {
         setRefreshing(true);
         try {
-            await fetchProfile();
+            await revalidateProfile();
         } finally {
             setRefreshing(false);
         }
-    }, [fetchProfile]);
+    }, [revalidateProfile]);
 
     const handleLogout = async () => {
         Alert.alert('Logout', 'Are you sure you want to logout?', [
@@ -171,8 +183,29 @@ const DashboardScreen = () => {
                 </Animated.View>
 
                 <View className="px-5 mt-6">
+                    {(notifCount > 0 || announcementNotifCount > 0) && (
+                        <Animated.View entering={FadeInUp.delay(160).duration(400)} className="mb-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                            <Text className="text-amber-700 text-sm font-semibold">
+                                {notifCount > 0 ? `New messages: ${notifCount}` : ''}
+                                {announcementNotifCount > 0 ? `  •  Announcements: ${announcementNotifCount}` : ''}
+                            </Text>
+                        </Animated.View>
+                    )}
                     {/* Quick Actions */}
                     <Animated.Text entering={FadeInUp.delay(200).duration(500)} className="text-gray-700 font-bold text-base mb-3">Quick Actions</Animated.Text>
+                    <Animated.View entering={FadeInUp.delay(240).duration(500)} className="mb-5">
+                        <TouchableOpacity
+                            onPress={() => navigation.navigate('DoctorAnnouncements')}
+                            className="bg-blue-600 rounded-2xl py-4 px-4 flex-row items-center justify-between"
+                            style={{ shadowColor: '#1d4ed8', shadowOpacity: 0.25, shadowRadius: 8, elevation: 5 }}
+                        >
+                            <View>
+                                <Text className="text-white text-base font-bold">Send Announcement</Text>
+                                <Text className="text-blue-100 text-xs mt-0.5">For your upcoming booked patients</Text>
+                            </View>
+                            <MessageCircle size={20} color="#ffffff" />
+                        </TouchableOpacity>
+                    </Animated.View>
 
                     {/* Profile Info */}
                     <Animated.Text entering={FadeInUp.delay(300).duration(500)} className="text-gray-700 font-bold text-base mb-3">Contact Info</Animated.Text>

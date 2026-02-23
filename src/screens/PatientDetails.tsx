@@ -7,7 +7,6 @@ import {
     ScrollView,
     TouchableOpacity,
     StatusBar,
-    SafeAreaView
 } from 'react-native';
 import {
     User,
@@ -21,6 +20,7 @@ import { getPatients } from '../api/patients';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 type PatientDetailsNavigationProp = NativeStackNavigationProp<RootStackParamList, 'PatientDetails'>;
 
