@@ -15,6 +15,7 @@ export interface ChatNotificationsResponse {
     announcementCount: number;
     latestAt: string | null;
     latestMessage?: IncomingNotificationMessage | null;
+    uniqueSenders?: { patientId: number; patientName: string; doctorId: number }[];
 }
 
 export const getChatNotifications = async (since: string): Promise<ChatNotificationsResponse> => {

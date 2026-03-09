@@ -22,7 +22,9 @@ export default function ChatScreen({ route, navigation }: Props) {
     const mergeMessages = (prev: any[], incoming: any[]) => {
         const byId = new Map<string, any>();
         [...prev, ...incoming].forEach((msg) => {
-            const key = msg.message_id ? `id:${msg.message_id}` : `tmp:${msg.temp_id || `${msg.sender}:${msg.created_at}:${msg.content}`}`;
+            const key = msg.message_id
+                ? `id:${msg.message_id}`
+                : `tmp:${msg.temp_id || `${msg.sender}:${msg.created_at}:${msg.content}`}`;
             byId.set(key, msg);
         });
         return Array.from(byId.values()).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
@@ -93,9 +95,10 @@ export default function ChatScreen({ route, navigation }: Props) {
                 content: trimmed,
             });
             const saved = response?.message || optimistic;
-            setMessages((prev) =>
-                prev.map((m) => (m.temp_id === optimistic.temp_id ? { ...saved } : m))
-            );
+            setMessages((prev) => {
+                const withoutOptimistic = prev.filter((m) => m.temp_id !== optimistic.temp_id);
+                return mergeMessages(withoutOptimistic, [saved]);
+            });
         } catch (e) {
             console.error('Failed to send message:', e);
             setMessages((prev) => prev.filter((m) => m.temp_id !== optimistic.temp_id));
@@ -107,11 +110,17 @@ export default function ChatScreen({ route, navigation }: Props) {
 
     const renderMessage = ({ item }: { item: any }) => {
         const mine = viewer === 'PATIENT' ? item.sender === 'PATIENT' : item.sender === 'DOCTOR';
+        const formattedTime = new Date(item.created_at).toLocaleTimeString('en-IN', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true,
+            timeZone: 'Asia/Kolkata',
+        });
         return (
             <View className={`mb-3 max-w-[80%] rounded-2xl px-4 py-3 ${mine ? 'bg-blue-600 self-end rounded-tr-sm' : 'bg-white border border-gray-100 self-start rounded-tl-sm shadow-sm'}`}>
                 <Text className={`text-base ${mine ? 'text-white' : 'text-gray-800'}`}>{item.content}</Text>
                 <Text className={`text-[10px] mt-1 text-right ${mine ? 'text-blue-200' : 'text-gray-400'}`}>
-                    {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {formattedTime}
                 </Text>
             </View>
         );
@@ -138,8 +147,8 @@ export default function ChatScreen({ route, navigation }: Props) {
             </View>
 
             <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 72}
                 className="flex-1 bg-gray-50"
             >
                 {loading ? (
@@ -150,12 +159,17 @@ export default function ChatScreen({ route, navigation }: Props) {
                     <FlatList
                         ref={flatListRef}
                         data={messages}
-                        keyExtractor={item => (item.message_id ? item.message_id.toString() : item.temp_id)}
+                        keyExtractor={(item, index) =>
+                            item.message_id
+                                ? `id:${item.message_id}`
+                                : `tmp:${item.temp_id || `${item.sender}:${item.created_at}:${index}`}`
+                        }
                         renderItem={renderMessage}
                         contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 20 }}
                         onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
                         onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
                         showsVerticalScrollIndicator={false}
+                        keyboardShouldPersistTaps="handled"
                     />
                 )}
 

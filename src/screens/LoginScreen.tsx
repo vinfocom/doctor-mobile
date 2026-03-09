@@ -117,7 +117,7 @@ const LoginScreen = () => {
                             {/* Greeting */}
                             <View className="items-center mb-8">
                                 <Text className="text-3xl font-extrabold text-slate-800 mb-2">
-                                    Welcome Back 👋
+                                    Hi Doctor 👋
                                 </Text>
                                 <Text className="text-base text-slate-400 text-center">
                                     Please enter your credentials to continue

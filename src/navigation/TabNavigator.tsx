@@ -6,15 +6,15 @@ import { MainTabParamList } from './types';
 import DashboardScreen from '../screens/DashboardScreen';
 import AppointmentsScreen from '../screens/AppointmentsScreen';
 import ClinicsScreen from '../screens/ClinicsScreen';
-import ScheduleScreen from '../screens/ScheduleScreen';
-import { Home, Calendar, Stethoscope, Clock, ShieldAlert, Users } from 'lucide-react-native';
+import CalendarScreen from '../screens/CalendarScreen';
+import { Home, Calendar, Stethoscope, Users, BarChart2, ShieldAlert } from 'lucide-react-native';
 import Patients from '../screens/Patients';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 import { getChatNotifications } from '../api/notifications';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
-const TAB_ORDER: Array<keyof MainTabParamList> = ['Dashboard', 'Appointments', 'Clinics', 'Schedule', 'Patients'];
+const TAB_ORDER: Array<keyof MainTabParamList> = ['Dashboard', 'Appointments', 'Clinics', 'Patients', 'CalendarView'];
 
 function withSwipeTabNavigation(
     ScreenComponent: React.ComponentType,
@@ -60,8 +60,8 @@ function withSwipeTabNavigation(
 const DashboardSwipeScreen = withSwipeTabNavigation(DashboardScreen, 'Dashboard');
 const AppointmentsSwipeScreen = withSwipeTabNavigation(AppointmentsScreen, 'Appointments');
 const ClinicsSwipeScreen = withSwipeTabNavigation(ClinicsScreen, 'Clinics');
-const ScheduleSwipeScreen = withSwipeTabNavigation(ScheduleScreen, 'Schedule');
 const PatientsSwipeScreen = withSwipeTabNavigation(Patients, 'Patients');
+const CalendarSwipeScreen = withSwipeTabNavigation(CalendarScreen, 'CalendarView');
 
 const TabNavigator = () => {
     const [unreadChatCount, setUnreadChatCount] = useState(0);
@@ -102,10 +102,10 @@ const TabNavigator = () => {
                         IconComponent = Calendar;
                     } else if (route.name === 'Clinics') {
                         IconComponent = Stethoscope;
-                    } else if (route.name === 'Schedule') {
-                        IconComponent = Clock;
                     } else if (route.name === 'Patients') {
                         IconComponent = Users;
+                    } else if (route.name === 'CalendarView') {
+                        IconComponent = BarChart2;
                     } else {
                         IconComponent = ShieldAlert;
                     }
@@ -120,7 +120,13 @@ const TabNavigator = () => {
             <Tab.Screen
                 name="Appointments"
                 component={AppointmentsSwipeScreen}
+            />
+            <Tab.Screen name="Clinics" component={ClinicsSwipeScreen} />
+            <Tab.Screen
+                name="Patients"
+                component={PatientsSwipeScreen}
                 options={{
+                    title: 'Patients',
                     tabBarBadge: unreadChatCount > 0 ? (unreadChatCount > 99 ? '99+' : unreadChatCount) : undefined,
                 }}
                 listeners={{
@@ -129,9 +135,7 @@ const TabNavigator = () => {
                     },
                 }}
             />
-            <Tab.Screen name="Clinics" component={ClinicsSwipeScreen} />
-            <Tab.Screen name="Schedule" component={ScheduleSwipeScreen} />
-            <Tab.Screen name="Patients" component={PatientsSwipeScreen} />
+            <Tab.Screen name="CalendarView" component={CalendarSwipeScreen} options={{ title: 'Trends' }} />
         </Tab.Navigator>
     );
 };

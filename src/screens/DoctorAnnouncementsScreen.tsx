@@ -12,6 +12,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChevronLeft, Megaphone } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
@@ -28,6 +29,13 @@ import {
 import { API_URL, SOCKET_URL } from '../config/env';
 import { io, type Socket } from 'socket.io-client';
 
+const toYMD = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+};
+
 type Nav = NativeStackNavigationProp<RootStackParamList, 'DoctorAnnouncements'>;
 
 export default function DoctorAnnouncementsScreen() {
@@ -39,9 +47,11 @@ export default function DoctorAnnouncementsScreen() {
     const [socketError, setSocketError] = useState<string>('');
     const [history, setHistory] = useState<AnnouncementCampaign[]>([]);
     const [targetCount, setTargetCount] = useState(0);
+    const [targetPatients, setTargetPatients] = useState<any[]>([]);
     const [message, setMessage] = useState('');
-    const [targetMode, setTargetMode] = useState<AnnouncementTargetMode>('UPCOMING');
-    const [targetDate, setTargetDate] = useState('');
+    const [targetMode, setTargetMode] = useState<AnnouncementTargetMode>('TODAY');
+    const [targetDate, setTargetDate] = useState(toYMD(new Date()));
+    const [showPicker, setShowPicker] = useState(false);
     const [lastUpdatedAt, setLastUpdatedAt] = useState<string>('');
     const socketRef = useRef<Socket | null>(null);
 
@@ -51,6 +61,7 @@ export default function DoctorAnnouncementsScreen() {
         return /^\d{4}-\d{2}-\d{2}$/.test(targetDate);
     }, [message, targetDate, targetMode]);
     const likelyInvalidSocketHost = useMemo(() => SOCKET_URL.includes('vercel.app'), []);
+    const socketEnabled = useMemo(() => !likelyInvalidSocketHost, [likelyInvalidSocketHost]);
 
     const fetchAll = React.useCallback(async () => {
         const [h, t] = await Promise.all([
@@ -59,6 +70,7 @@ export default function DoctorAnnouncementsScreen() {
         ]);
         setHistory(h?.campaigns || []);
         setTargetCount(Math.max(0, t?.count || 0));
+        setTargetPatients(t?.patients || []);
         setLastUpdatedAt(new Date().toISOString());
     }, [targetDate, targetMode]);
 
@@ -66,8 +78,8 @@ export default function DoctorAnnouncementsScreen() {
         const bootstrap = async () => {
             try {
                 await fetchAll();
-            } catch {
-                // ignore
+            } catch (err) {
+                console.error('[DoctorAnnouncements] fetchAll error:', err);
             } finally {
                 setLoading(false);
             }
@@ -75,12 +87,13 @@ export default function DoctorAnnouncementsScreen() {
         bootstrap();
     }, [fetchAll]);
 
-    useEffect(() => {
-        if (loading) return;
-        fetchAll().catch(() => undefined);
-    }, [fetchAll, loading]);
 
     useEffect(() => {
+        if (!socketEnabled) {
+            setSocketConnected(false);
+            setSocketError('Realtime socket disabled for Vercel host; use a dedicated socket server URL.');
+            return;
+        }
         const socket = io(SOCKET_URL, {
             transports: ['websocket', 'polling'],
             timeout: 4000,
@@ -110,7 +123,7 @@ export default function DoctorAnnouncementsScreen() {
             socket.disconnect();
             socketRef.current = null;
         };
-    }, []);
+    }, [SOCKET_URL, socketEnabled]);
 
     const onRefresh = async () => {
         setRefreshing(true);
@@ -193,7 +206,7 @@ export default function DoctorAnnouncementsScreen() {
                                     Socket URL points to Vercel domain. Set EXPO_PUBLIC_SOCKET_URL to your socket server host.
                                 </Text>
                             )}
-                            <Text className="text-xs text-gray-600 mt-1">Last refresh: {lastUpdatedAt ? new Date(lastUpdatedAt).toLocaleTimeString() : 'N/A'}</Text>
+                            <Text className="text-xs text-gray-600 mt-1">Last refresh: {lastUpdatedAt ? new Date(lastUpdatedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) : 'N/A'}</Text>
                         </View>
 
                         <View className="bg-white rounded-2xl border border-blue-100 p-4 mt-4">
@@ -210,8 +223,8 @@ export default function DoctorAnnouncementsScreen() {
                                 <Text className="text-gray-700 text-xs font-semibold mb-2">Target Group</Text>
                                 <View className="flex-row gap-2">
                                     {[
-                                        { label: 'Upcoming', value: 'UPCOMING' as AnnouncementTargetMode },
                                         { label: 'Today', value: 'TODAY' as AnnouncementTargetMode },
+                                        { label: 'Tomorrow', value: 'TOMORROW' as AnnouncementTargetMode },
                                         { label: 'Custom', value: 'CUSTOM' as AnnouncementTargetMode },
                                     ].map((m) => (
                                         <TouchableOpacity
@@ -224,20 +237,74 @@ export default function DoctorAnnouncementsScreen() {
                                     ))}
                                 </View>
                                 {targetMode === 'CUSTOM' && (
-                                    <TextInput
-                                        className="mt-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-gray-800"
-                                        placeholder="YYYY-MM-DD"
-                                        value={targetDate}
-                                        onChangeText={setTargetDate}
-                                    />
+                                    <View className="mt-3">
+                                        <TouchableOpacity
+                                            onPress={() => setShowPicker(true)}
+                                            className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-3"
+                                        >
+                                            <Text className="text-gray-800">{targetDate || 'Select Date'}</Text>
+                                        </TouchableOpacity>
+                                        {showPicker && (
+                                            <DateTimePicker
+                                                value={targetDate ? new Date(targetDate) : new Date()}
+                                                mode="date"
+                                                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                                                onChange={(event: any, selectedDate?: Date) => {
+                                                    setShowPicker(Platform.OS === 'ios');
+                                                    if (selectedDate) setTargetDate(toYMD(selectedDate));
+                                                }}
+                                            />
+                                        )}
+                                        {Platform.OS === 'ios' && showPicker && (
+                                            <TouchableOpacity onPress={() => setShowPicker(false)} className="mt-2 self-end">
+                                                <Text className="text-blue-600 font-bold">Done</Text>
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
                                 )}
                             </View>
 
-                            <Text className="text-gray-700 text-sm mt-3">This always sends as announcement (not in chat thread).</Text>
 
                             <Text className="text-blue-700 text-xs font-semibold mt-2">
                                 Will send to {targetCount} patient{targetCount === 1 ? '' : 's'}
                             </Text>
+                            {targetPatients.length > 0 && (
+                                <View className="mt-2 p-3 bg-blue-50 border border-blue-100 rounded-xl">
+                                    <Text className="text-blue-800 text-xs font-bold mb-1">Recipients:</Text>
+                                    {targetPatients.slice(0, 5).map((p, idx) => {
+                                        const datePart = p.appointment_date ? String(p.appointment_date).slice(0, 10) : '';
+                                        const dStr = datePart ? new Date(`${datePart}T00:00:00+05:30`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '';
+                                        let tStr = '';
+                                        if (p.start_time) {
+                                            const raw = String(p.start_time);
+                                            if (raw.includes('T') || raw.includes('Z') || raw.length > 5) {
+                                                // stored as ISO datetime: extract UTC H:M (the actual time)
+                                                const d = new Date(raw);
+                                                if (!Number.isNaN(d.getTime())) {
+                                                    const h = d.getUTCHours();
+                                                    const m = d.getUTCMinutes();
+                                                    const ampm = h >= 12 ? 'PM' : 'AM';
+                                                    tStr = `${h % 12 || 12}:${String(m).padStart(2, '0')} ${ampm}`;
+                                                }
+                                            } else if (raw.includes(':')) {
+                                                const parts = raw.split(':');
+                                                let hour = parseInt(parts[0], 10);
+                                                const ampm = hour >= 12 ? 'PM' : 'AM';
+                                                hour = hour % 12 || 12;
+                                                tStr = `${hour}:${parts[1]} ${ampm}`;
+                                            }
+                                        }
+                                        return (
+                                            <Text key={p.patient_id} className="text-blue-700 text-xs mt-0.5" numberOfLines={1}>
+                                                • {p.name} {dStr && tStr ? `(${dStr} @ ${tStr})` : ''}
+                                            </Text>
+                                        );
+                                    })}
+                                    {targetPatients.length > 5 && (
+                                        <Text className="text-blue-600 text-xs italic mt-1">+ {targetPatients.length - 5} more...</Text>
+                                    )}
+                                </View>
+                            )}
 
                             <TouchableOpacity
                                 disabled={!canSend || sending}
@@ -256,7 +323,7 @@ export default function DoctorAnnouncementsScreen() {
                                         <View className="flex-1 pr-3">
                                             <Text className="text-gray-900 font-semibold">{c.content}</Text>
                                             <Text className="text-gray-500 text-xs mt-1">
-                                                {new Date(c.created_at).toLocaleString()} • {c.recipientCount} recipients • Announcement
+                                                {new Date(c.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })} • {c.recipientCount} recipients • Announcement
                                             </Text>
                                         </View>
                                         <Megaphone size={18} color="#2563eb" />

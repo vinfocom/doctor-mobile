@@ -2,7 +2,7 @@ import client from './client';
 import { getAppointments } from './appointments';
 import { sendChatMessage } from './chat';
 
-export type AnnouncementTargetMode = 'UPCOMING' | 'TODAY' | 'CUSTOM';
+export type AnnouncementTargetMode = 'TOMORROW' | 'TODAY' | 'CUSTOM';
 export interface AnnouncementCampaign {
     campaign_id: number;
     created_at: string;
@@ -12,7 +12,7 @@ export interface AnnouncementCampaign {
 }
 
 export const getAnnouncementTargets = async (
-    targetMode: AnnouncementTargetMode = 'UPCOMING',
+    targetMode: AnnouncementTargetMode = 'TODAY',
     targetDate?: string
 ) => {
     const query = new URLSearchParams({
@@ -23,7 +23,15 @@ export const getAnnouncementTargets = async (
         query.set('targetDate', targetDate);
     }
     const response = await client.get(`/announcements?${query.toString()}`);
-    return response.data as { count: number };
+    return response.data as {
+        count: number;
+        patients: Array<{
+            patient_id: number;
+            name: string;
+            appointment_date: string;
+            start_time: string;
+        }>;
+    };
 };
 
 export const getPatientAnnouncements = async (limit: number = 30) => {
@@ -67,7 +75,7 @@ export const resendAnnouncementCampaign = async (
 export const sendAnnouncement = async (
     message: string,
     asAnnouncement: boolean = true,
-    targetMode: AnnouncementTargetMode = 'UPCOMING',
+    targetMode: AnnouncementTargetMode = 'TODAY',
     targetDate?: string
 ) => {
     try {

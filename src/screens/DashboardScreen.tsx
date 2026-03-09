@@ -19,10 +19,17 @@ import {
     PhoneOff,
     Award,
     Hash,
-    Briefcase
+    Briefcase,
+    Clock,
+    CalendarCheck2,
+    ArrowRight,
+    CheckCircle2,
+    CalendarClock,
+    UserX,
 } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { getProfile } from '../api/auth';
+import { getAppointments } from '../api/appointments';
 import { removeToken } from '../api/token';
 import { getChatNotifications } from '../api/notifications';
 import { useSWRLite } from '../lib/useSWRLite';
@@ -86,6 +93,7 @@ const DashboardScreen = () => {
     const [refreshing, setRefreshing] = useState(false);
     const [notifCount, setNotifCount] = useState(0);
     const [announcementNotifCount, setAnnouncementNotifCount] = useState(0);
+    const [unreadSenders, setUnreadSenders] = useState<Map<number, { patientName: string; doctorId: number }>>(new Map());
     const lastNotifCheckAtRef = useRef<string>(new Date(Date.now() - 60 * 1000).toISOString());
 
     const {
@@ -95,6 +103,22 @@ const DashboardScreen = () => {
     } = useSWRLite('doctor:profile', getProfile);
     const profile = profileData?.doctor;
 
+    const [upcomingToday, setUpcomingToday] = useState<any[]>([]);
+    const [upcomingLoading, setUpcomingLoading] = useState(true);
+
+    const loadUpcoming = React.useCallback(async () => {
+        try {
+            setUpcomingLoading(true);
+            const nowIST = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+            const todayStr = `${nowIST.getUTCFullYear()}-${String(nowIST.getUTCMonth() + 1).padStart(2, '0')}-${String(nowIST.getUTCDate()).padStart(2, '0')}`;
+            const all = await getAppointments({ date: todayStr });
+            const list = Array.isArray(all) ? all : (all?.appointments || []);
+            setUpcomingToday(list);
+        } catch { console.log("Error loading upcoming appointments"); } finally { setUpcomingLoading(false); }
+    }, []);
+
+    useEffect(() => { loadUpcoming(); }, [loadUpcoming]);
+
     useEffect(() => {
         const checkNotifications = async () => {
             try {
@@ -102,6 +126,24 @@ const DashboardScreen = () => {
                 lastNotifCheckAtRef.current = new Date().toISOString();
                 setNotifCount((prev) => prev + (data?.count || 0));
                 setAnnouncementNotifCount((prev) => prev + (data?.announcementCount || 0));
+                if (data?.uniqueSenders?.length) {
+                    setUnreadSenders((prev) => {
+                        const next = new Map(prev);
+                        data.uniqueSenders!.forEach((s) => {
+                            next.set(s.patientId, { patientName: s.patientName, doctorId: s.doctorId });
+                        });
+                        return next;
+                    });
+                } else if (data?.latestMessage && !data.latestMessage.isAnnouncement) {
+                    setUnreadSenders((prev) => {
+                        const next = new Map(prev);
+                        next.set(data.latestMessage!.patientId, {
+                            patientName: data.latestMessage!.senderName,
+                            doctorId: data.latestMessage!.doctorId,
+                        });
+                        return next;
+                    });
+                }
             } catch {
                 // ignore periodic notification errors
             }
@@ -117,10 +159,11 @@ const DashboardScreen = () => {
         setRefreshing(true);
         try {
             await revalidateProfile();
+            await loadUpcoming();
         } finally {
             setRefreshing(false);
         }
-    }, [revalidateProfile]);
+    }, [revalidateProfile, loadUpcoming]);
 
     const handleLogout = async () => {
         Alert.alert('Logout', 'Are you sure you want to logout?', [
@@ -183,12 +226,60 @@ const DashboardScreen = () => {
                 </Animated.View>
 
                 <View className="px-5 mt-6">
-                    {(notifCount > 0 || announcementNotifCount > 0) && (
-                        <Animated.View entering={FadeInUp.delay(160).duration(400)} className="mb-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-                            <Text className="text-amber-700 text-sm font-semibold">
-                                {notifCount > 0 ? `New messages: ${notifCount}` : ''}
-                                {announcementNotifCount > 0 ? `  •  Announcements: ${announcementNotifCount}` : ''}
-                            </Text>
+                    {/* Smart notification banner */}
+                    {(unreadSenders.size > 0 || announcementNotifCount > 0) && (
+                        <Animated.View entering={FadeInUp.delay(160).duration(400)} className="mb-4">
+                            {unreadSenders.size > 0 && (() => {
+                                const senders = [...unreadSenders.entries()];
+                                const isSingle = senders.length === 1;
+                                const names = senders.map(([, v]) => v.patientName).join(', ');
+                                return (
+                                    <TouchableOpacity
+                                        activeOpacity={0.8}
+                                        onPress={() => {
+                                            const snap = [...unreadSenders.entries()];
+                                            // Clear immediately on tap
+                                            setUnreadSenders(new Map());
+                                            setNotifCount(0);
+                                            if (snap.length === 1) {
+                                                const [[pid, info]] = snap;
+                                                navigation.navigate('Chat', {
+                                                    patientId: pid,
+                                                    doctorId: info.doctorId,
+                                                    patientName: info.patientName,
+                                                    viewer: 'DOCTOR',
+                                                });
+                                            } else {
+                                                // Navigate to Patients tab
+                                                navigation.navigate('DoctorMain');
+                                            }
+                                        }}
+                                        className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex-row items-center"
+                                    >
+                                        <View className="flex-1">
+                                            <Text className="text-amber-800 text-sm font-bold">
+                                                {isSingle
+                                                    ? ` New message from ${names}`
+                                                    : ` ${senders.length} patients sent you messages`}
+                                            </Text>
+                                            {isSingle && (
+                                                <Text className="text-amber-600 text-xs mt-0.5">Tap to open chat</Text>
+                                            )}
+                                            {!isSingle && (
+                                                <Text className="text-amber-600 text-xs mt-0.5" numberOfLines={1}>{names}</Text>
+                                            )}
+                                        </View>
+                                        <ArrowRight size={16} color="#92400e" />
+                                    </TouchableOpacity>
+                                );
+                            })()}
+                            {announcementNotifCount > 0 && (
+                                <View className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mt-2">
+                                    <Text className="text-blue-700 text-sm font-semibold">
+                                        Announcements: {announcementNotifCount} new
+                                    </Text>
+                                </View>
+                            )}
                         </Animated.View>
                     )}
                     {/* Quick Actions */}
@@ -206,6 +297,52 @@ const DashboardScreen = () => {
                             <MessageCircle size={20} color="#ffffff" />
                         </TouchableOpacity>
                     </Animated.View>
+
+                    {/* Today's Snapshot */}
+                    {(() => {
+                        const visited = upcomingToday.filter((a: any) => String(a?.status || '').toUpperCase() === 'COMPLETED').length;
+                        const booked = upcomingToday.filter((a: any) => ['BOOKED', 'CONFIRMED'].includes(String(a?.status || '').toUpperCase())).length;
+                        const pending = upcomingToday.filter((a: any) => String(a?.status || '').toUpperCase() === 'PENDING').length;
+                        const total = upcomingToday.filter((a: any) => String(a?.status || '').toUpperCase() !== 'CANCELLED').length;
+
+                        const stats = [
+                            { label: 'Visited', value: visited, bg: '#f0fdf4', border: '#bbf7d0', icon: <CheckCircle2 size={20} color="#16a34a" />, num: '#16a34a' },
+                            { label: 'Booked', value: booked, bg: '#eff6ff', border: '#bfdbfe', icon: <CalendarClock size={20} color="#2563eb" />, num: '#2563eb' },
+                            { label: 'Pending', value: pending, icon: <UserX size={20} color="#d97706" />, num: '#d97706' },
+                        ];
+
+                        return (
+                            <Animated.View entering={FadeInUp.delay(260).duration(500)} className="mb-5">
+                                <View className="flex-row justify-between items-center mb-2">
+                                    <Text className="text-gray-700 font-bold text-sm">Today's Snapshot</Text>
+                                    {upcomingLoading
+                                        ? <ActivityIndicator size="small" color="#2563eb" />
+                                        : <Text className="text-gray-400 text-xs">{total} total</Text>}
+                                </View>
+                                <View className="flex-row" style={{ gap: 8 }}>
+                                    {stats.map(s => (
+                                        <TouchableOpacity
+                                            key={s.label}
+                                            onPress={() => navigation.navigate('DoctorMain')}
+                                            activeOpacity={0.75}
+                                            className="flex-1 flex-row items-center rounded-xl px-3 py-2"
+                                            style={{ backgroundColor: s.bg, borderWidth: 1, borderColor: s.border }}
+                                        >
+                                            {s.icon}
+                                            <View className="ml-2">
+                                                <Text style={{ color: s.num, fontSize: 17, fontWeight: '800', lineHeight: 20 }}>
+                                                    {upcomingLoading ? '–' : s.value}
+                                                </Text>
+                                                <Text style={{ color: '#9ca3af', fontSize: 10, fontWeight: '600' }}>
+                                                    {s.label}
+                                                </Text>
+                                            </View>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            </Animated.View>
+                        );
+                    })()}
 
                     {/* Profile Info */}
                     <Animated.Text entering={FadeInUp.delay(300).duration(500)} className="text-gray-700 font-bold text-base mb-3">Contact Info</Animated.Text>

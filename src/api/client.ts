@@ -22,4 +22,19 @@ client.interceptors.request.use(
     }
 );
 
+client.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        const status = error?.response?.status;
+        if (status === 405) {
+            const method = String(error?.config?.method || 'UNKNOWN').toUpperCase();
+            const url = error?.config?.baseURL
+                ? `${error.config.baseURL}${error?.config?.url || ''}`
+                : error?.config?.url || 'unknown-url';
+            console.error(`[API 405] ${method} ${url}`);
+        }
+        return Promise.reject(error);
+    }
+);
+
 export default client;

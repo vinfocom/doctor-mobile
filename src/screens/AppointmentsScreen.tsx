@@ -28,12 +28,13 @@ import {
     PlusCircle,
     Eraser,
     MessageCircle,
+    XCircle,
 } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getAppointments, createAppointment, updateAppointment, deleteAppointment } from '../api/appointments';
 import { getClinics } from '../api/clinics';
 import { getSlots } from '../api/slots';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { FlashList } from '@shopify/flash-list';
 import { getChatNotifications, type IncomingNotificationMessage } from '../api/notifications';
 import IncomingMessageBubble from '../components/IncomingMessageBubble';
@@ -54,6 +55,16 @@ const formatDisplayDate = (dateStr: string) => {
     return `${MONTH_NAMES[parseInt(m) - 1]} ${parseInt(d)}, ${y}`;
 };
 
+const to12h = (time?: string) => {
+    if (!time) return '';
+    const [h, m] = time.split(':');
+    if (!h || !m) return time;
+    let hour = parseInt(h, 10);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    hour = hour % 12 || 12;
+    return `${hour}:${m} ${ampm}`;
+};
+
 const toYMD = (date: Date) => {
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -69,6 +80,50 @@ const parseDateOnly = (value?: string) => {
     return d;
 };
 
+// start_time is stored as 1970-01-01T{HH}:{MM}:00Z — UTC hours = actual appointment hour.
+// Do NOT convert to IST (would add +5:30). Read UTC hours directly and format as 12h.
+const utcTimeToDisplay = (value: any): string => {
+    if (!value) return 'N/A';
+    const t = new Date(value);
+    if (Number.isNaN(t.getTime())) return 'N/A';
+    const h = t.getUTCHours();
+    const m = t.getUTCMinutes();
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 || 12;
+    return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+};
+
+// appointment_date is stored as a date-only value. Parsing without offset treats it as
+// UTC midnight = IST previous day. Use +05:30 to keep the correct IST calendar date.
+const istDateToDisplay = (value: any): string => {
+    if (!value) return 'N/A';
+    const dateStr = String(value).slice(0, 10); // 'YYYY-MM-DD'
+    const d = new Date(`${dateStr}T00:00:00+05:30`);
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+};
+
+const parseAppointmentStart = (appointment: any): Date | null => {
+    const dateStr = appointment?.appointment_date;
+    const timeRaw = appointment?.start_time;
+    if (!dateStr || !timeRaw) return null;
+
+    // Extract the calendar date (YYYY-MM-DD). If dateStr is an ISO string,
+    // take the first 10 chars; otherwise use as-is.
+    const datePart = String(dateStr).slice(0, 10); // "2026-02-26"
+
+    // Get hours & minutes from start_time (stored as 1970-01-01T HH:MM:00Z)
+    const timeDate = new Date(timeRaw);
+    if (Number.isNaN(timeDate.getTime())) return null;
+    const hh = timeDate.getUTCHours();
+    const mm = timeDate.getUTCMinutes();
+
+    // Build combined ISO string in IST so the date is not shifted by UTC offset
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const combined = `${datePart}T${pad(hh)}:${pad(mm)}:00+05:30`;
+    const result = new Date(combined);
+    return Number.isNaN(result.getTime()) ? null : result;
+};
+
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<string, { dot: string; badge: string; label: string; dotColor: string }> = {
@@ -76,17 +131,18 @@ const STATUS_CONFIG: Record<string, { dot: string; badge: string; label: string;
     confirmed: { dot: 'bg-green-500', badge: 'bg-green-100', label: 'text-green-700', dotColor: '#15803d' },
     pending: { dot: 'bg-yellow-500', badge: 'bg-yellow-100', label: 'text-yellow-700', dotColor: '#a16207' },
     cancelled: { dot: 'bg-red-500', badge: 'bg-red-100', label: 'text-red-600', dotColor: '#dc2626' },
-    completed: { dot: 'bg-blue-500', badge: 'bg-blue-100', label: 'text-blue-700', dotColor: '#1d4ed8' },
+    completed: { dot: 'bg-green-500', badge: 'bg-green-100', label: 'text-green-700', dotColor: '#15803d' },
 };
 
 const StatusBadge = ({ status }: { status: string }) => {
     const s = STATUS_CONFIG[status?.toLowerCase()] ?? {
         dot: 'bg-gray-400', badge: 'bg-gray-100', label: 'text-gray-600', dotColor: '#4b5563',
     };
+    const statusText = String(status || '').toUpperCase() === 'COMPLETED' ? 'Visited' : (status ?? 'Unknown');
     return (
         <View className={`self-start flex-row items-center px-2 py-1 rounded-full ${s.badge}`}>
             <Circle size={8} color={s.dotColor} fill={s.dotColor} style={{ marginRight: 6 }} />
-            <Text className={`text-xs font-bold ${s.label}`}>{status ?? 'Unknown'}</Text>
+            <Text className={`text-xs font-bold ${s.label}`}>{statusText}</Text>
         </View>
     );
 };
@@ -254,6 +310,7 @@ const CalendarPicker = ({ selectedDate, onSelect, minDate }: CalendarPickerProps
 
 const AppointmentsScreen = () => {
     const navigation = useNavigation<any>();
+    const route = useRoute<any>();
     const [appointments, setAppointments] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [isModalVisible, setModalVisible] = useState(false);
@@ -289,19 +346,42 @@ const AppointmentsScreen = () => {
     const bubbleHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const highlightHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const socketRef = useRef<Socket | null>(null);
+    const socketEnabled = useMemo(() => !SOCKET_URL.includes('vercel.app'), []);
     const [showSearch, setShowSearch] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [filterModalVisible, setFilterModalVisible] = useState(false);
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
+    const [showQuickDatePicker, setShowQuickDatePicker] = useState(false);
     const [headerMenuVisible, setHeaderMenuVisible] = useState(false);
     const [openCardMenuId, setOpenCardMenuId] = useState<number | null>(null);
     const [highlightedPairKey, setHighlightedPairKey] = useState<string | null>(null);
+    const handledPrefillKeyRef = useRef<string>('');
 
     useEffect(() => {
         fetchAppointments();
         fetchClinicsData();
     }, []);
+
+    useEffect(() => {
+        const params = route?.params || {};
+        if (!params?.openCreate) return;
+        const prefillKey = String(params.prefillKey || `${params.prefillPatientPhone || ''}:${params.prefillPatientName || ''}`);
+        if (handledPrefillKeyRef.current === prefillKey) return;
+        handledPrefillKeyRef.current = prefillKey;
+
+        setFormData((prev) => ({
+            ...prev,
+            patient_phone: params.prefillPatientPhone || '',
+            patient_name: params.prefillPatientName || '',
+            clinic_id: prev.clinic_id || (clinics[0]?.clinic_id ? String(clinics[0].clinic_id) : ''),
+            date: '',
+            time: '',
+        }));
+        setShowCalendar(false);
+        setModalVisible(true);
+        setHeaderMenuVisible(false);
+    }, [route?.params, clinics]);
 
     const checkIncomingNotifications = React.useCallback(async () => {
         try {
@@ -342,6 +422,7 @@ const AppointmentsScreen = () => {
     );
 
     useEffect(() => {
+        if (!socketEnabled) return;
         if (appointments.length === 0) return;
         const pairs = Array.from(
             new Map(
@@ -402,7 +483,7 @@ const AppointmentsScreen = () => {
                 clearTimeout(highlightHideTimerRef.current);
             }
         };
-    }, [appointments]);
+    }, [appointments, socketEnabled]);
 
     useEffect(() => {
         if (formData.clinic_id && formData.date) fetchSlotsData();
@@ -487,7 +568,8 @@ const AppointmentsScreen = () => {
         if (!value) return '';
         const d = new Date(value);
         if (Number.isNaN(d.getTime())) return '';
-        return d.toISOString().split('T')[0];
+        // Use IST-aware date string (toISOString gives UTC date, which can be yesterday in IST)
+        return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
     };
 
     const toTimeInput = (value: string) => {
@@ -502,8 +584,9 @@ const AppointmentsScreen = () => {
 
     const handleStatusChange = async (appointmentId: number, status: 'CANCELLED' | 'COMPLETED') => {
         try {
-            await updateAppointment({ appointmentId, status });
-            setAppointments((prev) => prev.map((a) => a.appointment_id === appointmentId ? { ...a, status } : a));
+            const extra = status === 'CANCELLED' ? { cancelled_by: 'DOCTOR' } : {};
+            await updateAppointment({ appointmentId, status, ...extra });
+            setAppointments((prev) => prev.map((a) => a.appointment_id === appointmentId ? { ...a, status, ...extra } : a));
         } catch (error) {
             console.error(error);
             Alert.alert('Error', 'Failed to update appointment');
@@ -511,9 +594,9 @@ const AppointmentsScreen = () => {
     };
 
     const confirmStatusChange = (appointmentId: number, status: 'CANCELLED' | 'COMPLETED') => {
-        const actionLabel = status === 'CANCELLED' ? 'cancel' : 'complete';
+        const actionLabel = status === 'CANCELLED' ? 'cancel' : 'mark as visited';
         Alert.alert(
-            `${status === 'CANCELLED' ? 'Cancel' : 'Complete'} appointment`,
+            `${status === 'CANCELLED' ? 'Cancel' : 'Mark Visited'} appointment`,
             `Are you sure you want to ${actionLabel} this appointment?`,
             [
                 { text: 'No', style: 'cancel' },
@@ -589,11 +672,18 @@ const AppointmentsScreen = () => {
         const query = searchQuery.trim().toLowerCase();
         const from = parseDateOnly(dateFrom);
         const to = parseDateOnly(dateTo);
+        const now = new Date();
 
         return appointments.filter((a) => {
+            const statusUpper = String(a?.status || '').toUpperCase();
+            if (statusUpper === 'CANCELLED' || statusUpper === 'COMPLETED') return false;
+
+            const startAt = parseAppointmentStart(a);
+            if (!startAt || startAt < now) return false;
+
             const patientName = String(a?.patient?.full_name || '').toLowerCase();
             const phone = String(a?.patient?.phone || '').toLowerCase();
-            const bookingId = String(a?.appointment_id || '');
+            const bookingId = String(a?.patient?.booking_id || '');
             const clinic = String(a?.clinic?.clinic_name || '').toLowerCase();
             const matchesSearch = !query || patientName.includes(query) || phone.includes(query) || bookingId.includes(query) || clinic.includes(query);
             if (!matchesSearch) return false;
@@ -613,16 +703,8 @@ const AppointmentsScreen = () => {
         const isMenuOpen = openCardMenuId === item.appointment_id;
         const pairKey = `${item.patient_id}:${item.doctor_id}`;
         const isHighlighted = highlightedPairKey === pairKey;
-        const slotDate = item.appointment_date
-            ? new Date(item.appointment_date).toLocaleDateString('en-US', {
-                weekday: 'short', month: 'short', day: 'numeric',
-            })
-            : 'N/A';
-        const slotTime = item.start_time
-            ? new Date(item.start_time).toLocaleTimeString('en-US', {
-                hour: '2-digit', minute: '2-digit', timeZone: 'UTC',
-            })
-            : 'N/A';
+        const slotDate = istDateToDisplay(item.appointment_date);
+        const slotTime = utcTimeToDisplay(item.start_time);
 
         return (
             <View
@@ -641,8 +723,13 @@ const AppointmentsScreen = () => {
                     activeOpacity={0.7}
                 >
                     <View className="flex-row items-start">
-                        <View className="bg-blue-100 w-10 h-10 rounded-xl items-center justify-center mr-3">
+                        <View className="bg-blue-100 w-10 h-10 rounded-xl items-center justify-center mr-3 relative">
                             <User size={16} color="#1d4ed8" />
+                            {incomingMessage && !incomingMessage.isAnnouncement && incomingMessage.patientId === item.patient_id && incomingMessage.doctorId === item.doctor_id ? (
+                                <View className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 items-center justify-center border border-white">
+                                    <Text className="text-white text-[10px] font-bold">1</Text>
+                                </View>
+                            ) : null}
                         </View>
                         <View className="flex-1">
                             <Text className="text-gray-900 font-bold text-sm" numberOfLines={1}>
@@ -652,7 +739,7 @@ const AppointmentsScreen = () => {
                                 {item.clinic?.clinic_name || 'N/A'}
                             </Text>
                             <View className="mt-1.5 self-start px-2 py-1 rounded-md bg-gray-100">
-                                <Text className="text-[10px] font-semibold text-gray-600">Booking #{item.appointment_id}</Text>
+                                <Text className="text-[10px] font-semibold text-gray-600">Booking #{item.patient?.booking_id ?? item.appointment_id}</Text>
                             </View>
                             {isHighlighted && (
                                 <View className="mt-1.5 self-start px-2 py-1 rounded-md bg-blue-600">
@@ -687,6 +774,15 @@ const AppointmentsScreen = () => {
                             <Text className="text-white text-xs font-semibold ml-1.5">Open Chat</Text>
                         </View>
                     </View>
+                    {/* Show who cancelled the appointment */}
+                    {statusUpper === 'CANCELLED' && item.cancelled_by ? (
+                        <View className="mt-2 flex-row items-center bg-red-50 rounded-lg px-3 py-1.5">
+                            <XCircle size={12} color="#dc2626" />
+                            <Text className="text-xs text-red-700 font-medium ml-1.5">
+                                Cancelled by: {String(item.cancelled_by).charAt(0).toUpperCase() + String(item.cancelled_by).slice(1).toLowerCase()}
+                            </Text>
+                        </View>
+                    ) : null}
                 </TouchableOpacity>
 
                 {isMenuOpen && (
@@ -737,7 +833,7 @@ const AppointmentsScreen = () => {
                                 }}
                                 className="px-4 py-3 border-b border-gray-100"
                             >
-                                <Text className="text-sm text-gray-800 font-medium">Complete</Text>
+                                <Text className="text-sm text-gray-800 font-medium">Visited</Text>
                             </TouchableOpacity>
                         )}
                         <TouchableOpacity
@@ -791,6 +887,91 @@ const AppointmentsScreen = () => {
                             {headerMenuVisible ? <X size={22} color="#1d4ed8" /> : <EllipsisVertical size={22} color="#1d4ed8" />}
                         </TouchableOpacity>
                     </View>
+                    {/* Quick date filter chips */}
+                    {(() => {
+                        const nowIST = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+                        const todayStr = toYMD(nowIST);
+                        const tomorrowIST = new Date(nowIST.getTime() + 86400000);
+                        const tomorrowStr = toYMD(tomorrowIST);
+                        const isToday = dateFrom === todayStr && dateTo === todayStr;
+                        const isTomorrow = dateFrom === tomorrowStr && dateTo === tomorrowStr;
+                        const isCustom = !isToday && !isTomorrow && (dateFrom || dateTo);
+
+                        const chipStyle = (active: boolean) => ({
+                            paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, marginRight: 8,
+                            backgroundColor: active ? '#fff' : 'rgba(255,255,255,0.18)',
+                            borderWidth: 1,
+                            borderColor: active ? '#fff' : 'rgba(255,255,255,0.35)',
+                        });
+                        const chipTextStyle = (active: boolean) => ({
+                            color: active ? '#1d4ed8' : '#e0e7ff',
+                            fontWeight: '700' as const, fontSize: 13,
+                        });
+
+                        return (
+                            <View className="mt-3">
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                                    <View className="flex-row">
+                                        <TouchableOpacity
+                                            style={chipStyle(isToday)}
+                                            onPress={() => {
+                                                if (isToday) { setDateFrom(''); setDateTo(''); }
+                                                else { setDateFrom(todayStr); setDateTo(todayStr); setShowQuickDatePicker(false); }
+                                            }}
+                                        >
+                                            <Text style={chipTextStyle(isToday)}>Today</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={chipStyle(isTomorrow)}
+                                            onPress={() => {
+                                                if (isTomorrow) { setDateFrom(''); setDateTo(''); }
+                                                else { setDateFrom(tomorrowStr); setDateTo(tomorrowStr); setShowQuickDatePicker(false); }
+                                            }}
+                                        >
+                                            <Text style={chipTextStyle(isTomorrow)}>Tomorrow</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={chipStyle(isCustom as boolean)}
+                                            onPress={() => setShowQuickDatePicker(prev => !prev)}
+                                        >
+                                            <Text style={chipTextStyle(isCustom as boolean)}>
+                                                {isCustom ? `${dateFrom || '…'} → ${dateTo || '…'}` : ' Pick Date'}
+                                            </Text>
+                                        </TouchableOpacity>
+                                        {(dateFrom || dateTo) && (
+                                            <TouchableOpacity
+                                                style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 20, backgroundColor: 'rgba(255,100,100,0.25)', borderWidth: 1, borderColor: 'rgba(255,150,150,0.5)' }}
+                                                onPress={() => { setDateFrom(''); setDateTo(''); setShowQuickDatePicker(false); }}
+                                            >
+                                                <Text style={{ color: '#fca5a5', fontWeight: '700', fontSize: 13 }}>✕ Clear</Text>
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
+                                </ScrollView>
+
+                                {/* Inline calendar for custom date */}
+                                {showQuickDatePicker && (
+                                    <View className="mt-3 bg-white rounded-2xl overflow-hidden" style={{ elevation: 8 }}>
+                                        <View className="px-4 pt-3 pb-1 flex-row justify-between items-center">
+                                            <Text className="font-bold text-gray-700 text-sm">Pick a date</Text>
+                                            <TouchableOpacity onPress={() => setShowQuickDatePicker(false)}>
+                                                <X size={16} color="#6b7280" />
+                                            </TouchableOpacity>
+                                        </View>
+                                        <CalendarPicker
+                                            selectedDate={dateFrom}
+                                            onSelect={(d) => {
+                                                setDateFrom(d);
+                                                setDateTo(d);
+                                                setShowQuickDatePicker(false);
+                                            }}
+                                        />
+                                    </View>
+                                )}
+                            </View>
+                        );
+                    })()}
+
                     {headerMenuVisible && (
                         <View
                             className="absolute right-5 top-20 w-64 bg-white rounded-2xl border border-blue-100 overflow-hidden"
@@ -863,7 +1044,11 @@ const AppointmentsScreen = () => {
                 {/* List */}
                 <FlashList
                     data={filteredAppointments}
-                    keyExtractor={(item) => item.appointment_id?.toString() || `${item.patient_id}-${item.doctor_id}`}
+                    keyExtractor={(item, index) =>
+                        item.appointment_id
+                            ? `apt:${item.appointment_id}:${index}`
+                            : `pair:${item.patient_id}-${item.doctor_id}-${item.appointment_date || 'na'}-${item.start_time || 'na'}:${index}`
+                    }
                     renderItem={renderItem}
                     onScrollBeginDrag={() => {
                         if (openCardMenuId !== null) setOpenCardMenuId(null);
@@ -957,178 +1142,178 @@ const AppointmentsScreen = () => {
                 onRequestClose={() => { setModalVisible(false); resetForm(); }}
             >
                 <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 72}
                     className="flex-1"
                 >
                     <View className="flex-1 justify-end bg-black/50">
                         <View className="bg-white rounded-t-3xl p-6 h-[92%]">
 
-                        {/* Modal header */}
-                        <View className="flex-row justify-between items-center mb-6">
-                            <Text className="text-2xl font-bold text-gray-800">New Appointment</Text>
-                            <TouchableOpacity
-                                onPress={() => { setModalVisible(false); resetForm(); }}
-                                className="bg-gray-100 p-2 rounded-full"
-                            >
-                                <X size={24} color="#4b5563" />
-                            </TouchableOpacity>
-                        </View>
+                            {/* Modal header */}
+                            <View className="flex-row justify-between items-center mb-6">
+                                <Text className="text-2xl font-bold text-gray-800">New Appointment</Text>
+                                <TouchableOpacity
+                                    onPress={() => { setModalVisible(false); resetForm(); }}
+                                    className="bg-gray-100 p-2 rounded-full"
+                                >
+                                    <X size={24} color="#4b5563" />
+                                </TouchableOpacity>
+                            </View>
 
-                        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                            <View className="space-y-5 pb-6">
+                            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                                <View className="space-y-5 pb-6">
 
-                                {/* Patient Phone */}
-                                <View>
-                                    <Text className="text-sm font-bold text-gray-700 mb-2">
-                                        Patient Phone <Text className="text-red-500">*</Text>
-                                    </Text>
-                                    <TextInput
-                                        className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-800 text-base"
-                                        placeholder="Enter phone number"
-                                        keyboardType="phone-pad"
-                                        value={formData.patient_phone}
-                                        onChangeText={t => setFormData({ ...formData, patient_phone: t })}
-                                    />
-                                </View>
-
-                                {/* Patient Name */}
-                                <View>
-                                    <Text className="text-sm font-bold text-gray-700 mb-2">
-                                        Patient Name <Text className="text-gray-400 font-normal">(Optional)</Text>
-                                    </Text>
-                                    <TextInput
-                                        className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-800 text-base"
-                                        placeholder="Enter full name"
-                                        value={formData.patient_name}
-                                        onChangeText={t => setFormData({ ...formData, patient_name: t })}
-                                    />
-                                </View>
-
-                                {/* Clinic Dropdown */}
-                                <View>
-                                    <Text className="text-sm font-bold text-gray-700 mb-2">
-                                        Clinic <Text className="text-red-500">*</Text>
-                                    </Text>
-                                    <ClinicDropdown
-                                        clinics={clinics}
-                                        selectedId={formData.clinic_id}
-                                        onSelect={id =>
-                                            setFormData({ ...formData, clinic_id: id, date: '', time: '' })
-                                        }
-                                    />
-                                </View>
-
-                                {/* Date — calendar toggle */}
-                                <View>
-                                    <Text className="text-sm font-bold text-gray-700 mb-2">
-                                        Appointment Date <Text className="text-red-500">*</Text>
-                                    </Text>
-
-                                    <TouchableOpacity
-                                        onPress={() => setShowCalendar(prev => !prev)}
-                                        className={`bg-gray-50 border px-4 py-3.5 flex-row items-center justify-between rounded-xl
-                                            ${showCalendar ? 'border-blue-500' : 'border-gray-200'}`}
-                                    >
-                                        <Text className={`text-base ${formData.date ? 'text-gray-800 font-medium' : 'text-gray-400'}`}>
-                                            {formData.date ? formatDisplayDate(formData.date) : 'Select a date'}
+                                    {/* Patient Phone */}
+                                    <View>
+                                        <Text className="text-sm font-bold text-gray-700 mb-2">
+                                            Patient Phone <Text className="text-red-500">*</Text>
                                         </Text>
-                                        <ChevronDown
-                                            size={18}
-                                            color="#9ca3af"
-                                            style={{ transform: [{ rotate: showCalendar ? '180deg' : '0deg' }] }}
+                                        <TextInput
+                                            className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-800 text-base"
+                                            placeholder="Enter phone number"
+                                            keyboardType="phone-pad"
+                                            value={formData.patient_phone}
+                                            onChangeText={t => setFormData({ ...formData, patient_phone: t })}
                                         />
+                                    </View>
+
+                                    {/* Patient Name */}
+                                    <View>
+                                        <Text className="text-sm font-bold text-gray-700 mb-2">
+                                            Patient Name <Text className="text-gray-400 font-normal">(Optional)</Text>
+                                        </Text>
+                                        <TextInput
+                                            className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-800 text-base"
+                                            placeholder="Enter full name"
+                                            value={formData.patient_name}
+                                            onChangeText={t => setFormData({ ...formData, patient_name: t })}
+                                        />
+                                    </View>
+
+                                    {/* Clinic Dropdown */}
+                                    <View>
+                                        <Text className="text-sm font-bold text-gray-700 mb-2">
+                                            Clinic <Text className="text-red-500">*</Text>
+                                        </Text>
+                                        <ClinicDropdown
+                                            clinics={clinics}
+                                            selectedId={formData.clinic_id}
+                                            onSelect={id =>
+                                                setFormData({ ...formData, clinic_id: id, date: '', time: '' })
+                                            }
+                                        />
+                                    </View>
+
+                                    {/* Date — calendar toggle */}
+                                    <View>
+                                        <Text className="text-sm font-bold text-gray-700 mb-2">
+                                            Appointment Date <Text className="text-red-500">*</Text>
+                                        </Text>
+
+                                        <TouchableOpacity
+                                            onPress={() => setShowCalendar(prev => !prev)}
+                                            className={`bg-gray-50 border px-4 py-3.5 flex-row items-center justify-between rounded-xl
+                                            ${showCalendar ? 'border-blue-500' : 'border-gray-200'}`}
+                                        >
+                                            <Text className={`text-base ${formData.date ? 'text-gray-800 font-medium' : 'text-gray-400'}`}>
+                                                {formData.date ? formatDisplayDate(formData.date) : 'Select a date'}
+                                            </Text>
+                                            <ChevronDown
+                                                size={18}
+                                                color="#9ca3af"
+                                                style={{ transform: [{ rotate: showCalendar ? '180deg' : '0deg' }] }}
+                                            />
+                                        </TouchableOpacity>
+
+                                        {showCalendar && (
+                                            <View className="mt-3">
+                                                <CalendarPicker
+                                                    selectedDate={formData.date}
+                                                    onSelect={d => {
+                                                        setFormData({ ...formData, date: d, time: '' });
+                                                        setShowCalendar(false);
+                                                    }}
+                                                    minDate={toYMD(new Date())}
+                                                />
+                                            </View>
+                                        )}
+                                    </View>
+
+                                    {/* Time Slots */}
+                                    <View>
+                                        <Text className="text-sm font-bold text-gray-700 mb-2">
+                                            Time Slot <Text className="text-red-500">*</Text>
+                                        </Text>
+
+                                        {loadingSlots ? (
+                                            <View className="py-4 items-center">
+                                                <ActivityIndicator size="small" color="#2563eb" />
+                                                <Text className="text-gray-400 text-sm mt-2">
+                                                    Fetching available slots...
+                                                </Text>
+                                            </View>
+                                        ) : availableSlots.length > 0 ? (
+                                            <View className="flex-row flex-wrap gap-2">
+                                                {availableSlots.map(slot => {
+                                                    const isSelected = formData.time === slot;
+                                                    return (
+                                                        <TouchableOpacity
+                                                            key={slot}
+                                                            onPress={() => setFormData({ ...formData, time: slot })}
+                                                            className={`rounded-xl border px-3 py-2
+                                                            ${isSelected
+                                                                    ? 'bg-blue-50 border-blue-500'
+                                                                    : 'bg-white border-gray-200'}`}
+                                                        >
+                                                            <Text className={`font-semibold text-sm
+                                                            ${isSelected ? 'text-blue-700' : 'text-gray-500'}`}>
+                                                                {to12h(slot)}
+                                                            </Text>
+                                                        </TouchableOpacity>
+                                                    );
+                                                })}
+                                            </View>
+                                        ) : (
+                                            <View className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-4 items-center">
+                                                <Text className="text-gray-400 text-sm italic text-center">
+                                                    {formData.clinic_id && formData.date
+                                                        ? 'No slots available for this date'
+                                                        : 'Select a clinic and date to see available slots'}
+                                                </Text>
+                                            </View>
+                                        )}
+                                    </View>
+
+                                    {/* Summary strip */}
+                                    {formData.clinic_id && formData.date && formData.time && (
+                                        <View className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-4">
+                                            <Text className="text-blue-700 font-bold text-sm mb-2">
+                                                Appointment Summary
+                                            </Text>
+                                            <Text className="text-blue-600 text-sm">
+                                                 {formatDisplayDate(formData.date)}{'  ·  '} {to12h(formData.time)}
+                                            </Text>
+                                            <Text className="text-blue-600 text-sm mt-1">
+                                                 {clinics.find(c => c.clinic_id.toString() === formData.clinic_id)?.clinic_name}
+                                            </Text>
+                                        </View>
+                                    )}
+
+                                    {/* Submit */}
+                                    <TouchableOpacity
+                                        onPress={handleCreateAppointment}
+                                        disabled={submitting}
+                                        className={`bg-blue-600 rounded-2xl py-4 items-center shadow-md elevation-4
+                                        ${submitting ? 'opacity-70' : 'opacity-100'}`}
+                                    >
+                                        {submitting
+                                            ? <ActivityIndicator color="white" />
+                                            : <Text className="text-white font-bold text-lg">Book Appointment</Text>
+                                        }
                                     </TouchableOpacity>
 
-                                    {showCalendar && (
-                                        <View className="mt-3">
-                                            <CalendarPicker
-                                                selectedDate={formData.date}
-                                                onSelect={d => {
-                                                    setFormData({ ...formData, date: d, time: '' });
-                                                    setShowCalendar(false);
-                                                }}
-                                                minDate={toYMD(new Date())}
-                                            />
-                                        </View>
-                                    )}
                                 </View>
-
-                                {/* Time Slots */}
-                                <View>
-                                    <Text className="text-sm font-bold text-gray-700 mb-2">
-                                        Time Slot <Text className="text-red-500">*</Text>
-                                    </Text>
-
-                                    {loadingSlots ? (
-                                        <View className="py-4 items-center">
-                                            <ActivityIndicator size="small" color="#2563eb" />
-                                            <Text className="text-gray-400 text-sm mt-2">
-                                                Fetching available slots...
-                                            </Text>
-                                        </View>
-                                    ) : availableSlots.length > 0 ? (
-                                        <View className="flex-row flex-wrap gap-2">
-                                            {availableSlots.map(slot => {
-                                                const isSelected = formData.time === slot;
-                                                return (
-                                                    <TouchableOpacity
-                                                        key={slot}
-                                                        onPress={() => setFormData({ ...formData, time: slot })}
-                                                        className={`rounded-xl border px-3 py-2
-                                                            ${isSelected
-                                                                ? 'bg-blue-50 border-blue-500'
-                                                                : 'bg-white border-gray-200'}`}
-                                                    >
-                                                        <Text className={`font-semibold text-sm
-                                                            ${isSelected ? 'text-blue-700' : 'text-gray-500'}`}>
-                                                            {slot}
-                                                        </Text>
-                                                    </TouchableOpacity>
-                                                );
-                                            })}
-                                        </View>
-                                    ) : (
-                                        <View className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-4 items-center">
-                                            <Text className="text-gray-400 text-sm italic text-center">
-                                                {formData.clinic_id && formData.date
-                                                    ? 'No slots available for this date'
-                                                    : 'Select a clinic and date to see available slots'}
-                                            </Text>
-                                        </View>
-                                    )}
-                                </View>
-
-                                {/* Summary strip */}
-                                {formData.clinic_id && formData.date && formData.time && (
-                                    <View className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-4">
-                                        <Text className="text-blue-700 font-bold text-sm mb-2">
-                                            Appointment Summary
-                                        </Text>
-                                        <Text className="text-blue-600 text-sm">
-                                            📅 {formatDisplayDate(formData.date)}{'  ·  '}🕐 {formData.time}
-                                        </Text>
-                                        <Text className="text-blue-600 text-sm mt-1">
-                                            🏥 {clinics.find(c => c.clinic_id.toString() === formData.clinic_id)?.clinic_name}
-                                        </Text>
-                                    </View>
-                                )}
-
-                                {/* Submit */}
-                                <TouchableOpacity
-                                    onPress={handleCreateAppointment}
-                                    disabled={submitting}
-                                    className={`bg-blue-600 rounded-2xl py-4 items-center shadow-md elevation-4
-                                        ${submitting ? 'opacity-70' : 'opacity-100'}`}
-                                >
-                                    {submitting
-                                        ? <ActivityIndicator color="white" />
-                                        : <Text className="text-white font-bold text-lg">Book Appointment</Text>
-                                    }
-                                </TouchableOpacity>
-
-                            </View>
-                        </ScrollView>
+                            </ScrollView>
                         </View>
                     </View>
                 </KeyboardAvoidingView>

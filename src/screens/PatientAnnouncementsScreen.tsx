@@ -144,7 +144,7 @@ export default function PatientAnnouncementsScreen() {
                             <Text className="text-blue-700 text-xs font-semibold">Dr. {item.doctor_name}</Text>
                             <Text className="text-gray-900 text-sm font-medium mt-1">{item.content}</Text>
                             <Text className="text-gray-400 text-[11px] mt-2">
-                                {new Date(item.created_at).toLocaleString()}
+                                {new Date(item.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })}
                             </Text>
                         </View>
                     )}

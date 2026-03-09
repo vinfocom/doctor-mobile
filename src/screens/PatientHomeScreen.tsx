@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     View,
     Text,
@@ -9,7 +9,7 @@ import {
     StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { User, MessageCircle, LogOut } from 'lucide-react-native';
+import { User, MessageCircle, LogOut, Settings } from 'lucide-react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
@@ -40,10 +40,19 @@ export default function PatientHomeScreen() {
     const lastNotifCheckAtRef = useRef<string>(new Date(Date.now() - 2 * 60 * 1000).toISOString());
     const bubbleHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const socketRef = useRef<Socket | null>(null);
+    const socketEnabled = React.useMemo(() => !SOCKET_URL.includes('vercel.app'), []);
 
     const { data, isLoading: loading, revalidate } = useSWRLite('patient:home', getPatientProfile);
     const patient = data?.patient || null;
     const doctors = (data?.doctors || []) as DoctorItem[];
+    const uniqueDoctors = useMemo(() => {
+        const byId = new Map<number, DoctorItem>();
+        doctors.forEach((d) => {
+            if (!d || !d.doctor_id) return;
+            if (!byId.has(d.doctor_id)) byId.set(d.doctor_id, d);
+        });
+        return Array.from(byId.values());
+    }, [doctors]);
 
     const checkIncomingNotifications = React.useCallback(async () => {
         try {
@@ -88,7 +97,8 @@ export default function PatientHomeScreen() {
     );
 
     useEffect(() => {
-        if (!patient?.patient_id || doctors.length === 0) return;
+        if (!socketEnabled) return;
+        if (!patient?.patient_id || uniqueDoctors.length === 0) return;
         const socket = io(SOCKET_URL, {
             transports: ['websocket', 'polling'],
             timeout: 4000,
@@ -99,7 +109,7 @@ export default function PatientHomeScreen() {
         socketRef.current = socket;
 
         const joinAllRooms = () => {
-            doctors.forEach((d) => {
+            uniqueDoctors.forEach((d) => {
                 socket.emit('join_chat', { patientId: patient.patient_id, doctorId: d.doctor_id });
             });
         };
@@ -109,7 +119,7 @@ export default function PatientHomeScreen() {
             if (!msg || msg.sender !== 'DOCTOR') return;
             if (msg.patient_id !== patient.patient_id) return;
             const isAnnouncement = String(msg.content || '').startsWith('Announcement:');
-            const senderName = doctors.find((d) => d.doctor_id === msg.doctor_id)?.doctor_name || 'Doctor';
+            const senderName = uniqueDoctors.find((d) => d.doctor_id === msg.doctor_id)?.doctor_name || 'Doctor';
             setIncomingMessage({
                 senderName,
                 senderRole: 'DOCTOR',
@@ -133,7 +143,7 @@ export default function PatientHomeScreen() {
             socket.disconnect();
             socketRef.current = null;
         };
-    }, [doctors, patient?.patient_id]);
+    }, [uniqueDoctors, patient?.patient_id, socketEnabled]);
 
     const onRefresh = async () => {
         setRefreshing(true);
@@ -161,13 +171,23 @@ export default function PatientHomeScreen() {
             <StatusBar barStyle="light-content" backgroundColor="#1d4ed8" />
             <View className="flex-1 bg-gray-50">
                 <View className="bg-blue-700 px-5 pt-6 pb-6 rounded-b-3xl">
-                    <Text className="text-blue-100 text-sm">Patient Portal</Text>
-                    <Text className="text-white text-3xl font-bold mt-1">{patient?.full_name || "Patient"}</Text>
+                    <View className="flex-row items-center justify-between">
+                        <View>
+                            <Text className="text-blue-100 text-sm">Patient Portal</Text>
+                            <Text className="text-white text-3xl font-bold mt-1">{patient?.full_name || "Patient"}</Text>
+                        </View>
+                        <TouchableOpacity
+                            onPress={() => navigation.navigate('PatientProfile')}
+                            className="bg-white/20 rounded-full p-2"
+                        >
+                            <Settings size={22} color="#fff" />
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
                 <FlashList
-                    data={doctors}
-                    keyExtractor={(item) => item.doctor_id.toString()}
+                    data={uniqueDoctors}
+                    keyExtractor={(item, index) => `doctor:${item.doctor_id}:${index}`}
                     contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
                     refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
                     ListHeaderComponent={
@@ -198,8 +218,13 @@ export default function PatientHomeScreen() {
                                 })
                             }
                         >
-                            <View className="w-11 h-11 bg-blue-100 rounded-full items-center justify-center mr-3">
+                            <View className="w-11 h-11 bg-blue-100 rounded-full items-center justify-center mr-3 relative">
                                 <User size={20} color="#1d4ed8" />
+                                {incomingMessage && !incomingMessage.isAnnouncement && incomingMessage.doctorId === item.doctor_id ? (
+                                    <View className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 items-center justify-center border border-white">
+                                        <Text className="text-white text-[10px] font-bold">1</Text>
+                                    </View>
+                                ) : null}
                             </View>
                             <View className="flex-1">
                                 <Text className="text-gray-800 font-bold">{item.doctor_name || "Doctor"}</Text>

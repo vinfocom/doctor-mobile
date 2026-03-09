@@ -1,7 +1,8 @@
 import client from './client';
 
-export const getAppointments = async () => {
-    const response = await client.get('/appointments');
+export const getAppointments = async (params?: { date?: string }) => {
+    const query = params?.date ? `?date=${params.date}` : '';
+    const response = await client.get(`/appointments${query}`);
     return response.data;
 };
 

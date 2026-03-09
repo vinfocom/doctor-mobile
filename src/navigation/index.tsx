@@ -10,6 +10,7 @@ import ChatScreen from '../screens/ChatScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import PatientDetailsScreen from '../screens/PatientDetails';
 import DoctorAnnouncementsScreen from '../screens/DoctorAnnouncementsScreen';
+import PatientProfileScreen from '../screens/PatientProfileScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -64,6 +65,12 @@ const AppNavigator = ({ initialRouteName }: { initialRouteName: keyof RootStackP
             <Stack.Screen
                 name="PatientDetails"
                 component={PatientDetailsScreen}
+                options={{ animation: 'slide_from_right' }}
+            />
+
+            <Stack.Screen
+                name="PatientProfile"
+                component={PatientProfileScreen}
                 options={{ animation: 'slide_from_right' }}
             />
         </Stack.Navigator>
