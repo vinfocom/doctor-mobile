@@ -84,7 +84,6 @@ export default function PatientAppointmentsScreen() {
     const [clinics, setClinics] = useState<any[]>([]);
     const [slots, setSlots] = useState<string[]>([]);
     const [slotDuration, setSlotDuration] = useState(30);
-    const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
     const [booking, setBooking] = useState(false);
     const [open, setOpen] = useState(false);
     const [selectedAppointment, setSelectedAppointment] = useState<AppointmentItem | null>(null);
@@ -141,7 +140,6 @@ export default function PatientAppointmentsScreen() {
         if (!form.date || !form.clinic_id) {
             setSlots([]);
             setSlotDuration(30);
-            setExpandedGroup(null);
             return;
         }
         getSlots(form.date, Number(form.clinic_id), form.doctor_id ? Number(form.doctor_id) : undefined)
@@ -521,22 +519,28 @@ export default function PatientAppointmentsScreen() {
                                 </View>
 
                                 <View>
-                                    <Text className="text-sm font-bold text-gray-700 mb-2">Time Slot</Text>
+                                    <View className="flex-row items-center justify-between mb-2">
+                                        <Text className="text-sm font-bold text-gray-700">Time Slot</Text>
+                                        {form.time ? (
+                                            <Text className="text-xs text-blue-600 font-semibold">
+                                                Auto-assigned: {to12h(form.time)}
+                                            </Text>
+                                        ) : null}
+                                    </View>
                                     {slots.length === 0 ? (
-                                        <Text className="text-gray-400">
-                                            {form.clinic_id && form.date ? 'No slots available' : 'Select doctor, clinic and date'}
+                                        <Text className="text-gray-400 text-sm">
+                                            {form.clinic_id && form.date ? 'No slots available for this date' : 'Select doctor, clinic and date first'}
                                         </Text>
                                     ) : (() => {
-                                        // Group size: 30 min if slot_duration<=30, else 60 min
+                                        // Group into 30-min (or 60-min) bands
                                         const groupMin = slotDuration <= 30 ? 30 : 60;
 
-                                        // Convert "HH:MM" to total minutes
                                         const toMin = (s: string) => {
                                             const [h, m] = s.split(':').map(Number);
                                             return h * 60 + (m || 0);
                                         };
 
-                                        // Build groups: key = start-of-group in "HH:MM", value = slots[]
+                                        // Build group map: key = band start "HH:MM", value = sorted slots[]
                                         const groupMap = new Map<string, string[]>();
                                         slots.forEach(s => {
                                             const mins = toMin(s);
@@ -563,50 +567,39 @@ export default function PatientAppointmentsScreen() {
                                         return (
                                             <View>
                                                 {[...groupMap.entries()].map(([key, groupSlots]) => {
-                                                    const isExpanded = expandedGroup === key;
-                                                    const groupSelected = groupSlots.some(s => form.time === s);
+                                                    // The nearest available slot = first in sorted groupSlots
+                                                    const nearestSlot = groupSlots[0];
+                                                    const isSelected = groupSlots.some(s => form.time === s);
+
                                                     return (
-                                                        <View key={key} className="mb-2">
-                                                            {/* Group header chip */}
-                                                            <TouchableOpacity
-                                                                onPress={() => setExpandedGroup(isExpanded ? null : key)}
-                                                                className={`flex-row items-center justify-between rounded-xl border px-4 py-2.5 ${groupSelected
-                                                                    ? 'bg-blue-50 border-blue-400'
-                                                                    : 'bg-white border-gray-200'
-                                                                    }`}
-                                                            >
-                                                                <Text className={`font-semibold text-sm ${groupSelected ? 'text-blue-700' : 'text-gray-700'
-                                                                    }`}>
+                                                        <TouchableOpacity
+                                                            key={key}
+                                                            onPress={() => setForm(p => ({ ...p, time: nearestSlot }))}
+                                                            className={`flex-row items-center justify-between rounded-2xl border px-4 py-3.5 mb-2
+                                                                ${isSelected
+                                                                    ? 'bg-blue-600 border-blue-600'
+                                                                    : 'bg-white border-gray-200'}`}
+                                                        >
+                                                            <View>
+                                                                <Text className={`font-bold text-sm ${isSelected ? 'text-white' : 'text-gray-800'}`}>
                                                                     {groupLabel(key)}
                                                                 </Text>
-                                                                <View className="flex-row items-center">
-                                                                    <Text className="text-xs text-gray-400 mr-2">
-                                                                        {groupSlots.length} slot{groupSlots.length > 1 ? 's' : ''}
+                                                                {isSelected ? (
+                                                                    <Text className="text-blue-100 text-xs mt-0.5">
+                                                                        Slot assigned: {to12h(nearestSlot)}
                                                                     </Text>
-                                                                    <Text className="text-gray-400">{isExpanded ? '▲' : '▼'}</Text>
-                                                                </View>
-                                                            </TouchableOpacity>
-
-                                                            {/* Individual slots inside the group */}
-                                                            {isExpanded && (
-                                                                <View className="flex-row flex-wrap mt-1.5 ml-2">
-                                                                    {groupSlots.map(s => {
-                                                                        const sel = form.time === s;
-                                                                        return (
-                                                                            <TouchableOpacity
-                                                                                key={s}
-                                                                                onPress={() => setForm(p => ({ ...p, time: s }))}
-                                                                                className={`mr-2 mb-2 rounded-xl border px-3 py-1.5 ${sel ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-200'
-                                                                                    }`}
-                                                                            >
-                                                                                <Text className={`text-xs font-semibold ${sel ? 'text-white' : 'text-gray-700'
-                                                                                    }`}>{to12h(s)}</Text>
-                                                                            </TouchableOpacity>
-                                                                        );
-                                                                    })}
-                                                                </View>
-                                                            )}
-                                                        </View>
+                                                                ) : (
+                                                                    <Text className="text-gray-400 text-xs mt-0.5">
+                                                                        Tap to book nearest slot
+                                                                    </Text>
+                                                                )}
+                                                            </View>
+                                                            <View className={`rounded-full px-2.5 py-1 ${isSelected ? 'bg-blue-500' : 'bg-gray-100'}`}>
+                                                                <Text className={`text-xs font-semibold ${isSelected ? 'text-white' : 'text-gray-500'}`}>
+                                                                    {groupSlots.length} slot{groupSlots.length > 1 ? 's' : ''}
+                                                                </Text>
+                                                            </View>
+                                                        </TouchableOpacity>
                                                     );
                                                 })}
                                             </View>
