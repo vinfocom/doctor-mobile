@@ -10,17 +10,15 @@ import {
     TextInput,
     Alert,
     StatusBar,
-    Platform,
 } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
-import { CalendarPlus, Clock3, History, User, MoreVertical, Search, X } from 'lucide-react-native';
+import { CalendarPlus, Clock3, History, User, MoreVertical, Search, X, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { getPatientAppointments, createPatientAppointment, updatePatientAppointment } from '../api/patientAppointments';
 import { getPatientProfile } from '../api/auth';
 import { getClinics } from '../api/clinics';
-import { getSlots } from '../api/slots';
+import { getSlots, getAvailableDates } from '../api/slots';
 import { getAllDoctors } from '../api/doctors';
 
 type AppointmentItem = {
@@ -90,9 +88,18 @@ export default function PatientAppointmentsScreen() {
     const [booking, setBooking] = useState(false);
     const [open, setOpen] = useState(false);
     const [selectedAppointment, setSelectedAppointment] = useState<AppointmentItem | null>(null);
-    const [showDatePicker, setShowDatePicker] = useState(false);
     const [showDoctorSearch, setShowDoctorSearch] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [availableDates, setAvailableDates] = useState<Set<string>>(new Set());
+    const [loadingDates, setLoadingDates] = useState(false);
+    const todayIST = (() => {
+        const n = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+        return `${n.getUTCFullYear()}-${String(n.getUTCMonth() + 1).padStart(2, '0')}-${String(n.getUTCDate()).padStart(2, '0')}`;
+    })();
+    const [calMonth, setCalMonth] = useState<{ year: number; month: number }>(() => {
+        const n = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+        return { year: n.getUTCFullYear(), month: n.getUTCMonth() };
+    });
 
     const [form, setForm] = useState({
         doctor_id: '',
@@ -144,6 +151,19 @@ export default function PatientAppointmentsScreen() {
             })
             .catch(() => setSlots([]));
     }, [form.date, form.clinic_id, form.doctor_id]);
+
+    // Fetch available dates whenever doctor + clinic are both selected
+    useEffect(() => {
+        if (!form.doctor_id || !form.clinic_id) {
+            setAvailableDates(new Set());
+            return;
+        }
+        setLoadingDates(true);
+        getAvailableDates(Number(form.doctor_id), Number(form.clinic_id))
+            .then((dates) => setAvailableDates(new Set(dates)))
+            .catch(() => setAvailableDates(new Set()))
+            .finally(() => setLoadingDates(false));
+    }, [form.doctor_id, form.clinic_id]);
 
     useEffect(() => {
         if (!form.doctor_id) return;
@@ -245,6 +265,105 @@ export default function PatientAppointmentsScreen() {
         setForm({ doctor_id: '', clinic_id: '', date: '', time: '' });
         setShowDoctorSearch(false);
         setSearchQuery('');
+        setAvailableDates(new Set());
+    };
+
+    // ── Inline Calendar helpers ──────────────────────────────────────────────
+    const renderCalendar = () => {
+        const { year, month } = calMonth;
+        const firstDow = new Date(year, month, 1).getDay(); // 0=Sun
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+        const cells: (number | null)[] = [
+            ...Array(firstDow).fill(null),
+            ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+        ];
+        // pad to full weeks
+        while (cells.length % 7 !== 0) cells.push(null);
+
+        const prevMonth = () => setCalMonth(({ year: y, month: m }) => {
+            if (m === 0) return { year: y - 1, month: 11 };
+            return { year: y, month: m - 1 };
+        });
+        const nextMonth = () => setCalMonth(({ year: y, month: m }) => {
+            if (m === 11) return { year: y + 1, month: 0 };
+            return { year: y, month: m + 1 };
+        });
+
+        const monthName = new Date(year, month, 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+
+        // Disable prev arrow if we are already at today's month
+        const nowIST2 = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+        const isCurrentMonth = year === nowIST2.getUTCFullYear() && month === nowIST2.getUTCMonth();
+
+        return (
+            <View className="border border-gray-200 rounded-2xl overflow-hidden bg-white">
+                {/* Header */}
+                <View className="flex-row items-center justify-between px-4 py-3 bg-blue-50">
+                    <TouchableOpacity
+                        onPress={prevMonth}
+                        disabled={isCurrentMonth}
+                        className={`p-1 rounded-full ${isCurrentMonth ? 'opacity-20' : ''}`}
+                    >
+                        <ChevronLeft size={18} color="#1d4ed8" />
+                    </TouchableOpacity>
+                    <Text className="text-blue-800 font-bold text-sm">{monthName}</Text>
+                    <TouchableOpacity onPress={nextMonth} className="p-1 rounded-full">
+                        <ChevronRight size={18} color="#1d4ed8" />
+                    </TouchableOpacity>
+                </View>
+
+                {/* Day labels */}
+                <View className="flex-row bg-gray-50">
+                    {DAY_LABELS.map(l => (
+                        <View key={l} className="flex-1 items-center py-1.5">
+                            <Text className="text-xs text-gray-400 font-semibold">{l}</Text>
+                        </View>
+                    ))}
+                </View>
+
+                {/* Loading overlay */}
+                {loadingDates ? (
+                    <View className="items-center py-6">
+                        <ActivityIndicator size="small" color="#2563eb" />
+                        <Text className="text-xs text-gray-400 mt-2">Loading available dates...</Text>
+                    </View>
+                ) : (
+                    <View className="flex-row flex-wrap px-1 pb-2">
+                        {cells.map((day, idx) => {
+                            if (!day) return <View key={`e-${idx}`} style={{ width: '14.28%' }} className="py-2" />;
+
+                            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                            const isAvailable = availableDates.has(dateStr);
+                            const isSelected = form.date === dateStr;
+                            const isPast = dateStr < todayIST;
+                            const disabled = !isAvailable || isPast;
+
+                            return (
+                                <TouchableOpacity
+                                    key={dateStr}
+                                    disabled={disabled}
+                                    onPress={() => setForm(p => ({ ...p, date: dateStr, time: '' }))}
+                                    style={{ width: '14.28%' }}
+                                    className="items-center py-1.5"
+                                >
+                                    <View className={`w-8 h-8 rounded-full items-center justify-center
+                                        ${isSelected ? 'bg-blue-600' :
+                                            disabled ? '' : 'bg-blue-50'}`}>
+                                        <Text className={`text-sm font-semibold
+                                            ${isSelected ? 'text-white' :
+                                                disabled ? 'text-gray-300' : 'text-blue-700'}`}>
+                                            {day}
+                                        </Text>
+                                    </View>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+                )}
+            </View>
+        );
     };
 
     const filteredDoctors = useMemo(() => {
@@ -388,32 +507,17 @@ export default function PatientAppointmentsScreen() {
                                 </View>
 
                                 <View>
-                                    <Text className="text-sm font-bold text-gray-700 mb-2">Date</Text>
-                                    <TouchableOpacity
-                                        onPress={() => setShowDatePicker(true)}
-                                        className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3"
-                                    >
-                                        <Text className={form.date ? "text-gray-800" : "text-gray-400"}>
-                                            {form.date || "Select Date"}
-                                        </Text>
-                                    </TouchableOpacity>
-                                    {showDatePicker && (
-                                        <DateTimePicker
-                                            value={form.date ? new Date(form.date) : new Date()}
-                                            mode="date"
-                                            display="default"
-                                            minimumDate={new Date()}
-                                            onChange={(event, selectedDate) => {
-                                                setShowDatePicker(Platform.OS === 'ios');
-                                                if (selectedDate) {
-                                                    const y = selectedDate.getFullYear();
-                                                    const m = String(selectedDate.getMonth() + 1).padStart(2, '0');
-                                                    const d = String(selectedDate.getDate()).padStart(2, '0');
-                                                    setForm((p) => ({ ...p, date: `${y}-${m}-${d}`, time: '' }));
-                                                }
-                                            }}
-                                        />
-                                    )}
+                                    <View className="flex-row items-center justify-between mb-2">
+                                        <Text className="text-sm font-bold text-gray-700">Date</Text>
+                                        {form.date ? (
+                                            <Text className="text-xs text-blue-600 font-semibold">{form.date}</Text>
+                                        ) : null}
+                                    </View>
+                                    {(!form.doctor_id || !form.clinic_id) ? (
+                                        <View className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-4 items-center">
+                                            <Text className="text-gray-400 text-sm">Select doctor and clinic first</Text>
+                                        </View>
+                                    ) : renderCalendar()}
                                 </View>
 
                                 <View>
@@ -467,8 +571,8 @@ export default function PatientAppointmentsScreen() {
                                                             <TouchableOpacity
                                                                 onPress={() => setExpandedGroup(isExpanded ? null : key)}
                                                                 className={`flex-row items-center justify-between rounded-xl border px-4 py-2.5 ${groupSelected
-                                                                        ? 'bg-blue-50 border-blue-400'
-                                                                        : 'bg-white border-gray-200'
+                                                                    ? 'bg-blue-50 border-blue-400'
+                                                                    : 'bg-white border-gray-200'
                                                                     }`}
                                                             >
                                                                 <Text className={`font-semibold text-sm ${groupSelected ? 'text-blue-700' : 'text-gray-700'

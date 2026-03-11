@@ -9,3 +9,12 @@ export const getSlots = async (date: string, clinicId: number, doctorId?: number
     const response = await client.get(`/slots?${params.toString()}`);
     return response.data;
 };
+
+export const getAvailableDates = async (doctorId: number, clinicId: number): Promise<string[]> => {
+    const params = new URLSearchParams({
+        doctorId: String(doctorId),
+        clinicId: String(clinicId),
+    });
+    const response = await client.get(`/slots/available-dates?${params.toString()}`);
+    return response.data?.availableDates || [];
+};
