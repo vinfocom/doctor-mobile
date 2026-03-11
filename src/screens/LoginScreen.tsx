@@ -82,7 +82,8 @@ const LoginScreen = () => {
             <StatusBar barStyle="light-content" backgroundColor="#1d4ed8" />
             <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
                 <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    behavior="padding"
+                    keyboardVerticalOffset={Platform.OS === 'android' ? 0 : 0}
                     className="flex-1"
                 >
                     <ScrollView
@@ -143,82 +144,80 @@ const LoginScreen = () => {
                                 <>
                                     {/* Email */}
                                     <View className="mb-5">
-                                <Text className="text-base font-bold text-gray-700 mb-2 ml-1">
-                                    Email Address
-                                </Text>
-                                <View
-                                    className={`flex-row items-center bg-white rounded-2xl px-4 border-2 ${
-                                        emailFocused ? 'border-blue-500' : 'border-gray-200'
-                                    }`}
-                                    style={{
-                                        shadowColor: emailFocused ? '#2563eb' : '#000',
-                                        shadowOffset: { width: 0, height: 2 },
-                                        shadowOpacity: emailFocused ? 0.15 : 0.04,
-                                        shadowRadius: 6,
-                                        elevation: emailFocused ? 4 : 1,
-                                    }}
-                                >
-                                    <Mail size={20} color="#64748b" />
-                                    <TextInput
-                                        className="flex-1 py-5 px-3 text-base text-slate-800"
-                                        placeholder="doctor@example.com"
-                                        placeholderTextColor="#9ca3af"
-                                        value={email}
-                                        onChangeText={setEmail}
-                                        autoCapitalize="none"
-                                        keyboardType="email-address"
-                                        onFocus={() => setEmailFocused(true)}
-                                        onBlur={() => setEmailFocused(false)}
-                                    />
-                                </View>
-                            </View>
+                                        <Text className="text-base font-bold text-gray-700 mb-2 ml-1">
+                                            Email Address
+                                        </Text>
+                                        <View
+                                            className={`flex-row items-center bg-white rounded-2xl px-4 border-2 ${emailFocused ? 'border-blue-500' : 'border-gray-200'
+                                                }`}
+                                            style={{
+                                                shadowColor: emailFocused ? '#2563eb' : '#000',
+                                                shadowOffset: { width: 0, height: 2 },
+                                                shadowOpacity: emailFocused ? 0.15 : 0.04,
+                                                shadowRadius: 6,
+                                                elevation: emailFocused ? 4 : 1,
+                                            }}
+                                        >
+                                            <Mail size={20} color="#64748b" />
+                                            <TextInput
+                                                className="flex-1 py-5 px-3 text-base text-slate-800"
+                                                placeholder="doctor@example.com"
+                                                placeholderTextColor="#9ca3af"
+                                                value={email}
+                                                onChangeText={setEmail}
+                                                autoCapitalize="none"
+                                                keyboardType="email-address"
+                                                onFocus={() => setEmailFocused(true)}
+                                                onBlur={() => setEmailFocused(false)}
+                                            />
+                                        </View>
+                                    </View>
 
                                     {/* Password */}
                                     <View className="mb-3">
-                                <Text className="text-base font-bold text-gray-700 mb-2 ml-1">
-                                    Password
-                                </Text>
-                                <View
-                                    className={`flex-row items-center bg-white rounded-2xl px-4 border-2 ${
-                                        passwordFocused ? 'border-blue-500' : 'border-gray-200'
-                                    }`}
-                                    style={{
-                                        shadowColor: passwordFocused ? '#2563eb' : '#000',
-                                        shadowOffset: { width: 0, height: 2 },
-                                        shadowOpacity: passwordFocused ? 0.15 : 0.04,
-                                        shadowRadius: 6,
-                                        elevation: passwordFocused ? 4 : 1,
-                                    }}
-                                >
-                                    <Lock size={20} color="#64748b" />
-                                    <TextInput
-                                        className="flex-1 py-5 px-3 text-base text-slate-800"
-                                        placeholder="Enter your password"
-                                        placeholderTextColor="#9ca3af"
-                                        value={password}
-                                        onChangeText={setPassword}
-                                        secureTextEntry={!showPassword}
-                                        onFocus={() => setPasswordFocused(true)}
-                                        onBlur={() => setPasswordFocused(false)}
-                                    />
-                                    <TouchableOpacity
-                                        onPress={() => setShowPassword(!showPassword)}
-                                        className="p-2"
-                                    >
-                                        {showPassword
-                                            ? <EyeOff size={22} color="#64748b" />
-                                            : <Eye size={22} color="#64748b" />
-                                        }
-                                    </TouchableOpacity>
-                                </View>
-                            </View>
+                                        <Text className="text-base font-bold text-gray-700 mb-2 ml-1">
+                                            Password
+                                        </Text>
+                                        <View
+                                            className={`flex-row items-center bg-white rounded-2xl px-4 border-2 ${passwordFocused ? 'border-blue-500' : 'border-gray-200'
+                                                }`}
+                                            style={{
+                                                shadowColor: passwordFocused ? '#2563eb' : '#000',
+                                                shadowOffset: { width: 0, height: 2 },
+                                                shadowOpacity: passwordFocused ? 0.15 : 0.04,
+                                                shadowRadius: 6,
+                                                elevation: passwordFocused ? 4 : 1,
+                                            }}
+                                        >
+                                            <Lock size={20} color="#64748b" />
+                                            <TextInput
+                                                className="flex-1 py-5 px-3 text-base text-slate-800"
+                                                placeholder="Enter your password"
+                                                placeholderTextColor="#9ca3af"
+                                                value={password}
+                                                onChangeText={setPassword}
+                                                secureTextEntry={!showPassword}
+                                                onFocus={() => setPasswordFocused(true)}
+                                                onBlur={() => setPasswordFocused(false)}
+                                            />
+                                            <TouchableOpacity
+                                                onPress={() => setShowPassword(!showPassword)}
+                                                className="p-2"
+                                            >
+                                                {showPassword
+                                                    ? <EyeOff size={22} color="#64748b" />
+                                                    : <Eye size={22} color="#64748b" />
+                                                }
+                                            </TouchableOpacity>
+                                        </View>
+                                    </View>
 
                                     {/* Forgot Password */}
                                     <TouchableOpacity className="self-end mb-8 mt-1">
-                                <Text className="text-sm text-blue-600 font-semibold">
-                                    Forgot Password?
-                                </Text>
-                            </TouchableOpacity>
+                                        <Text className="text-sm text-blue-600 font-semibold">
+                                            Forgot Password?
+                                        </Text>
+                                    </TouchableOpacity>
                                 </>
                             ) : (
                                 <View className="mb-8">
@@ -244,9 +243,8 @@ const LoginScreen = () => {
                                 onPress={handleLogin}
                                 disabled={loading}
                                 activeOpacity={0.8}
-                                className={`rounded-2xl py-5 items-center justify-center ${
-                                    loading ? 'bg-blue-300' : 'bg-blue-600'
-                                }`}
+                                className={`rounded-2xl py-5 items-center justify-center ${loading ? 'bg-blue-300' : 'bg-blue-600'
+                                    }`}
                                 style={{
                                     shadowColor: '#1d4ed8',
                                     shadowOffset: { width: 0, height: 6 },

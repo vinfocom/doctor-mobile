@@ -50,10 +50,11 @@ export default function ChatScreen({ route, navigation }: Props) {
     useEffect(() => {
         const socket = io(SOCKET_URL, {
             transports: ['websocket', 'polling'],
-            timeout: 4000,
+            timeout: 20000,
             reconnection: true,
-            reconnectionDelay: 500,
-            reconnectionDelayMax: 2000,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000,
+            reconnectionAttempts: Infinity,
         });
         socketRef.current = socket;
 
