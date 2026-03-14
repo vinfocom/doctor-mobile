@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -26,8 +26,6 @@ import {
     type AnnouncementCampaign,
     type AnnouncementTargetMode,
 } from '../api/announcements';
-import { API_URL, SOCKET_URL } from '../config/env';
-import { io, type Socket } from 'socket.io-client';
 import { useAuthSession } from '../context/AuthSessionContext';
 
 const toYMD = (d: Date) => {
@@ -36,6 +34,13 @@ const toYMD = (d: Date) => {
     const day = String(d.getDate()).padStart(2, '0');
     return `${y}-${m}-${day}`;
 };
+
+const ANNOUNCEMENT_TEMPLATES = [
+    'Reminder: Please arrive 10 minutes before your appointment and carry any previous prescriptions or reports.',
+    'Clinic update: Today\'s appointments are running a little late. Thank you for your patience and cooperation.',
+    'Health reminder: Please take your regular medicines on time and bring an updated list of current medications to your visit.',
+    'Follow-up note: If you are unable to attend, please inform the clinic in advance so we can help reschedule your appointment.',
+];
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'DoctorAnnouncements'>;
 
@@ -46,8 +51,6 @@ export default function DoctorAnnouncementsScreen() {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [sending, setSending] = useState(false);
-    const [socketConnected, setSocketConnected] = useState(false);
-    const [socketError, setSocketError] = useState<string>('');
     const [history, setHistory] = useState<AnnouncementCampaign[]>([]);
     const [targetCount, setTargetCount] = useState(0);
     const [targetPatients, setTargetPatients] = useState<any[]>([]);
@@ -55,23 +58,18 @@ export default function DoctorAnnouncementsScreen() {
     const [targetMode, setTargetMode] = useState<AnnouncementTargetMode>('TODAY');
     const [targetDate, setTargetDate] = useState(toYMD(new Date()));
     const [showPicker, setShowPicker] = useState(false);
-    const [lastUpdatedAt, setLastUpdatedAt] = useState<string>('');
-    const socketRef = useRef<Socket | null>(null);
 
     const canSend = useMemo(() => {
         if (!message.trim()) return false;
         if (targetMode !== 'CUSTOM') return true;
         return /^\d{4}-\d{2}-\d{2}$/.test(targetDate);
     }, [message, targetDate, targetMode]);
-    const likelyInvalidSocketHost = useMemo(() => SOCKET_URL.includes('vercel.app'), []);
-    const socketEnabled = useMemo(() => !likelyInvalidSocketHost, [likelyInvalidSocketHost]);
 
     const fetchAll = React.useCallback(async () => {
         if (!isDoctor) {
             setHistory([]);
             setTargetCount(0);
             setTargetPatients([]);
-            setLastUpdatedAt(new Date().toISOString());
             return;
         }
         const [h, t] = await Promise.all([
@@ -81,7 +79,6 @@ export default function DoctorAnnouncementsScreen() {
         setHistory(h?.campaigns || []);
         setTargetCount(Math.max(0, t?.count || 0));
         setTargetPatients(t?.patients || []);
-        setLastUpdatedAt(new Date().toISOString());
     }, [isDoctor, targetDate, targetMode]);
 
     useEffect(() => {
@@ -100,49 +97,6 @@ export default function DoctorAnnouncementsScreen() {
         };
         bootstrap();
     }, [fetchAll, isDoctor]);
-
-
-    useEffect(() => {
-        if (!isDoctor) {
-            setSocketConnected(false);
-            setSocketError('');
-            return;
-        }
-        if (!socketEnabled) {
-            setSocketConnected(false);
-            setSocketError('Realtime socket disabled for Vercel host; use a dedicated socket server URL.');
-            return;
-        }
-        const socket = io(SOCKET_URL, {
-            transports: ['websocket', 'polling'],
-            timeout: 4000,
-            reconnection: true,
-            reconnectionDelay: 500,
-            reconnectionDelayMax: 2000,
-        });
-        socketRef.current = socket;
-        socket.on('connect', () => {
-            setSocketConnected(true);
-            setSocketError('');
-        });
-        socket.on('disconnect', (reason) => {
-            setSocketConnected(false);
-            setSocketError(`disconnect: ${reason}`);
-        });
-        socket.on('connect_error', (err: any) => {
-            setSocketConnected(false);
-            setSocketError(`connect_error: ${err?.message || 'unknown'}`);
-        });
-        socket.on('reconnect_error', (err: any) => {
-            setSocketConnected(false);
-            setSocketError(`reconnect_error: ${err?.message || 'unknown'}`);
-        });
-        return () => {
-            socket.removeAllListeners();
-            socket.disconnect();
-            socketRef.current = null;
-        };
-    }, [SOCKET_URL, isDoctor, socketEnabled]);
 
     const onRefresh = async () => {
         setRefreshing(true);
@@ -234,21 +188,29 @@ export default function DoctorAnnouncementsScreen() {
 
                     <View className="px-4 mt-4">
                         <View className="bg-white rounded-2xl border border-blue-100 p-4">
-                            <Text className="text-gray-900 font-bold mb-2">Debug</Text>
-                            <Text className="text-xs text-gray-600">API: {API_URL}</Text>
-                            <Text className="text-xs text-gray-600 mt-1">Socket: {SOCKET_URL}</Text>
-                            <Text className="text-xs text-gray-600 mt-1">Socket status: {socketConnected ? 'connected' : 'disconnected'}</Text>
-                            {socketError ? <Text className="text-xs text-red-500 mt-1">Socket error: {socketError}</Text> : null}
-                            {likelyInvalidSocketHost && (
-                                <Text className="text-xs text-red-500 mt-1">
-                                    Socket URL points to Vercel domain. Set EXPO_PUBLIC_SOCKET_URL to your socket server host.
-                                </Text>
-                            )}
-                            <Text className="text-xs text-gray-600 mt-1">Last refresh: {lastUpdatedAt ? new Date(lastUpdatedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) : 'N/A'}</Text>
-                        </View>
-
-                        <View className="bg-white rounded-2xl border border-blue-100 p-4 mt-4">
                             <Text className="text-gray-900 font-bold">New Announcement</Text>
+                            <Text className="text-gray-500 text-xs mt-1">
+                                Choose a quick template or write your own message.
+                            </Text>
+                            <ScrollView
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                className="mt-3"
+                                contentContainerStyle={{ paddingRight: 8 }}
+                            >
+                                {ANNOUNCEMENT_TEMPLATES.map((template, index) => (
+                                    <TouchableOpacity
+                                        key={index}
+                                        onPress={() => setMessage(template)}
+                                        className="mr-2 w-64 rounded-2xl border border-blue-200 bg-blue-50 px-3 py-3"
+                                    >
+                                        <Text className="text-blue-800 text-xs font-semibold">Template {index + 1}</Text>
+                                        <Text className="text-blue-700 text-xs mt-1" numberOfLines={4}>
+                                            {template}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </ScrollView>
                             <TextInput
                                 className="mt-3 bg-gray-50 border border-gray-200 rounded-xl px-3 py-3 text-gray-800 min-h-[96px]"
                                 multiline
