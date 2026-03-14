@@ -23,6 +23,7 @@ interface DayData {
     appointments: {
         appointment_id: number;
         status: string;
+        cancelled_by?: string | null;
         start_time_display: string;
         patient_name: string;
         patient_phone: string;
@@ -66,6 +67,27 @@ const textForHeat = (intensity: number) =>
 const toIST = (date: Date) =>
     new Date(date.getTime() + 5.5 * 60 * 60 * 1000);
 
+const STATUS_CONFIG: Record<string, { badgeBg: string; text: string; dotColor: string }> = {
+    booked: { badgeBg: '#e0e7ff', text: '#4338ca', dotColor: '#4338ca' },
+    confirmed: { badgeBg: '#dcfce7', text: '#15803d', dotColor: '#15803d' },
+    pending: { badgeBg: '#fef3c7', text: '#a16207', dotColor: '#a16207' },
+    cancelled: { badgeBg: '#fee2e2', text: '#dc2626', dotColor: '#dc2626' },
+    completed: { badgeBg: '#dcfce7', text: '#15803d', dotColor: '#15803d' },
+};
+
+const getStatusLabel = (status: string, cancelledBy?: string | null) => {
+    const statusUpper = String(status || '').toUpperCase();
+    if (statusUpper === 'COMPLETED') return 'Visited';
+    if (statusUpper === 'PENDING') return 'Not Visited';
+    if (statusUpper === 'CANCELLED') {
+        const by = String(cancelledBy || '').toUpperCase();
+        if (by === 'DOCTOR') return 'Cancelled by doctor';
+        if (by === 'PATIENT') return 'Cancelled by patient';
+        return 'Cancelled';
+    }
+    return status || 'Unknown';
+};
+
 // ──────────────────────────────────────────────────────────────
 // Day Detail Modal
 // ──────────────────────────────────────────────────────────────
@@ -89,17 +111,20 @@ const DayDetailModal = ({
         }
     }, [visible]);
 
-    const StatusBadge = ({ status }: { status: string }) => {
-        const map: Record<string, { bg: string; text: string; label: string }> = {
-            COMPLETED: { bg: '#dcfce7', text: '#15803d', label: 'Arrived' },
-            CONFIRMED: { bg: '#dbeafe', text: '#1d4ed8', label: 'Confirmed' },
-            BOOKED: { bg: '#ede9fe', text: '#6d28d9', label: 'Booked' },
-            PENDING: { bg: '#fef9c3', text: '#854d0e', label: 'Pending' },
-        };
-        const s = map[status] || { bg: '#f3f4f6', text: '#4b5563', label: status };
+    const StatusBadge = ({ status, cancelledBy }: { status: string; cancelledBy?: string | null }) => {
+        const s = STATUS_CONFIG[String(status || '').toLowerCase()] || { badgeBg: '#f3f4f6', text: '#4b5563', dotColor: '#4b5563' };
         return (
-            <View style={{ backgroundColor: s.bg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}>
-                <Text style={{ color: s.text, fontSize: 11, fontWeight: '700' }}>{s.label}</Text>
+            <View style={{ backgroundColor: s.badgeBg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, flexDirection: 'row', alignItems: 'center' }}>
+                <View
+                    style={{
+                        width: 7,
+                        height: 7,
+                        borderRadius: 999,
+                        backgroundColor: s.dotColor,
+                        marginRight: 6,
+                    }}
+                />
+                <Text style={{ color: s.text, fontSize: 11, fontWeight: '700' }}>{getStatusLabel(status, cancelledBy)}</Text>
             </View>
         );
     };
@@ -142,13 +167,13 @@ const DayDetailModal = ({
                                 <View className="flex-1 bg-green-50 border border-green-200 rounded-2xl p-3 items-center">
                                     <CheckCircle2 size={20} color="#16a34a" />
                                     <Text className="text-2xl font-extrabold text-green-700 mt-1">{data.arrived}</Text>
-                                    <Text className="text-xs text-green-400 font-semibold">Arrived</Text>
+                                    <Text className="text-xs text-green-500 font-semibold">Visited</Text>
                                 </View>
                                 {/* Upcoming */}
                                 <View className="flex-1 bg-yellow-50 border border-yellow-200 rounded-2xl p-3 items-center">
                                     <Clock size={20} color="#ca8a04" />
                                     <Text className="text-2xl font-extrabold text-yellow-700 mt-1">{data.upcoming}</Text>
-                                    <Text className="text-xs text-yellow-400 font-semibold">Upcoming</Text>
+                                    <Text className="text-xs text-yellow-600 font-semibold">Not Visited</Text>
                                 </View>
                                 {/* Total */}
                                 <View className="flex-1 bg-emerald-50 border border-emerald-200 rounded-2xl p-3 items-center">
@@ -181,7 +206,7 @@ const DayDetailModal = ({
                                                 ) : null}
                                             </View>
                                         </View>
-                                        <StatusBadge status={item.status} />
+                                        <StatusBadge status={item.status} cancelledBy={item.cancelled_by} />
                                     </View>
                                 )}
                             />
@@ -255,7 +280,7 @@ const CalendarScreen = () => {
     return (
         <SafeAreaView className="flex-1 bg-violet-700" edges={['top', 'left', 'right']}>
             <StatusBar barStyle="light-content" backgroundColor="#3c26beff" />
-            <View className="flex-1 bg-green-50">
+            <View className="flex-1 bg-white">
 
                 {/* ── Header ── */}
                 <View className="bg-violet-700 px-5 pt-4 pb-6 rounded-b-3xl">
@@ -384,7 +409,17 @@ const CalendarScreen = () => {
                         <View className="mt-3 flex-row items-center" style={{ gap: 4 }}>
                             <Text className="text-gray-400 text-xs font-semibold mr-1">0</Text>
                             {[0, 0.2, 0.4, 0.6, 0.8, 1].map(v => (
-                                <View key={v} style={{ flex: 1, height: 8, borderRadius: 4, backgroundColor: heatColor(v) }} />
+                                <View
+                                    key={v}
+                                    style={{
+                                        flex: 1,
+                                        height: 8,
+                                        borderRadius: 4,
+                                        backgroundColor: heatColor(v),
+                                        borderWidth: 1,
+                                        borderColor: '#d1d5db',
+                                    }}
+                                />
                             ))}
                             <Text className="text-gray-400 text-xs font-semibold ml-1">{maxTotal}</Text>
                         </View>
