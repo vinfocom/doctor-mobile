@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeft, Send, User } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
@@ -12,6 +12,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Chat'>;
 
 export default function ChatScreen({ route, navigation }: Props) {
     const { patientId, doctorId, patientName, viewer = 'DOCTOR' } = route.params;
+    const insets = useSafeAreaInsets();
     const [messages, setMessages] = useState<any[]>([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
@@ -128,7 +129,7 @@ export default function ChatScreen({ route, navigation }: Props) {
     };
 
     return (
-        <SafeAreaView className="flex-1 bg-white" edges={['top', 'bottom']}>
+        <SafeAreaView className="flex-1 bg-white" edges={['top']}>
             <View className="flex-row items-center px-4 py-4 border-b border-gray-100 bg-white">
                 <TouchableOpacity onPress={() => navigation.goBack()} className="mr-3 p-2 bg-gray-50 rounded-full">
                     <ChevronLeft size={24} color="#1f2937" />
@@ -148,8 +149,8 @@ export default function ChatScreen({ route, navigation }: Props) {
             </View>
 
             <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
-                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 72}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
                 className="flex-1 bg-gray-50"
             >
                 {loading ? (
@@ -174,7 +175,10 @@ export default function ChatScreen({ route, navigation }: Props) {
                     />
                 )}
 
-                <View className="px-4 py-3 bg-white border-t border-gray-100 flex-row items-center">
+                <View
+                    className="px-4 pt-3 bg-white border-t border-gray-100 flex-row items-center"
+                    style={{ paddingBottom: Math.max(insets.bottom, 8) }}
+                >
                     <TextInput
                         className="flex-1 bg-gray-50 border border-gray-200 rounded-full px-5 py-3 text-base text-gray-800 mr-3"
                         placeholder="Type a message..."

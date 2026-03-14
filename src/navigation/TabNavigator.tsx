@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { useNavigation, type NavigationProp } from '@react-navigation/native';
+import { TabActions, useNavigation, type NavigationProp } from '@react-navigation/native';
 import { MainTabParamList } from './types';
 import DashboardScreen from '../screens/DashboardScreen';
 import AppointmentsScreen from '../screens/AppointmentsScreen';
@@ -33,7 +33,7 @@ function SwipeTabScreen({
             if (currentIndex < 0) return;
             const nextIndex = currentIndex + delta;
             if (nextIndex < 0 || nextIndex >= tabOrder.length) return;
-            navigation.navigate(tabOrder[nextIndex]);
+            navigation.dispatch(TabActions.jumpTo(tabOrder[nextIndex]));
         },
         [currentTab, navigation, tabOrder]
     );
@@ -41,11 +41,11 @@ function SwipeTabScreen({
     const swipeGesture = React.useMemo(
         () =>
             Gesture.Pan()
-                .activeOffsetX([-20, 20])
-                .failOffsetY([-12, 12])
+                .activeOffsetX([-24, 24])
+                .failOffsetY([-18, 18])
                 .onEnd((event) => {
-                    const openNext = event.translationX < -70 || event.velocityX < -700;
-                    const openPrev = event.translationX > 70 || event.velocityX > 700;
+                    const openNext = event.translationX < -76 || event.velocityX < -800;
+                    const openPrev = event.translationX > 76 || event.velocityX > 800;
                     if (openNext) runOnJS(moveToTab)(1);
                     if (openPrev) runOnJS(moveToTab)(-1);
                 }),

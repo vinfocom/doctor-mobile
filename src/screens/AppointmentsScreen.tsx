@@ -895,6 +895,22 @@ const AppointmentsScreen = () => {
                             <Text className="text-xs font-semibold text-emerald-900 mt-0.5">{slotTime}</Text>
                         </View>
                     </View>
+                    {canUpdate && (
+                        <View className="mt-3 flex-row" style={{ gap: 8 }}>
+                            <TouchableOpacity
+                                onPress={() => confirmStatusChange(item.appointment_id, 'PENDING')}
+                                className="flex-1 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 items-center"
+                            >
+                                <Text className="text-amber-800 text-xs font-bold">Not Visited</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={() => confirmStatusChange(item.appointment_id, 'COMPLETED')}
+                                className="flex-1 rounded-xl border border-green-200 bg-green-50 px-3 py-2.5 items-center"
+                            >
+                                <Text className="text-green-800 text-xs font-bold">Visited</Text>
+                            </TouchableOpacity>
+                        </View>
+                    )}
                     {canUseChat && (
                         <View className="mt-3 flex-row justify-end">
                             <View className="px-3 py-2 rounded-lg bg-blue-600 flex-row items-center">
@@ -947,28 +963,6 @@ const AppointmentsScreen = () => {
                         >
                             <Text className={`text-sm font-medium ${canUpdate ? 'text-red-600' : 'text-gray-400'}`}>Cancel appointment</Text>
                         </TouchableOpacity>
-                        {canUpdate && (
-                            <TouchableOpacity
-                                onPress={() => {
-                                    setOpenCardMenuId(null);
-                                    confirmStatusChange(item.appointment_id, 'PENDING');
-                                }}
-                                className="px-4 py-3 border-b border-gray-100"
-                            >
-                                <Text className="text-sm text-gray-800 font-medium">Not Visited</Text>
-                            </TouchableOpacity>
-                        )}
-                        {canUpdate && (
-                            <TouchableOpacity
-                                onPress={() => {
-                                    setOpenCardMenuId(null);
-                                    confirmStatusChange(item.appointment_id, 'COMPLETED');
-                                }}
-                                className="px-4 py-3 border-b border-gray-100"
-                            >
-                                <Text className="text-sm text-gray-800 font-medium">Visited</Text>
-                            </TouchableOpacity>
-                        )}
                         <TouchableOpacity
                             onPress={() => {
                                 setOpenCardMenuId(null);
