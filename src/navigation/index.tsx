@@ -8,6 +8,8 @@ import TabNavigator from './TabNavigator';
 import PatientTabNavigator from './PatientTabNavigator';
 import ChatScreen from '../screens/ChatScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import StaffListScreen from '../screens/StaffListScreen';
+import StaffFormScreen from '../screens/StaffFormScreen';
 import PatientDetailsScreen from '../screens/PatientDetails';
 import DoctorAnnouncementsScreen from '../screens/DoctorAnnouncementsScreen';
 import PatientProfileScreen from '../screens/PatientProfileScreen';
@@ -53,6 +55,18 @@ const AppNavigator = ({ initialRouteName }: { initialRouteName: keyof RootStackP
             <Stack.Screen
                 name="Profile"
                 component={ProfileScreen}
+                options={{ animation: 'slide_from_right' }}
+            />
+
+            <Stack.Screen
+                name="StaffList"
+                component={StaffListScreen}
+                options={{ animation: 'slide_from_right' }}
+            />
+
+            <Stack.Screen
+                name="StaffForm"
+                component={StaffFormScreen}
                 options={{ animation: 'slide_from_right' }}
             />
 

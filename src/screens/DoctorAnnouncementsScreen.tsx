@@ -28,6 +28,7 @@ import {
 } from '../api/announcements';
 import { API_URL, SOCKET_URL } from '../config/env';
 import { io, type Socket } from 'socket.io-client';
+import { useAuthSession } from '../context/AuthSessionContext';
 
 const toYMD = (d: Date) => {
     const y = d.getFullYear();
@@ -40,6 +41,8 @@ type Nav = NativeStackNavigationProp<RootStackParamList, 'DoctorAnnouncements'>;
 
 export default function DoctorAnnouncementsScreen() {
     const navigation = useNavigation<Nav>();
+    const { role } = useAuthSession();
+    const isDoctor = role === 'DOCTOR';
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [sending, setSending] = useState(false);
@@ -64,6 +67,13 @@ export default function DoctorAnnouncementsScreen() {
     const socketEnabled = useMemo(() => !likelyInvalidSocketHost, [likelyInvalidSocketHost]);
 
     const fetchAll = React.useCallback(async () => {
+        if (!isDoctor) {
+            setHistory([]);
+            setTargetCount(0);
+            setTargetPatients([]);
+            setLastUpdatedAt(new Date().toISOString());
+            return;
+        }
         const [h, t] = await Promise.all([
             getAnnouncementHistory(200),
             getAnnouncementTargets(targetMode, targetMode === 'CUSTOM' ? targetDate : undefined),
@@ -72,9 +82,13 @@ export default function DoctorAnnouncementsScreen() {
         setTargetCount(Math.max(0, t?.count || 0));
         setTargetPatients(t?.patients || []);
         setLastUpdatedAt(new Date().toISOString());
-    }, [targetDate, targetMode]);
+    }, [isDoctor, targetDate, targetMode]);
 
     useEffect(() => {
+        if (!isDoctor) {
+            setLoading(false);
+            return;
+        }
         const bootstrap = async () => {
             try {
                 await fetchAll();
@@ -85,10 +99,15 @@ export default function DoctorAnnouncementsScreen() {
             }
         };
         bootstrap();
-    }, [fetchAll]);
+    }, [fetchAll, isDoctor]);
 
 
     useEffect(() => {
+        if (!isDoctor) {
+            setSocketConnected(false);
+            setSocketError('');
+            return;
+        }
         if (!socketEnabled) {
             setSocketConnected(false);
             setSocketError('Realtime socket disabled for Vercel host; use a dedicated socket server URL.');
@@ -123,7 +142,7 @@ export default function DoctorAnnouncementsScreen() {
             socket.disconnect();
             socketRef.current = null;
         };
-    }, [SOCKET_URL, socketEnabled]);
+    }, [SOCKET_URL, isDoctor, socketEnabled]);
 
     const onRefresh = async () => {
         setRefreshing(true);
@@ -166,6 +185,25 @@ export default function DoctorAnnouncementsScreen() {
             <View className="flex-1 justify-center items-center bg-gray-50">
                 <ActivityIndicator size="large" color="#2563eb" />
             </View>
+        );
+    }
+
+    if (!isDoctor) {
+        return (
+            <SafeAreaView className="flex-1 bg-gray-50">
+                <StatusBar barStyle="dark-content" backgroundColor="#f9fafb" />
+                <View className="flex-1 px-5 py-6">
+                    <TouchableOpacity onPress={() => navigation.goBack()} className="self-start mb-5 px-4 py-2 bg-white rounded-full border border-gray-200">
+                        <Text className="text-gray-700 font-semibold">Back</Text>
+                    </TouchableOpacity>
+                    <View className="bg-white rounded-2xl border border-gray-200 p-5">
+                        <Text className="text-gray-900 text-lg font-bold">Doctor only</Text>
+                        <Text className="text-gray-600 mt-2">
+                            Announcements can only be managed from a doctor account.
+                        </Text>
+                    </View>
+                </View>
+            </SafeAreaView>
         );
     }
 

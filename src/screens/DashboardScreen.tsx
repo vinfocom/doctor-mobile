@@ -38,6 +38,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuthSession } from '../context/AuthSessionContext';
 
 type DashboardScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'DoctorMain'>;
 
@@ -91,6 +92,9 @@ const QuickActionButton = ({
 
 const DashboardScreen = () => {
     const navigation = useNavigation<DashboardScreenNavigationProp>();
+    const { role, staff_role, name, email, clearSession, refreshSession } = useAuthSession();
+    const isClinicStaff = role === 'CLINIC_STAFF';
+    const getClinicStaffProfile = React.useCallback(async () => ({ doctor: null }), []);
     const [refreshing, setRefreshing] = useState(false);
     const [notifCount, setNotifCount] = useState(0);
     const [announcementNotifCount, setAnnouncementNotifCount] = useState(0);
@@ -101,8 +105,15 @@ const DashboardScreen = () => {
         data: profileData,
         isLoading: loading,
         revalidate: revalidateProfile
-    } = useSWRLite('doctor:profile', getProfile);
+    } = useSWRLite(
+        isClinicStaff ? 'clinic-staff:profile' : 'doctor:profile',
+        isClinicStaff ? getClinicStaffProfile : getProfile
+    );
     const profile = profileData?.doctor;
+    const displayName = isClinicStaff ? (name || 'Clinic Staff') : (profile?.doctor_name || 'Doctor');
+    const roleBadgeLabel = isClinicStaff
+        ? `Clinic Staff${staff_role ? ` | ${String(staff_role).replace(/_/g, ' ')}` : ''}`
+        : 'Doctor';
 
     const [upcomingToday, setUpcomingToday] = useState<any[]>([]);
     const [upcomingLoading, setUpcomingLoading] = useState(true);
@@ -122,10 +133,16 @@ const DashboardScreen = () => {
 
     useFocusEffect(
         React.useCallback(() => {
+            if (isClinicStaff) {
+                refreshSession().catch(() => {
+                    // ignore focus refresh errors
+                });
+                return;
+            }
             revalidateProfile().catch(() => {
                 // ignore focus refresh errors
             });
-        }, [revalidateProfile])
+        }, [isClinicStaff, refreshSession, revalidateProfile])
     );
 
     useEffect(() => {
@@ -167,14 +184,18 @@ const DashboardScreen = () => {
     const onRefresh = React.useCallback(async () => {
         setRefreshing(true);
         try {
-            await revalidateProfile();
+            if (isClinicStaff) {
+                await refreshSession();
+            } else {
+                await revalidateProfile();
+            }
             await loadUpcoming();
         } finally {
             setRefreshing(false);
         }
-    }, [revalidateProfile, loadUpcoming]);
+    }, [isClinicStaff, loadUpcoming, refreshSession, revalidateProfile]);
 
-    const handleLogout = async () => {
+    const handleLogout = React.useCallback(() => {
         Alert.alert('Logout', 'Are you sure you want to logout?', [
             { text: 'Cancel', style: 'cancel' },
             {
@@ -182,11 +203,16 @@ const DashboardScreen = () => {
                 style: 'destructive',
                 onPress: async () => {
                     await removeToken();
+                    clearSession();
                     navigation.replace('Login');
                 },
             },
         ]);
-    };
+    }, [clearSession, navigation]);
+
+    const handleManageStaff = React.useCallback(() => {
+        navigation.navigate('StaffList');
+    }, [navigation]);
 
     if (loading) {
         return (
@@ -221,7 +247,7 @@ const DashboardScreen = () => {
                             className="bg-white w-20 h-20 rounded-full items-center justify-center overflow-hidden"
                             style={{ shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 6, elevation: 4 }}
                         >
-                            {profile?.profile_pic_url ? (
+                            {!isClinicStaff && profile?.profile_pic_url ? (
                                 <Image
                                     source={{ uri: profile.profile_pic_url }}
                                     style={{ width: 80, height: 80, borderRadius: 999 }}
@@ -234,8 +260,11 @@ const DashboardScreen = () => {
                         <View>
                             <Text className="text-blue-100 text-lg font-medium">Hello,</Text>
                             <Text className="text-white text-4xl font-bold">
-                                Dr. {profile?.doctor_name}
+                                {isClinicStaff ? displayName : `Dr. ${displayName}`}
                             </Text>
+                            <View className="self-start mt-3 bg-white/15 border border-white/20 rounded-full px-3 py-1.5">
+                                <Text className="text-white text-xs font-bold">{roleBadgeLabel}</Text>
+                            </View>
                         </View>
 
 
@@ -299,21 +328,36 @@ const DashboardScreen = () => {
                             )}
                         </Animated.View>
                     )}
-                    {/* Quick Actions */}
-                    <Animated.Text entering={FadeInUp.delay(200).duration(500)} className="text-gray-700 font-bold text-base mb-3">Quick Actions</Animated.Text>
-                    <Animated.View entering={FadeInUp.delay(240).duration(500)} className="mb-5">
-                        <TouchableOpacity
-                            onPress={() => navigation.navigate('DoctorAnnouncements')}
-                            className="bg-blue-600 rounded-2xl py-4 px-4 flex-row items-center justify-between"
-                            style={{ shadowColor: '#1d4ed8', shadowOpacity: 0.25, shadowRadius: 8, elevation: 5 }}
-                        >
-                            <View>
-                                <Text className="text-white text-base font-bold">Send Announcement</Text>
-                                <Text className="text-blue-100 text-xs mt-0.5">For your upcoming booked patients</Text>
-                            </View>
-                            <MessageCircle size={20} color="#ffffff" />
-                        </TouchableOpacity>
-                    </Animated.View>
+                    {!isClinicStaff && (
+                        <>
+                            {/* Quick Actions */}
+                            <Animated.Text entering={FadeInUp.delay(200).duration(500)} className="text-gray-700 font-bold text-base mb-3">Quick Actions</Animated.Text>
+                            <Animated.View entering={FadeInUp.delay(240).duration(500)} className="mb-5" style={{ gap: 10 }}>
+                                <TouchableOpacity
+                                    onPress={() => navigation.navigate('DoctorAnnouncements')}
+                                    className="bg-blue-600 rounded-2xl py-4 px-4 flex-row items-center justify-between"
+                                    style={{ shadowColor: '#1d4ed8', shadowOpacity: 0.25, shadowRadius: 8, elevation: 5 }}
+                                >
+                                    <View>
+                                        <Text className="text-white text-base font-bold">Send Announcement</Text>
+                                        <Text className="text-blue-100 text-xs mt-0.5">For your upcoming booked patients</Text>
+                                    </View>
+                                    <MessageCircle size={20} color="#ffffff" />
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={handleManageStaff}
+                                    className="bg-sky-100 rounded-2xl py-4 px-4 flex-row items-center justify-between border border-sky-200"
+                                    style={{ shadowColor: '#bae6fd', shadowOpacity: 0.2, shadowRadius: 8, elevation: 3 }}
+                                >
+                                    <View>
+                                        <Text className="text-sky-900 text-base font-bold">Manage Staff</Text>
+                                        <Text className="text-sky-700 text-xs mt-0.5">Create, update, and remove clinic staff</Text>
+                                    </View>
+                                    <Briefcase size={20} color="#0c4a6e" />
+                                </TouchableOpacity>
+                            </Animated.View>
+                        </>
+                    )}
 
                     {/* Today's Snapshot */}
                     {(() => {
@@ -364,7 +408,18 @@ const DashboardScreen = () => {
                     {/* Profile Info */}
                     <Animated.Text entering={FadeInUp.delay(300).duration(500)} className="text-gray-700 font-bold text-base mb-3">Contact Info</Animated.Text>
                     <Animated.View entering={FadeInUp.delay(400).duration(500)}>
-                        <InfoCard icon={<Phone size={20} color="#4b5563" />} label="Phone" value={profile?.phone || 'N/A'} />
+                        <InfoCard
+                            icon={isClinicStaff ? <User size={20} color="#4b5563" /> : <Phone size={20} color="#4b5563" />}
+                            label={isClinicStaff ? 'Email' : 'Phone'}
+                            value={isClinicStaff ? (email || 'N/A') : (profile?.phone || 'N/A')}
+                        />
+                        {isClinicStaff && (
+                            <InfoCard
+                                icon={<Briefcase size={20} color="#4b5563" />}
+                                label="Access Level"
+                                value={staff_role ? String(staff_role).replace(/_/g, ' ') : 'Clinic Staff'}
+                            />
+                        )}
                     </Animated.View>
                 </View>
             </ScrollView>

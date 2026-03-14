@@ -43,6 +43,7 @@ import { RootStackParamList } from '../navigation/types';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import { useAuthSession } from '../context/AuthSessionContext';
 
 type ProfileScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Profile'>;
 
@@ -153,6 +154,8 @@ interface DoctorProfile {
 
 const ProfileScreen = () => {
     const navigation = useNavigation<ProfileScreenNavigationProp>();
+    const { role, staff_role, staff_clinic_id, staff_doctor_id, name, email, isLoading: sessionLoading, clearSession } = useAuthSession();
+    const isClinicStaff = role === 'CLINIC_STAFF';
     const [profile, setProfile] = useState<DoctorProfile | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -196,9 +199,13 @@ const ProfileScreen = () => {
     const days = Array.from({ length: daysInPickerMonth }, (_, i) => String(i + 1).padStart(2, '0'));
 
     useEffect(() => {
+        if (isClinicStaff) {
+            setLoading(false);
+            return;
+        }
         fetchProfile();
         fetchLeaves();
-    }, []);
+    }, [isClinicStaff]);
 
     const fetchLeaves = async () => {
         try {
@@ -427,6 +434,7 @@ const ProfileScreen = () => {
                 style: 'destructive',
                 onPress: async () => {
                     await removeToken();
+                    clearSession();
                     navigation.reset({
                         index: 0,
                         routes: [{ name: 'Login' }],
@@ -435,6 +443,116 @@ const ProfileScreen = () => {
             },
         ]);
     };
+
+    const handleManageStaff = React.useCallback(() => {
+        navigation.navigate('StaffList');
+    }, [navigation]);
+
+    if (sessionLoading) {
+        return (
+            <View className="flex-1 justify-center items-center bg-gray-50">
+                <ActivityIndicator size="large" color="#2563eb" />
+                <Text className="text-gray-400 mt-3 text-sm">Loading your profile...</Text>
+            </View>
+        );
+    }
+
+    if (isClinicStaff) {
+        return (
+            <SafeAreaView className="flex-1 bg-blue-700">
+                <StatusBar barStyle="light-content" backgroundColor="#1d4ed8" />
+                <ScrollView className="flex-1 bg-gray-50" showsVerticalScrollIndicator={false}>
+                    <Animated.View
+                        entering={FadeInDown.duration(600).springify()}
+                        className="bg-blue-700 px-6 pt-8 pb-10"
+                    >
+                        <View className="flex-row items-center justify-between mb-4">
+                            <View className="flex-1">
+                                <Text className="text-blue-200 text-sm font-medium">Clinic Staff Profile</Text>
+                                <Text className="text-white text-3xl font-bold mt-1">
+                                    {name || 'Clinic Staff'}
+                                </Text>
+                                <View className="self-start mt-3 bg-white/15 border border-white/20 rounded-full px-3 py-1.5">
+                                    <Text className="text-white text-xs font-bold">
+                                        {staff_role ? String(staff_role).replace(/_/g, ' ') : 'Clinic Staff'}
+                                    </Text>
+                                </View>
+                            </View>
+                            <View className="bg-white w-16 h-16 rounded-full items-center justify-center border-4 border-blue-500"
+                                style={{ shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 6, elevation: 4 }}
+                            >
+                                <User size={32} color="#1d4ed8" />
+                            </View>
+                        </View>
+                    </Animated.View>
+
+                    <View className="px-5 mt-6">
+                        <Animated.Text entering={FadeInUp.delay(220).duration(500)} className="text-gray-700 font-bold text-base mb-3">
+                            Account Info
+                        </Animated.Text>
+
+                        <Animated.View entering={FadeInUp.delay(300).duration(500)}>
+                            <View className="bg-white rounded-2xl px-4 py-4 mb-3 flex-row items-start" style={{ elevation: 2 }}>
+                                <View className="mr-3 mt-0.5"><User size={20} color="#4b5563" /></View>
+                                <View className="flex-1">
+                                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-0.5">Name</Text>
+                                    <Text className="text-base text-gray-800 font-medium">{name || 'N/A'}</Text>
+                                </View>
+                            </View>
+                            <View className="bg-white rounded-2xl px-4 py-4 mb-3 flex-row items-start" style={{ elevation: 2 }}>
+                                <View className="mr-3 mt-0.5"><Phone size={20} color="#4b5563" /></View>
+                                <View className="flex-1">
+                                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-0.5">Email</Text>
+                                    <Text className="text-base text-gray-800 font-medium">{email || 'N/A'}</Text>
+                                </View>
+                            </View>
+                            <View className="bg-white rounded-2xl px-4 py-4 mb-3 flex-row items-start" style={{ elevation: 2 }}>
+                                <View className="mr-3 mt-0.5"><BadgeCheck size={20} color="#4b5563" /></View>
+                                <View className="flex-1">
+                                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-0.5">Role</Text>
+                                    <Text className="text-base text-gray-800 font-medium">Clinic Staff</Text>
+                                </View>
+                            </View>
+                            <View className="bg-white rounded-2xl px-4 py-4 mb-3 flex-row items-start" style={{ elevation: 2 }}>
+                                <View className="mr-3 mt-0.5"><Stethoscope size={20} color="#4b5563" /></View>
+                                <View className="flex-1">
+                                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-0.5">Access Level</Text>
+                                    <Text className="text-base text-gray-800 font-medium">
+                                        {staff_role ? String(staff_role).replace(/_/g, ' ') : 'N/A'}
+                                    </Text>
+                                </View>
+                            </View>
+                            <View className="bg-white rounded-2xl px-4 py-4 mb-3 flex-row items-start" style={{ elevation: 2 }}>
+                                <View className="mr-3 mt-0.5"><CalendarDays size={20} color="#4b5563" /></View>
+                                <View className="flex-1">
+                                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-0.5">Assigned Clinic ID</Text>
+                                    <Text className="text-base text-gray-800 font-medium">{staff_clinic_id ? String(staff_clinic_id) : 'All Clinics'}</Text>
+                                </View>
+                            </View>
+                            <View className="bg-white rounded-2xl px-4 py-4 mb-3 flex-row items-start" style={{ elevation: 2 }}>
+                                <View className="mr-3 mt-0.5"><MessageCircle size={20} color="#4b5563" /></View>
+                                <View className="flex-1">
+                                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-0.5">Linked Doctor ID</Text>
+                                    <Text className="text-base text-gray-800 font-medium">{staff_doctor_id ? String(staff_doctor_id) : 'N/A'}</Text>
+                                </View>
+                            </View>
+                        </Animated.View>
+
+                        <Animated.View entering={FadeInUp.delay(420).duration(500)} className="mt-4 mb-10">
+                            <TouchableOpacity
+                                onPress={handleLogout}
+                                activeOpacity={0.7}
+                                className="border border-red-200 bg-red-50 rounded-2xl py-4 items-center flex-row justify-center"
+                            >
+                                <LogOut size={20} color="#ef4444" style={{ marginRight: 8 }} />
+                                <Text className="text-red-500 font-bold text-lg">Logout</Text>
+                            </TouchableOpacity>
+                        </Animated.View>
+                    </View>
+                </ScrollView>
+            </SafeAreaView>
+        );
+    }
 
     if (loading) {
         return (
@@ -493,13 +611,22 @@ const ProfileScreen = () => {
                     </View>
                     <View className="flex-row gap-2 mt-4">
                         {!editing ? (
-                            <TouchableOpacity
-                                onPress={() => setEditing(true)}
-                                className="flex-row items-center bg-white/20 px-4 py-2 rounded-full"
-                            >
-                                <Pencil size={14} color="#fff" />
-                                <Text className="text-white text-sm font-semibold ml-1">Edit Profile</Text>
-                            </TouchableOpacity>
+                            <View className="flex-row flex-wrap gap-2">
+                                <TouchableOpacity
+                                    onPress={() => setEditing(true)}
+                                    className="flex-row items-center bg-white/20 px-4 py-2 rounded-full"
+                                >
+                                    <Pencil size={14} color="#fff" />
+                                    <Text className="text-white text-sm font-semibold ml-1">Edit Profile</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={handleManageStaff}
+                                    className="flex-row items-center bg-white/20 px-4 py-2 rounded-full"
+                                >
+                                    <BadgeCheck size={14} color="#fff" />
+                                    <Text className="text-white text-sm font-semibold ml-1">Manage Staff</Text>
+                                </TouchableOpacity>
+                            </View>
                         ) : (
                             <>
                                 <TouchableOpacity

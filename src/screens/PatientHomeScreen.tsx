@@ -21,6 +21,7 @@ import { FlashList } from '@shopify/flash-list';
 import IncomingMessageBubble from '../components/IncomingMessageBubble';
 import { io, type Socket } from 'socket.io-client';
 import { SOCKET_URL } from '../config/env';
+import { useAuthSession } from '../context/AuthSessionContext';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -33,6 +34,7 @@ interface DoctorItem {
 
 export default function PatientHomeScreen() {
     const navigation = useNavigation<Nav>();
+    const { clearSession } = useAuthSession();
     const [refreshing, setRefreshing] = useState(false);
     const [notifCount, setNotifCount] = useState(0);
     const [announcementCount, setAnnouncementCount] = useState(0);
@@ -155,6 +157,7 @@ export default function PatientHomeScreen() {
 
     const handleLogout = async () => {
         await removeToken();
+        clearSession();
         navigation.reset({ index: 0, routes: [{ name: "Login" }] });
     };
 

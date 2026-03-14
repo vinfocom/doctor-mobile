@@ -26,6 +26,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuthSession } from '../context/AuthSessionContext';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'PatientProfile'>;
 
@@ -33,6 +34,7 @@ const GENDER_OPTIONS = ['Male', 'Female', 'Other', 'Prefer not to say'];
 
 export default function PatientProfileScreen() {
     const navigation = useNavigation<Nav>();
+    const { clearSession } = useAuthSession();
     const [patient, setPatient] = useState<any>(null);
     const [doctors, setDoctors] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -102,6 +104,7 @@ export default function PatientProfileScreen() {
                 style: 'destructive',
                 onPress: async () => {
                     await removeToken();
+                    clearSession();
                     navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
                 },
             },

@@ -1,7 +1,24 @@
 import client from './client';
+import type { AppRole } from './token';
+
+export interface AuthMeUser {
+    user_id: number;
+    email: string | null;
+    name: string | null;
+    role: AppRole;
+    created_at?: string | null;
+    staff_role: string | null;
+    staff_clinic_id: number | null;
+    staff_doctor_id: number | null;
+}
 
 export const login = async (email: string, password: string) => {
     const response = await client.post('/auth/login', { email, password });
+    return response.data;
+};
+
+export const getMe = async (): Promise<{ user: AuthMeUser }> => {
+    const response = await client.get('/auth/me');
     return response.data;
 };
 

@@ -40,6 +40,7 @@ import { getChatNotifications, type IncomingNotificationMessage } from '../api/n
 import IncomingMessageBubble from '../components/IncomingMessageBubble';
 import { io, type Socket } from 'socket.io-client';
 import { SOCKET_URL } from '../config/env';
+import { useAuthSession } from '../context/AuthSessionContext';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -331,6 +332,11 @@ const CalendarPicker = ({ selectedDate, onSelect, minDate }: CalendarPickerProps
 const AppointmentsScreen = () => {
     const navigation = useNavigation<any>();
     const route = useRoute<any>();
+    const { role, staff_role } = useAuthSession();
+    const isClinicStaff = role === 'CLINIC_STAFF';
+    const isViewerStaff = isClinicStaff && String(staff_role || '').toUpperCase() === 'VIEWER';
+    const canUseChat = role === 'DOCTOR';
+    const canManageAppointments = role === 'DOCTOR' || (isClinicStaff && !isViewerStaff);
     const [appointments, setAppointments] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [isModalVisible, setModalVisible] = useState(false);
@@ -391,6 +397,10 @@ const AppointmentsScreen = () => {
     useEffect(() => {
         const params = route?.params || {};
         if (!params?.openCreate) return;
+        if (!canManageAppointments) {
+            Alert.alert('View only', 'You have view-only access for appointments.');
+            return;
+        }
         const prefillKey = String(params.prefillKey || `${params.prefillPatientPhone || ''}:${params.prefillPatientName || ''}`);
         if (handledPrefillKeyRef.current === prefillKey) return;
         handledPrefillKeyRef.current = prefillKey;
@@ -407,9 +417,10 @@ const AppointmentsScreen = () => {
         setShowCalendar(false);
         setModalVisible(true);
         setHeaderMenuVisible(false);
-    }, [route?.params, clinics]);
+    }, [canManageAppointments, route?.params, clinics]);
 
     const checkIncomingNotifications = React.useCallback(async () => {
+        if (!canUseChat) return;
         try {
             const data = await getChatNotifications(lastNotifCheckAtRef.current);
             lastNotifCheckAtRef.current = new Date().toISOString();
@@ -425,9 +436,14 @@ const AppointmentsScreen = () => {
         } catch {
             // ignore periodic notification errors
         }
-    }, []);
+    }, [canUseChat]);
 
     useEffect(() => {
+        if (!canUseChat) {
+            setIncomingMessage(null);
+            setHighlightedPairKey(null);
+            return;
+        }
         checkIncomingNotifications();
         const interval = setInterval(checkIncomingNotifications, 7000);
         return () => {
@@ -439,15 +455,17 @@ const AppointmentsScreen = () => {
                 clearTimeout(highlightHideTimerRef.current);
             }
         };
-    }, [checkIncomingNotifications]);
+    }, [canUseChat, checkIncomingNotifications]);
 
     useFocusEffect(
         React.useCallback(() => {
+            if (!canUseChat) return;
             checkIncomingNotifications();
-        }, [checkIncomingNotifications])
+        }, [canUseChat, checkIncomingNotifications])
     );
 
     useEffect(() => {
+        if (!canUseChat) return;
         if (!socketEnabled) return;
         if (appointments.length === 0) return;
         const pairs = Array.from(
@@ -509,7 +527,7 @@ const AppointmentsScreen = () => {
                 clearTimeout(highlightHideTimerRef.current);
             }
         };
-    }, [appointments, socketEnabled]);
+    }, [appointments, canUseChat, socketEnabled]);
 
     useEffect(() => {
         if (formData.clinic_id && formData.date) fetchSlotsData();
@@ -595,7 +613,22 @@ const AppointmentsScreen = () => {
         setLookupLoading(false);
     };
 
+    const showPermissionDenied = useCallback(() => {
+        Alert.alert('View only', 'You have view-only access for appointments.');
+    }, []);
+
+    const getApiErrorMessage = useCallback((error: any, fallbackMessage: string) => {
+        if (error?.response?.status === 403) {
+            return 'You do not have permission to perform this action.';
+        }
+        return error?.response?.data?.error || fallbackMessage;
+    }, []);
+
     const handleCreateAppointment = async () => {
+        if (!canManageAppointments) {
+            showPermissionDenied();
+            return;
+        }
         if (!formData.patient_phone || !formData.patient_name || !formData.clinic_id || !formData.date || !formData.time) {
             Alert.alert('Error', 'Please fill all required fields');
             return;
@@ -622,8 +655,8 @@ const AppointmentsScreen = () => {
             setModalVisible(false);
             resetForm();
             fetchAppointments();
-        } catch (e) {
-            Alert.alert('Error', 'Failed to create appointment');
+        } catch (e: any) {
+            Alert.alert('Error', getApiErrorMessage(e, 'Failed to create appointment'));
             console.error(e);
         } finally {
             setSubmitting(false);
@@ -649,13 +682,17 @@ const AppointmentsScreen = () => {
     };
 
     const handleStatusChange = async (appointmentId: number, status: 'CANCELLED' | 'COMPLETED' | 'PENDING') => {
+        if (!canManageAppointments) {
+            showPermissionDenied();
+            return;
+        }
         try {
             const extra = status === 'CANCELLED' ? { cancelled_by: 'DOCTOR' } : {};
             await updateAppointment({ appointmentId, status, ...extra });
             setAppointments((prev) => prev.map((a) => a.appointment_id === appointmentId ? { ...a, status, ...extra } : a));
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
-            Alert.alert('Error', 'Failed to update appointment');
+            Alert.alert('Error', getApiErrorMessage(error, 'Failed to update appointment'));
         }
     };
 
@@ -681,6 +718,10 @@ const AppointmentsScreen = () => {
     };
 
     const handleDeleteAppointment = async (appointmentId: number) => {
+        if (!canManageAppointments) {
+            showPermissionDenied();
+            return;
+        }
         Alert.alert('Delete appointment', 'Are you sure?', [
             { text: 'No', style: 'cancel' },
             {
@@ -690,9 +731,9 @@ const AppointmentsScreen = () => {
                     try {
                         await deleteAppointment(appointmentId);
                         setAppointments((prev) => prev.filter((a) => a.appointment_id !== appointmentId));
-                    } catch (error) {
+                    } catch (error: any) {
                         console.error(error);
-                        Alert.alert('Error', 'Failed to delete appointment');
+                        Alert.alert('Error', getApiErrorMessage(error, 'Failed to delete appointment'));
                     }
                 }
             }
@@ -700,6 +741,10 @@ const AppointmentsScreen = () => {
     };
 
     const openReschedule = (item: any) => {
+        if (!canManageAppointments) {
+            showPermissionDenied();
+            return;
+        }
         setEditingAppointmentId(item.appointment_id);
         setRescheduleDate(toDateInput(item.appointment_date));
         setRescheduleStart(toTimeInput(item.start_time));
@@ -708,6 +753,10 @@ const AppointmentsScreen = () => {
     };
 
     const handleReschedule = async () => {
+        if (!canManageAppointments) {
+            showPermissionDenied();
+            return;
+        }
         if (!editingAppointmentId || !rescheduleDate || !rescheduleStart || !rescheduleEnd) {
             Alert.alert('Error', 'Please fill date, start and end time');
             return;
@@ -734,9 +783,9 @@ const AppointmentsScreen = () => {
                         );
                         setRescheduleModalVisible(false);
                         setEditingAppointmentId(null);
-                    } catch (error) {
+                    } catch (error: any) {
                         console.error(error);
-                        Alert.alert('Error', 'Failed to reschedule appointment');
+                        Alert.alert('Error', getApiErrorMessage(error, 'Failed to reschedule appointment'));
                     }
                 }
             }
@@ -770,7 +819,7 @@ const AppointmentsScreen = () => {
 
     const renderItem = useCallback(({ item }: { item: any }) => {
         const statusUpper = String(item?.status || '').toUpperCase();
-        const canUpdate = statusUpper !== 'COMPLETED' && statusUpper !== 'CANCELLED' && statusUpper !== 'PENDING';
+        const canUpdate = canManageAppointments && statusUpper !== 'COMPLETED' && statusUpper !== 'CANCELLED' && statusUpper !== 'PENDING';
         const isMenuOpen = openCardMenuId === item.appointment_id;
         const pairKey = `${item.patient_id}:${item.doctor_id}`;
         const isHighlighted = highlightedPairKey === pairKey;
@@ -789,14 +838,15 @@ const AppointmentsScreen = () => {
                             return;
                         }
                         if (isHighlighted) setHighlightedPairKey(null);
+                        if (!canUseChat) return;
                         navigation.navigate('Chat', { patientId: item.patient_id, doctorId: item.doctor_id, patientName: item.patient?.full_name || 'Unknown Patient' });
                     }}
-                    activeOpacity={0.7}
+                    activeOpacity={canUseChat ? 0.7 : 1}
                 >
                     <View className="flex-row items-start">
                         <View className="bg-blue-100 w-10 h-10 rounded-xl items-center justify-center mr-3 relative">
                             <User size={16} color="#1d4ed8" />
-                            {incomingMessage && !incomingMessage.isAnnouncement && incomingMessage.patientId === item.patient_id && incomingMessage.doctorId === item.doctor_id ? (
+                            {canUseChat && incomingMessage && !incomingMessage.isAnnouncement && incomingMessage.patientId === item.patient_id && incomingMessage.doctorId === item.doctor_id ? (
                                 <View className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 items-center justify-center border border-white">
                                     <Text className="text-white text-[10px] font-bold">1</Text>
                                 </View>
@@ -812,7 +862,7 @@ const AppointmentsScreen = () => {
                             <View className="mt-1.5 self-start px-2 py-1 rounded-md bg-gray-100">
                                 <Text className="text-[10px] font-semibold text-gray-600">Appointment No. {item.patient?.booking_id ?? item.appointment_id}</Text>
                             </View>
-                            {isHighlighted && (
+                            {canUseChat && isHighlighted && (
                                 <View className="mt-1.5 self-start px-2 py-1 rounded-md bg-blue-600">
                                     <Text className="text-[10px] font-semibold text-white">New message</Text>
                                 </View>
@@ -820,12 +870,18 @@ const AppointmentsScreen = () => {
                         </View>
                         <View className="items-end ml-2">
                             <StatusBadge status={item.status} cancelledBy={item.cancelled_by} />
-                            <TouchableOpacity
-                                onPress={() => setOpenCardMenuId((prev) => (prev === item.appointment_id ? null : item.appointment_id))}
-                                className="mt-2 p-1.5 rounded-lg bg-gray-100"
-                            >
-                                {isMenuOpen ? <X size={14} color="#4b5563" /> : <EllipsisVertical size={14} color="#4b5563" />}
-                            </TouchableOpacity>
+                            {canManageAppointments ? (
+                                <TouchableOpacity
+                                    onPress={() => setOpenCardMenuId((prev) => (prev === item.appointment_id ? null : item.appointment_id))}
+                                    className="mt-2 p-1.5 rounded-lg bg-gray-100"
+                                >
+                                    {isMenuOpen ? <X size={14} color="#4b5563" /> : <EllipsisVertical size={14} color="#4b5563" />}
+                                </TouchableOpacity>
+                            ) : (
+                                <View className="mt-2 px-2.5 py-1 rounded-lg bg-gray-100">
+                                    <Text className="text-[10px] font-semibold text-gray-500">View only</Text>
+                                </View>
+                            )}
                         </View>
                     </View>
 
@@ -839,12 +895,14 @@ const AppointmentsScreen = () => {
                             <Text className="text-xs font-semibold text-emerald-900 mt-0.5">{slotTime}</Text>
                         </View>
                     </View>
-                    <View className="mt-3 flex-row justify-end">
-                        <View className="px-3 py-2 rounded-lg bg-blue-600 flex-row items-center">
-                            <MessageCircle size={12} color="#fff" />
-                            <Text className="text-white text-xs font-semibold ml-1.5">Open Chat</Text>
+                    {canUseChat && (
+                        <View className="mt-3 flex-row justify-end">
+                            <View className="px-3 py-2 rounded-lg bg-blue-600 flex-row items-center">
+                                <MessageCircle size={12} color="#fff" />
+                                <Text className="text-white text-xs font-semibold ml-1.5">Open Chat</Text>
+                            </View>
                         </View>
-                    </View>
+                    )}
                 </TouchableOpacity>
 
                 {isMenuOpen && (
@@ -852,19 +910,21 @@ const AppointmentsScreen = () => {
                         className="absolute top-12 right-3 w-52 bg-white rounded-xl border border-gray-200 overflow-hidden"
                         style={{ zIndex: 60, elevation: 10 }}
                     >
-                        <TouchableOpacity
-                            onPress={() => {
-                                setOpenCardMenuId(null);
-                                navigation.navigate('Chat', {
-                                    patientId: item.patient_id,
-                                    doctorId: item.doctor_id,
-                                    patientName: item.patient?.full_name || 'Unknown Patient'
-                                });
-                            }}
-                            className="px-4 py-3 border-b border-gray-100"
-                        >
-                            <Text className="text-sm text-gray-800 font-medium">Open Chat</Text>
-                        </TouchableOpacity>
+                        {canUseChat && (
+                            <TouchableOpacity
+                                onPress={() => {
+                                    setOpenCardMenuId(null);
+                                    navigation.navigate('Chat', {
+                                        patientId: item.patient_id,
+                                        doctorId: item.doctor_id,
+                                        patientName: item.patient?.full_name || 'Unknown Patient'
+                                    });
+                                }}
+                                className="px-4 py-3 border-b border-gray-100"
+                            >
+                                <Text className="text-sm text-gray-800 font-medium">Open Chat</Text>
+                            </TouchableOpacity>
+                        )}
                         <TouchableOpacity
                             disabled={!canUpdate}
                             onPress={() => {
@@ -928,7 +988,7 @@ const AppointmentsScreen = () => {
                 )}
             </View>
         );
-    }, [confirmStatusChange, handleDeleteAppointment, highlightedPairKey, navigation, openCardMenuId, openReschedule]);
+    }, [canManageAppointments, canUseChat, confirmStatusChange, handleDeleteAppointment, highlightedPairKey, navigation, openCardMenuId, openReschedule]);
 
     if (loading) {
         return (
@@ -949,6 +1009,11 @@ const AppointmentsScreen = () => {
                     <View className="flex-row justify-between items-center">
                         <View>
                             <Text className="text-white text-2xl font-bold">Appointments</Text>
+                            {isViewerStaff && (
+                                <View className="self-start mt-2 bg-white/15 border border-white/20 rounded-full px-3 py-1">
+                                    <Text className="text-white text-xs font-bold">View only</Text>
+                                </View>
+                            )}
                             <Text className="text-blue-200 text-sm mt-1">
                                 {filteredAppointments.length} shown • {appointments.length} total
                             </Text>
@@ -963,15 +1028,17 @@ const AppointmentsScreen = () => {
                             >
                                 <Search size={20} color="#1d4ed8" />
                             </TouchableOpacity>
-                            <TouchableOpacity
-                                onPress={() => {
-                                    setModalVisible(true);
-                                    setHeaderMenuVisible(false);
-                                }}
-                                className="bg-white p-3 rounded-full mr-2"
-                            >
-                                <PlusCircle size={20} color="#1d4ed8" />
-                            </TouchableOpacity>
+                            {canManageAppointments && (
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        setModalVisible(true);
+                                        setHeaderMenuVisible(false);
+                                    }}
+                                    className="bg-white p-3 rounded-full mr-2"
+                                >
+                                    <PlusCircle size={20} color="#1d4ed8" />
+                                </TouchableOpacity>
+                            )}
                             <TouchableOpacity
                                 onPress={() => setHeaderMenuVisible((prev) => !prev)}
                                 className="bg-white p-3 rounded-full"
@@ -1195,18 +1262,20 @@ const AppointmentsScreen = () => {
                         </View>
                     }
                 />
-                <IncomingMessageBubble
-                    message={incomingMessage}
-                    onPress={(message) => {
-                        setIncomingMessage(null);
-                        navigation.navigate('Chat', {
-                            patientId: message.patientId,
-                            doctorId: message.doctorId,
-                            patientName: message.senderName,
-                            viewer: 'DOCTOR',
-                        });
-                    }}
-                />
+                {canUseChat && (
+                    <IncomingMessageBubble
+                        message={incomingMessage}
+                        onPress={(message) => {
+                            setIncomingMessage(null);
+                            navigation.navigate('Chat', {
+                                patientId: message.patientId,
+                                doctorId: message.doctorId,
+                                patientName: message.senderName,
+                                viewer: 'DOCTOR',
+                            });
+                        }}
+                    />
+                )}
             </View>
 
             {/* Filter Modal */}

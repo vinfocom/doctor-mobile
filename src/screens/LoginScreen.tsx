@@ -18,7 +18,8 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import { login, patientLogin } from '../api/auth';
-import { setAuthSession } from '../api/token';
+import { setAuthSession, type AppRole } from '../api/token';
+import { useAuthSession } from '../context/AuthSessionContext';
 import { Stethoscope, Mail, Lock, Eye, EyeOff, ArrowRight, ShieldCheck } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 
@@ -26,6 +27,7 @@ type LoginScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, '
 
 const LoginScreen = () => {
     const navigation = useNavigation<LoginScreenNavigationProp>();
+    const { refreshSession } = useAuthSession();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -44,11 +46,13 @@ const LoginScreen = () => {
                     return;
                 }
                 const response = await login(email, password);
-                if (response.token) {
-                    await setAuthSession(response.token, 'DOCTOR');
+                const userRole = response?.user?.role as AppRole | undefined;
+                if (response.token && (userRole === 'DOCTOR' || userRole === 'CLINIC_STAFF')) {
+                    await setAuthSession(response.token, userRole);
+                    await refreshSession();
                     navigation.replace('DoctorMain');
                 } else {
-                    Alert.alert('Error', 'Login failed: No token received');
+                    Alert.alert('Error', 'Login failed: Invalid doctor or clinic staff session');
                 }
             } else {
                 if (!patientIdentifier.trim()) {
@@ -58,6 +62,7 @@ const LoginScreen = () => {
                 const response = await patientLogin(patientIdentifier.trim());
                 if (response.token) {
                     await setAuthSession(response.token, 'PATIENT');
+                    await refreshSession();
                     navigation.replace('PatientMain');
                 } else {
                     Alert.alert('Error', 'Login failed: No token received');
@@ -102,10 +107,10 @@ const LoginScreen = () => {
                             </View>
 
                             <Text className="text-white text-4xl font-extrabold tracking-wide mb-2">
-                                {mode === 'DOCTOR' ? 'Doctor Portal' : 'Patient Portal'}
+                                {mode === 'DOCTOR' ? 'Doctor & Staff Portal' : 'Patient Portal'}
                             </Text>
                             <Text className="text-blue-200 text-base text-center">
-                                {mode === 'DOCTOR' ? 'Sign in to manage your patients' : 'Sign in to chat with your doctor'}
+                                {mode === 'DOCTOR' ? 'Sign in to manage appointments and clinic access' : 'Sign in to chat with your doctor'}
                             </Text>
                         </Animated.View>
 
@@ -263,7 +268,7 @@ const LoginScreen = () => {
                                 ) : (
                                     <View className="flex-row items-center">
                                         <Text className="text-white font-extrabold text-lg mr-2 tracking-wide">
-                                            {mode === 'DOCTOR' ? 'Sign In as Doctor' : 'Sign In as Patient'}
+                                            {mode === 'DOCTOR' ? 'Sign In as Doctor / Staff' : 'Sign In as Patient'}
                                         </Text>
                                         <ArrowRight size={20} color="#fff" />
                                     </View>

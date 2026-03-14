@@ -3,7 +3,7 @@ import { Platform } from 'react-native';
 
 const TOKEN_KEY = 'auth_token';
 const ROLE_KEY = 'auth_role';
-export type AppRole = 'DOCTOR' | 'PATIENT';
+export type AppRole = 'DOCTOR' | 'CLINIC_STAFF' | 'PATIENT';
 
 // Helper to handle web vs native storage
 const isWeb = Platform.OS === 'web';
