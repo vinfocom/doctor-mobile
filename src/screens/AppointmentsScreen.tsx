@@ -28,12 +28,12 @@ import {
     PlusCircle,
     Eraser,
     MessageCircle,
-    XCircle,
 } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getAppointments, createAppointment, updateAppointment, deleteAppointment } from '../api/appointments';
 import { getClinics } from '../api/clinics';
 import { getSlots } from '../api/slots';
+import client from '../api/client';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { FlashList } from '@shopify/flash-list';
 import { getChatNotifications, type IncomingNotificationMessage } from '../api/notifications';
@@ -134,11 +134,24 @@ const STATUS_CONFIG: Record<string, { dot: string; badge: string; label: string;
     completed: { dot: 'bg-green-500', badge: 'bg-green-100', label: 'text-green-700', dotColor: '#15803d' },
 };
 
-const StatusBadge = ({ status }: { status: string }) => {
+const getStatusLabel = (status: string, cancelledBy?: string | null) => {
+    const statusUpper = String(status || '').toUpperCase();
+    if (statusUpper === 'COMPLETED') return 'Visited';
+    if (statusUpper === 'PENDING') return 'Not Visited';
+    if (statusUpper === 'CANCELLED') {
+        const by = String(cancelledBy || '').toUpperCase();
+        if (by === 'DOCTOR') return 'Cancelled by doctor';
+        if (by === 'PATIENT') return 'Cancelled by patient';
+        return 'Cancelled';
+    }
+    return status || 'Unknown';
+};
+
+const StatusBadge = ({ status, cancelledBy }: { status: string; cancelledBy?: string | null }) => {
     const s = STATUS_CONFIG[status?.toLowerCase()] ?? {
         dot: 'bg-gray-400', badge: 'bg-gray-100', label: 'text-gray-600', dotColor: '#4b5563',
     };
-    const statusText = String(status || '').toUpperCase() === 'COMPLETED' ? 'Visited' : (status ?? 'Unknown');
+    const statusText = getStatusLabel(status, cancelledBy);
     return (
         <View className={`self-start flex-row items-center px-2 py-1 rounded-full ${s.badge}`}>
             <Circle size={8} color={s.dotColor} fill={s.dotColor} style={{ marginRight: 6 }} />
@@ -153,6 +166,13 @@ interface ClinicDropdownProps {
     clinics: any[];
     selectedId: string;
     onSelect: (id: string) => void;
+}
+
+type BookingFor = 'SELF' | 'OTHER';
+
+interface MatchedPatient {
+    patient_id: number;
+    full_name: string | null;
 }
 
 const ClinicDropdown = ({ clinics, selectedId, onSelect }: ClinicDropdownProps) => {
@@ -327,6 +347,7 @@ const AppointmentsScreen = () => {
     const [formData, setFormData] = useState({
         patient_phone: '',
         patient_name: '',
+        booking_for: 'SELF' as BookingFor,
         clinic_id: '',
         date: '',
         time: '',
@@ -349,14 +370,18 @@ const AppointmentsScreen = () => {
     const socketEnabled = useMemo(() => !SOCKET_URL.includes('vercel.app'), []);
     const [showSearch, setShowSearch] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const searchInputRef = useRef<TextInput>(null);
     const [filterModalVisible, setFilterModalVisible] = useState(false);
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
     const [showQuickDatePicker, setShowQuickDatePicker] = useState(false);
+    const [statusFilter, setStatusFilter] = useState<'ALL' | 'BOOKED' | 'PENDING' | 'COMPLETED' | 'CANCELLED'>('ALL');
     const [headerMenuVisible, setHeaderMenuVisible] = useState(false);
     const [openCardMenuId, setOpenCardMenuId] = useState<number | null>(null);
     const [highlightedPairKey, setHighlightedPairKey] = useState<string | null>(null);
     const handledPrefillKeyRef = useRef<string>('');
+    const [lookupLoading, setLookupLoading] = useState(false);
+    const [matchedPatients, setMatchedPatients] = useState<MatchedPatient[]>([]);
 
     useEffect(() => {
         fetchAppointments();
@@ -374,6 +399,7 @@ const AppointmentsScreen = () => {
             ...prev,
             patient_phone: params.prefillPatientPhone || '',
             patient_name: params.prefillPatientName || '',
+            booking_for: 'SELF',
             clinic_id: prev.clinic_id || (clinics[0]?.clinic_id ? String(clinics[0].clinic_id) : ''),
             date: '',
             time: '',
@@ -490,6 +516,43 @@ const AppointmentsScreen = () => {
         else setAvailableSlots([]);
     }, [formData.clinic_id, formData.date]);
 
+    useEffect(() => {
+        if (!isModalVisible) {
+            setMatchedPatients([]);
+            setLookupLoading(false);
+            return;
+        }
+
+        const phone = String(formData.patient_phone || '').trim();
+        if (phone.length < 8) {
+            setMatchedPatients([]);
+            setLookupLoading(false);
+            return;
+        }
+
+        const timer = setTimeout(async () => {
+            setLookupLoading(true);
+            try {
+                const response = await client.get(`/patients/lookup?phone=${encodeURIComponent(phone)}`);
+                setMatchedPatients(response.data?.patients || []);
+            } catch (error) {
+                setMatchedPatients([]);
+            } finally {
+                setLookupLoading(false);
+            }
+        }, 250);
+
+        return () => clearTimeout(timer);
+    }, [formData.patient_phone, isModalVisible]);
+
+    useEffect(() => {
+        if (!showSearch) return;
+        const timer = setTimeout(() => {
+            searchInputRef.current?.focus();
+        }, 120);
+        return () => clearTimeout(timer);
+    }, [showSearch]);
+
     const fetchAppointments = async () => {
         try {
             const data = await getAppointments();
@@ -525,13 +588,15 @@ const AppointmentsScreen = () => {
     };
 
     const resetForm = () => {
-        setFormData({ patient_phone: '', patient_name: '', clinic_id: '', date: '', time: '' });
+        setFormData({ patient_phone: '', patient_name: '', booking_for: 'SELF', clinic_id: '', date: '', time: '' });
         setAvailableSlots([]);
         setShowCalendar(false);
+        setMatchedPatients([]);
+        setLookupLoading(false);
     };
 
     const handleCreateAppointment = async () => {
-        if (!formData.patient_phone || !formData.clinic_id || !formData.date || !formData.time) {
+        if (!formData.patient_phone || !formData.patient_name || !formData.clinic_id || !formData.date || !formData.time) {
             Alert.alert('Error', 'Please fill all required fields');
             return;
         }
@@ -546,6 +611,7 @@ const AppointmentsScreen = () => {
             await createAppointment({
                 patient_phone: formData.patient_phone,
                 patient_name: formData.patient_name,
+                booking_for: formData.booking_for,
                 clinic_id: formData.clinic_id,
                 appointment_date: formData.date,
                 start_time: formData.time,
@@ -582,7 +648,7 @@ const AppointmentsScreen = () => {
         return `${hh}:${mm}`;
     };
 
-    const handleStatusChange = async (appointmentId: number, status: 'CANCELLED' | 'COMPLETED') => {
+    const handleStatusChange = async (appointmentId: number, status: 'CANCELLED' | 'COMPLETED' | 'PENDING') => {
         try {
             const extra = status === 'CANCELLED' ? { cancelled_by: 'DOCTOR' } : {};
             await updateAppointment({ appointmentId, status, ...extra });
@@ -593,10 +659,19 @@ const AppointmentsScreen = () => {
         }
     };
 
-    const confirmStatusChange = (appointmentId: number, status: 'CANCELLED' | 'COMPLETED') => {
-        const actionLabel = status === 'CANCELLED' ? 'cancel' : 'mark as visited';
+    const confirmStatusChange = (appointmentId: number, status: 'CANCELLED' | 'COMPLETED' | 'PENDING') => {
+        const actionTitle = status === 'CANCELLED'
+            ? 'Cancel'
+            : status === 'COMPLETED'
+                ? 'Mark Visited'
+                : 'Mark Not Visited';
+        const actionLabel = status === 'CANCELLED'
+            ? 'cancel'
+            : status === 'COMPLETED'
+                ? 'mark as visited'
+                : 'mark as not visited';
         Alert.alert(
-            `${status === 'CANCELLED' ? 'Cancel' : 'Mark Visited'} appointment`,
+            `${actionTitle} appointment`,
             `Are you sure you want to ${actionLabel} this appointment?`,
             [
                 { text: 'No', style: 'cancel' },
@@ -672,14 +747,10 @@ const AppointmentsScreen = () => {
         const query = searchQuery.trim().toLowerCase();
         const from = parseDateOnly(dateFrom);
         const to = parseDateOnly(dateTo);
-        const now = new Date();
 
         return appointments.filter((a) => {
             const statusUpper = String(a?.status || '').toUpperCase();
-            if (statusUpper === 'CANCELLED' || statusUpper === 'COMPLETED') return false;
-
-            const startAt = parseAppointmentStart(a);
-            if (!startAt || startAt < now) return false;
+            if (statusFilter !== 'ALL' && statusUpper !== statusFilter) return false;
 
             const patientName = String(a?.patient?.full_name || '').toLowerCase();
             const phone = String(a?.patient?.phone || '').toLowerCase();
@@ -695,11 +766,11 @@ const AppointmentsScreen = () => {
             if (to && date > to) return false;
             return true;
         });
-    }, [appointments, dateFrom, dateTo, searchQuery]);
+    }, [appointments, dateFrom, dateTo, searchQuery, statusFilter]);
 
     const renderItem = useCallback(({ item }: { item: any }) => {
         const statusUpper = String(item?.status || '').toUpperCase();
-        const canUpdate = statusUpper !== 'COMPLETED' && statusUpper !== 'CANCELLED';
+        const canUpdate = statusUpper !== 'COMPLETED' && statusUpper !== 'CANCELLED' && statusUpper !== 'PENDING';
         const isMenuOpen = openCardMenuId === item.appointment_id;
         const pairKey = `${item.patient_id}:${item.doctor_id}`;
         const isHighlighted = highlightedPairKey === pairKey;
@@ -739,7 +810,7 @@ const AppointmentsScreen = () => {
                                 {item.clinic?.clinic_name || 'N/A'}
                             </Text>
                             <View className="mt-1.5 self-start px-2 py-1 rounded-md bg-gray-100">
-                                <Text className="text-[10px] font-semibold text-gray-600">Booking #{item.patient?.booking_id ?? item.appointment_id}</Text>
+                                <Text className="text-[10px] font-semibold text-gray-600">Appointment No. {item.patient?.booking_id ?? item.appointment_id}</Text>
                             </View>
                             {isHighlighted && (
                                 <View className="mt-1.5 self-start px-2 py-1 rounded-md bg-blue-600">
@@ -748,7 +819,7 @@ const AppointmentsScreen = () => {
                             )}
                         </View>
                         <View className="items-end ml-2">
-                            <StatusBadge status={item.status} />
+                            <StatusBadge status={item.status} cancelledBy={item.cancelled_by} />
                             <TouchableOpacity
                                 onPress={() => setOpenCardMenuId((prev) => (prev === item.appointment_id ? null : item.appointment_id))}
                                 className="mt-2 p-1.5 rounded-lg bg-gray-100"
@@ -774,15 +845,6 @@ const AppointmentsScreen = () => {
                             <Text className="text-white text-xs font-semibold ml-1.5">Open Chat</Text>
                         </View>
                     </View>
-                    {/* Show who cancelled the appointment */}
-                    {statusUpper === 'CANCELLED' && item.cancelled_by ? (
-                        <View className="mt-2 flex-row items-center bg-red-50 rounded-lg px-3 py-1.5">
-                            <XCircle size={12} color="#dc2626" />
-                            <Text className="text-xs text-red-700 font-medium ml-1.5">
-                                Cancelled by: {String(item.cancelled_by).charAt(0).toUpperCase() + String(item.cancelled_by).slice(1).toLowerCase()}
-                            </Text>
-                        </View>
-                    ) : null}
                 </TouchableOpacity>
 
                 {isMenuOpen && (
@@ -825,6 +887,17 @@ const AppointmentsScreen = () => {
                         >
                             <Text className={`text-sm font-medium ${canUpdate ? 'text-red-600' : 'text-gray-400'}`}>Cancel appointment</Text>
                         </TouchableOpacity>
+                        {canUpdate && (
+                            <TouchableOpacity
+                                onPress={() => {
+                                    setOpenCardMenuId(null);
+                                    confirmStatusChange(item.appointment_id, 'PENDING');
+                                }}
+                                className="px-4 py-3 border-b border-gray-100"
+                            >
+                                <Text className="text-sm text-gray-800 font-medium">Not Visited</Text>
+                            </TouchableOpacity>
+                        )}
                         {canUpdate && (
                             <TouchableOpacity
                                 onPress={() => {
@@ -880,12 +953,32 @@ const AppointmentsScreen = () => {
                                 {filteredAppointments.length} shown • {appointments.length} total
                             </Text>
                         </View>
-                        <TouchableOpacity
-                            onPress={() => setHeaderMenuVisible((prev) => !prev)}
-                            className="bg-white p-3 rounded-full"
-                        >
-                            {headerMenuVisible ? <X size={22} color="#1d4ed8" /> : <EllipsisVertical size={22} color="#1d4ed8" />}
-                        </TouchableOpacity>
+                        <View className="flex-row items-center">
+                            <TouchableOpacity
+                                onPress={() => {
+                                    setShowSearch((prev) => !prev);
+                                    setHeaderMenuVisible(false);
+                                }}
+                                className="bg-white p-3 rounded-full mr-2"
+                            >
+                                <Search size={20} color="#1d4ed8" />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={() => {
+                                    setModalVisible(true);
+                                    setHeaderMenuVisible(false);
+                                }}
+                                className="bg-white p-3 rounded-full mr-2"
+                            >
+                                <PlusCircle size={20} color="#1d4ed8" />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={() => setHeaderMenuVisible((prev) => !prev)}
+                                className="bg-white p-3 rounded-full"
+                            >
+                                {headerMenuVisible ? <X size={22} color="#1d4ed8" /> : <EllipsisVertical size={22} color="#1d4ed8" />}
+                            </TouchableOpacity>
+                        </View>
                     </View>
                     {/* Quick date filter chips */}
                     {(() => {
@@ -893,9 +986,10 @@ const AppointmentsScreen = () => {
                         const todayStr = toYMD(nowIST);
                         const tomorrowIST = new Date(nowIST.getTime() + 86400000);
                         const tomorrowStr = toYMD(tomorrowIST);
+                        const isAllTime = !dateFrom && !dateTo;
                         const isToday = dateFrom === todayStr && dateTo === todayStr;
                         const isTomorrow = dateFrom === tomorrowStr && dateTo === tomorrowStr;
-                        const isCustom = !isToday && !isTomorrow && (dateFrom || dateTo);
+                        const isCustom = !isAllTime && !isToday && !isTomorrow && (dateFrom || dateTo);
 
                         const chipStyle = (active: boolean) => ({
                             paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, marginRight: 8,
@@ -912,6 +1006,16 @@ const AppointmentsScreen = () => {
                             <View className="mt-3">
                                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                                     <View className="flex-row">
+                                        <TouchableOpacity
+                                            style={chipStyle(isAllTime)}
+                                            onPress={() => {
+                                                setDateFrom('');
+                                                setDateTo('');
+                                                setShowQuickDatePicker(false);
+                                            }}
+                                        >
+                                            <Text style={chipTextStyle(isAllTime)}>All Time</Text>
+                                        </TouchableOpacity>
                                         <TouchableOpacity
                                             style={chipStyle(isToday)}
                                             onPress={() => {
@@ -935,7 +1039,7 @@ const AppointmentsScreen = () => {
                                             onPress={() => setShowQuickDatePicker(prev => !prev)}
                                         >
                                             <Text style={chipTextStyle(isCustom as boolean)}>
-                                                {isCustom ? `${dateFrom || '…'} → ${dateTo || '…'}` : ' Pick Date'}
+                                                {isCustom ? `${dateFrom || '…'} → ${dateTo || '…'}` : 'Pick Date'}
                                             </Text>
                                         </TouchableOpacity>
                                         {(dateFrom || dateTo) && (
@@ -979,26 +1083,6 @@ const AppointmentsScreen = () => {
                         >
                             <TouchableOpacity
                                 onPress={() => {
-                                    setShowSearch((prev) => !prev);
-                                    setHeaderMenuVisible(false);
-                                }}
-                                className="px-4 py-3 flex-row items-center border-b border-gray-100"
-                            >
-                                <Search size={14} color="#1f2937" />
-                                <Text className="text-sm text-gray-800 font-medium ml-2">{showSearch ? 'Hide Search' : 'Search Appointments'}</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                onPress={() => {
-                                    setModalVisible(true);
-                                    setHeaderMenuVisible(false);
-                                }}
-                                className="px-4 py-3 flex-row items-center border-b border-gray-100"
-                            >
-                                <PlusCircle size={14} color="#1f2937" />
-                                <Text className="text-sm text-gray-800 font-medium ml-2">New Appointment</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                onPress={() => {
                                     setFilterModalVisible(true);
                                     setHeaderMenuVisible(false);
                                 }}
@@ -1012,6 +1096,7 @@ const AppointmentsScreen = () => {
                                     setSearchQuery('');
                                     setDateFrom('');
                                     setDateTo('');
+                                    setStatusFilter('ALL');
                                     setOpenCardMenuId(null);
                                     setHeaderMenuVisible(false);
                                 }}
@@ -1023,14 +1108,16 @@ const AppointmentsScreen = () => {
                         </View>
                     )}
                     {showSearch && (
-                        <View className="mt-4 bg-white/95 rounded-xl px-3 py-2.5 flex-row items-center">
+                        <View className="mt-4 bg-white/95 rounded-2xl px-4 py-3 flex-row items-center">
                             <Search size={16} color="#6b7280" />
                             <TextInput
+                                ref={searchInputRef}
                                 className="flex-1 ml-2 text-gray-800 text-sm"
                                 placeholder="Search by patient, clinic, phone, booking id"
                                 placeholderTextColor="#9ca3af"
                                 value={searchQuery}
                                 onChangeText={setSearchQuery}
+                                autoFocus
                             />
                         </View>
                     )}
@@ -1039,6 +1126,44 @@ const AppointmentsScreen = () => {
                             Date filter: {dateFrom || 'Any'} to {dateTo || 'Any'}
                         </Text>
                     )}
+                    <View className="mt-3">
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                            <View className="flex-row">
+                                {(['ALL', 'BOOKED', 'PENDING', 'COMPLETED', 'CANCELLED'] as const).map((status) => {
+                                    const active = statusFilter === status;
+                                    return (
+                                        <TouchableOpacity
+                                            key={status}
+                                            style={{
+                                                paddingHorizontal: 14,
+                                                paddingVertical: 7,
+                                                borderRadius: 20,
+                                                marginRight: 8,
+                                                backgroundColor: active ? '#fff' : 'rgba(255,255,255,0.18)',
+                                                borderWidth: 1,
+                                                borderColor: active ? '#fff' : 'rgba(255,255,255,0.35)',
+                                            }}
+                                            onPress={() => setStatusFilter(status)}
+                                        >
+                                            <Text style={{
+                                                color: active ? '#1d4ed8' : '#e0e7ff',
+                                                fontWeight: '700',
+                                                fontSize: 13,
+                                            }}>
+                                                {status === 'ALL'
+                                                    ? 'All Status'
+                                                    : status === 'PENDING'
+                                                        ? 'Not Visited'
+                                                        : status === 'COMPLETED'
+                                                            ? 'Visited'
+                                                            : status.charAt(0) + status.slice(1).toLowerCase()}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </View>
+                        </ScrollView>
+                    </View>
                 </View>
 
                 {/* List */}
@@ -1175,12 +1300,35 @@ const AppointmentsScreen = () => {
                                             value={formData.patient_phone}
                                             onChangeText={t => setFormData({ ...formData, patient_phone: t })}
                                         />
+                                        {lookupLoading && (
+                                            <Text className="text-xs text-gray-400 mt-2">Checking existing patients...</Text>
+                                        )}
+                                    </View>
+
+                                    <View>
+                                        <Text className="text-sm font-bold text-gray-700 mb-2">Booking For</Text>
+                                        <View className="flex-row gap-2">
+                                            {(['SELF', 'OTHER'] as BookingFor[]).map((value) => {
+                                                const active = formData.booking_for === value;
+                                                return (
+                                                    <TouchableOpacity
+                                                        key={value}
+                                                        onPress={() => setFormData({ ...formData, booking_for: value })}
+                                                        className={`flex-1 rounded-xl border px-4 py-3 items-center ${active ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200'}`}
+                                                    >
+                                                        <Text className={`font-semibold text-sm ${active ? 'text-blue-700' : 'text-gray-600'}`}>
+                                                            {value === 'SELF' ? 'Self' : 'Other'}
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                );
+                                            })}
+                                        </View>
                                     </View>
 
                                     {/* Patient Name */}
                                     <View>
                                         <Text className="text-sm font-bold text-gray-700 mb-2">
-                                            Patient Name <Text className="text-gray-400 font-normal">(Optional)</Text>
+                                            Patient Name <Text className="text-red-500">*</Text>
                                         </Text>
                                         <TextInput
                                             className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-800 text-base"
@@ -1188,6 +1336,31 @@ const AppointmentsScreen = () => {
                                             value={formData.patient_name}
                                             onChangeText={t => setFormData({ ...formData, patient_name: t })}
                                         />
+                                        {matchedPatients.length > 0 && (
+                                            <View className="mt-3 bg-amber-50 border border-amber-100 rounded-xl px-3 py-3">
+                                                <Text className="text-xs font-bold text-amber-700">Existing names on this phone</Text>
+                                                <View className="flex-row flex-wrap mt-2">
+                                                    {matchedPatients.map((patient) => (
+                                                        <TouchableOpacity
+                                                            key={patient.patient_id}
+                                                            onPress={() => setFormData({
+                                                                ...formData,
+                                                                patient_name: patient.full_name || '',
+                                                                booking_for: 'SELF',
+                                                            })}
+                                                            className="px-3 py-1.5 rounded-full bg-white border border-amber-200 mr-2 mb-2"
+                                                        >
+                                                            <Text className="text-xs font-semibold text-amber-700">
+                                                                {patient.full_name || 'Unnamed patient'}
+                                                            </Text>
+                                                        </TouchableOpacity>
+                                                    ))}
+                                                </View>
+                                                <Text className="text-[11px] text-amber-700">
+                                                    Same name reuses the same patient. Different name books for Other on the same phone.
+                                                </Text>
+                                            </View>
+                                        )}
                                     </View>
 
                                     {/* Clinic Dropdown */}
