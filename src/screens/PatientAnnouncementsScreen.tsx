@@ -3,10 +3,12 @@ import { ActivityIndicator, RefreshControl, StatusBar, Text, View } from 'react-
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { Bell } from 'lucide-react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { getPatientAnnouncements } from '../api/announcements';
 import { getPatientProfile } from '../api/auth';
 import { io, type Socket } from 'socket.io-client';
 import { SOCKET_URL } from '../config/env';
+import { markPatientAnnouncementsRead } from '../lib/mobileNotificationState';
 
 interface PatientAnnouncement {
     message_id: number;
@@ -23,6 +25,12 @@ export default function PatientAnnouncementsScreen() {
     const [patientId, setPatientId] = useState<number | null>(null);
     const [doctorIds, setDoctorIds] = useState<number[]>([]);
     const socketRef = useRef<Socket | null>(null);
+
+    useFocusEffect(
+        React.useCallback(() => {
+            markPatientAnnouncementsRead();
+        }, [])
+    );
 
     const fetchAnnouncements = useCallback(async () => {
         try {

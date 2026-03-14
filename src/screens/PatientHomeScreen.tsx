@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { User, MessageCircle, LogOut, Settings } from 'lucide-react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 import { getPatientProfile } from '../api/auth';
@@ -22,6 +22,7 @@ import IncomingMessageBubble from '../components/IncomingMessageBubble';
 import { io, type Socket } from 'socket.io-client';
 import { SOCKET_URL } from '../config/env';
 import { useAuthSession } from '../context/AuthSessionContext';
+import { getPatientAnnouncementsReadAt, markPatientAnnouncementsRead } from '../lib/mobileNotificationState';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -34,6 +35,7 @@ interface DoctorItem {
 
 export default function PatientHomeScreen() {
     const navigation = useNavigation<Nav>();
+    const isFocused = useIsFocused();
     const { clearSession } = useAuthSession();
     const [refreshing, setRefreshing] = useState(false);
     const [notifCount, setNotifCount] = useState(0);
@@ -43,6 +45,7 @@ export default function PatientHomeScreen() {
     const bubbleHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const socketRef = useRef<Socket | null>(null);
     const socketEnabled = React.useMemo(() => !SOCKET_URL.includes('vercel.app'), []);
+    const lastHandledAnnouncementsReadAtRef = useRef<number>(0);
 
     const { data, isLoading: loading, revalidate } = useSWRLite('patient:home', getPatientProfile);
     const patient = data?.patient || null;
@@ -57,11 +60,12 @@ export default function PatientHomeScreen() {
     }, [doctors]);
 
     const checkIncomingNotifications = React.useCallback(async () => {
+        if (!isFocused) return;
         try {
             const result = await getChatNotifications(lastNotifCheckAtRef.current);
             lastNotifCheckAtRef.current = new Date().toISOString();
-            setNotifCount((prev) => prev + (result?.count || 0));
-            setAnnouncementCount((prev) => prev + (result?.announcementCount || 0));
+            setNotifCount(result?.count || 0);
+            setAnnouncementCount(result?.announcementCount || 0);
             if (result?.latestMessage) {
                 setIncomingMessage({
                     ...result.latestMessage,
@@ -79,9 +83,13 @@ export default function PatientHomeScreen() {
         } catch {
             // ignore
         }
-    }, []);
+    }, [isFocused]);
 
     useEffect(() => {
+        if (!isFocused) {
+            setIncomingMessage(null);
+            return;
+        }
         checkIncomingNotifications();
         const interval = setInterval(checkIncomingNotifications, 7000);
         return () => {
@@ -90,15 +98,23 @@ export default function PatientHomeScreen() {
                 clearTimeout(bubbleHideTimerRef.current);
             }
         };
-    }, [checkIncomingNotifications]);
+    }, [checkIncomingNotifications, isFocused]);
 
     useFocusEffect(
         React.useCallback(() => {
+            if (!isFocused) return;
+            const latestAnnouncementReadAt = getPatientAnnouncementsReadAt();
+            if (latestAnnouncementReadAt > lastHandledAnnouncementsReadAtRef.current) {
+                lastHandledAnnouncementsReadAtRef.current = latestAnnouncementReadAt;
+                setAnnouncementCount(0);
+                setIncomingMessage((prev) => (prev?.isAnnouncement ? null : prev));
+            }
             checkIncomingNotifications();
-        }, [checkIncomingNotifications])
+        }, [checkIncomingNotifications, isFocused])
     );
 
     useEffect(() => {
+        if (!isFocused) return;
         if (!socketEnabled) return;
         if (!patient?.patient_id || uniqueDoctors.length === 0) return;
         const socket = io(SOCKET_URL, {
@@ -122,6 +138,11 @@ export default function PatientHomeScreen() {
             if (msg.patient_id !== patient.patient_id) return;
             const isAnnouncement = String(msg.content || '').startsWith('Announcement:');
             const senderName = uniqueDoctors.find((d) => d.doctor_id === msg.doctor_id)?.doctor_name || 'Doctor';
+            if (isAnnouncement) {
+                setAnnouncementCount((prev) => prev + 1);
+            } else {
+                setNotifCount((prev) => prev + 1);
+            }
             setIncomingMessage({
                 senderName,
                 senderRole: 'DOCTOR',
@@ -145,7 +166,40 @@ export default function PatientHomeScreen() {
             socket.disconnect();
             socketRef.current = null;
         };
-    }, [uniqueDoctors, patient?.patient_id, socketEnabled]);
+    }, [isFocused, uniqueDoctors, patient?.patient_id, socketEnabled]);
+
+    const clearMessageIndicators = React.useCallback(() => {
+        setIncomingMessage(null);
+        setNotifCount(0);
+        lastNotifCheckAtRef.current = new Date().toISOString();
+        if (bubbleHideTimerRef.current) {
+            clearTimeout(bubbleHideTimerRef.current);
+            bubbleHideTimerRef.current = null;
+        }
+    }, []);
+
+    const clearAnnouncementIndicators = React.useCallback(() => {
+        markPatientAnnouncementsRead();
+        lastHandledAnnouncementsReadAtRef.current = getPatientAnnouncementsReadAt();
+        setAnnouncementCount(0);
+        setIncomingMessage((prev) => (prev?.isAnnouncement ? null : prev));
+        lastNotifCheckAtRef.current = new Date().toISOString();
+        if (bubbleHideTimerRef.current) {
+            clearTimeout(bubbleHideTimerRef.current);
+            bubbleHideTimerRef.current = null;
+        }
+    }, []);
+
+    const handleOpenDoctorChat = React.useCallback((doctorId: number, doctorName: string) => {
+        if (!patient?.patient_id) return;
+        clearMessageIndicators();
+        navigation.navigate('Chat', {
+            patientId: patient.patient_id,
+            doctorId,
+            patientName: doctorName || 'Doctor',
+            viewer: 'PATIENT',
+        });
+    }, [clearMessageIndicators, navigation, patient?.patient_id]);
 
     const onRefresh = async () => {
         setRefreshing(true);
@@ -198,8 +252,9 @@ export default function PatientHomeScreen() {
                             {(notifCount > 0 || announcementCount > 0) && (
                                 <View className="mb-3 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
                                     <Text className="text-amber-700 text-xs font-semibold">
-                                        {notifCount > 0 ? `New messages: ${notifCount}` : ''}
-                                        {announcementCount > 0 ? `  •  Announcements: ${announcementCount}` : ''}
+                                        {notifCount > 0 ? `${notifCount} new chat message${notifCount === 1 ? '' : 's'}` : ''}
+                                        {notifCount > 0 && announcementCount > 0 ? '  •  ' : ''}
+                                        {announcementCount > 0 ? `${announcementCount} new announcement${announcementCount === 1 ? '' : 's'}` : ''}
                                     </Text>
                                 </View>
                             )}
@@ -212,14 +267,7 @@ export default function PatientHomeScreen() {
                             className="bg-white rounded-2xl p-4 mb-3 flex-row items-center"
                             style={{ shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 2 }}
                             disabled={!patient?.patient_id}
-                            onPress={() =>
-                                navigation.navigate("Chat", {
-                                    patientId: patient!.patient_id,
-                                    doctorId: item.doctor_id,
-                                    patientName: item.doctor_name || "Doctor",
-                                    viewer: "PATIENT",
-                                })
-                            }
+                            onPress={() => handleOpenDoctorChat(item.doctor_id, item.doctor_name || 'Doctor')}
                         >
                             <View className="w-11 h-11 bg-blue-100 rounded-full items-center justify-center mr-3 relative">
                                 <User size={20} color="#1d4ed8" />
@@ -254,17 +302,13 @@ export default function PatientHomeScreen() {
                 <IncomingMessageBubble
                     message={incomingMessage}
                     onPress={(message) => {
-                        setIncomingMessage(null);
                         if (message.isAnnouncement) {
+                            clearAnnouncementIndicators();
                             navigation.getParent()?.navigate('PatientAnnouncements');
                             return;
                         }
-                        navigation.navigate('Chat', {
-                            patientId: message.patientId,
-                            doctorId: message.doctorId,
-                            patientName: message.senderName,
-                            viewer: 'PATIENT',
-                        });
+                        clearMessageIndicators();
+                        handleOpenDoctorChat(message.doctorId, message.senderName);
                     }}
                 />
             </View>

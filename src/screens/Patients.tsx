@@ -26,12 +26,13 @@ import {
 } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getPatients, createPatient } from '../api/patients';
-import { useNavigation } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import type { RootStackParamList } from '../navigation/types';
 import type { NavigationProp } from '@react-navigation/native';
 import { getChatNotifications } from '../api/notifications';
 import { io, type Socket } from 'socket.io-client';
 import { SOCKET_URL } from '../config/env';
+import { markDoctorPatientChatRead } from '../lib/mobileNotificationState';
 
 const AnimatedListItem = ({ children, index }: { children: React.ReactNode, index: number }) => {
     const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -49,6 +50,7 @@ const AnimatedListItem = ({ children, index }: { children: React.ReactNode, inde
 
 const Patients = () => {
     const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+    const isFocused = useIsFocused();
     const [patients, setPatients] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [isModalVisible, setModalVisible] = useState(false);
@@ -76,6 +78,7 @@ const Patients = () => {
 
     // Poll for new notifications and mark which patients have unread messages
     const checkNotifications = useCallback(async () => {
+        if (!isFocused) return;
         try {
             const result = await getChatNotifications(lastNotifCheckAtRef.current);
             lastNotifCheckAtRef.current = new Date().toISOString();
@@ -89,17 +92,19 @@ const Patients = () => {
         } catch {
             // ignore
         }
-    }, []);
+    }, [isFocused]);
 
     useEffect(() => {
+        if (!isFocused) return;
         fetchPatients();
         checkNotifications();
         const interval = setInterval(checkNotifications, 9000);
         return () => clearInterval(interval);
-    }, [checkNotifications]);
+    }, [checkNotifications, isFocused]);
 
     // WebSocket: listen for incoming patient messages and mark unread
     useEffect(() => {
+        if (!isFocused) return;
         if (!patients.length) return;
         const socket = io(SOCKET_URL, {
             transports: ['websocket', 'polling'],
@@ -126,7 +131,7 @@ const Patients = () => {
             socket.disconnect();
             socketRef.current = null;
         };
-    }, [patients]);
+    }, [isFocused, patients]);
 
     const fetchPatients = async () => {
         setLoading(true);
@@ -194,6 +199,8 @@ const Patients = () => {
             next.delete(patientId);
             return next;
         });
+        markDoctorPatientChatRead(patientId);
+        lastNotifCheckAtRef.current = new Date().toISOString();
 
         navigation.navigate('Chat', {
             patientId,

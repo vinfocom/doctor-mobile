@@ -34,11 +34,12 @@ import { getAppointments } from '../api/appointments';
 import { removeToken } from '../api/token';
 import { getChatNotifications } from '../api/notifications';
 import { useSWRLite } from '../lib/useSWRLite';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthSession } from '../context/AuthSessionContext';
+import { consumeDoctorReadPatientIds, getDoctorChatsReadAt } from '../lib/mobileNotificationState';
 
 type DashboardScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'DoctorMain'>;
 
@@ -92,6 +93,7 @@ const QuickActionButton = ({
 
 const DashboardScreen = () => {
     const navigation = useNavigation<DashboardScreenNavigationProp>();
+    const isFocused = useIsFocused();
     const { role, staff_role, name, email, clearSession, refreshSession } = useAuthSession();
     const isClinicStaff = role === 'CLINIC_STAFF';
     const getClinicStaffProfile = React.useCallback(async () => ({ doctor: null }), []);
@@ -133,6 +135,24 @@ const DashboardScreen = () => {
 
     useFocusEffect(
         React.useCallback(() => {
+            const readPatientIds = consumeDoctorReadPatientIds();
+            const latestDoctorChatsReadAt = getDoctorChatsReadAt();
+            if (latestDoctorChatsReadAt > 0) {
+                lastNotifCheckAtRef.current = new Date(Math.max(new Date(lastNotifCheckAtRef.current).getTime(), latestDoctorChatsReadAt)).toISOString();
+            }
+            if (readPatientIds.length > 0) {
+                setUnreadSenders((prev) => {
+                    const next = new Map(prev);
+                    readPatientIds.forEach((patientId) => {
+                        next.delete(patientId);
+                    });
+                    return next;
+                });
+            }
+            setNotifCount((prev) => {
+                const remainingCount = Math.max(0, unreadSenders.size - readPatientIds.length);
+                return readPatientIds.length > 0 ? remainingCount : prev;
+            });
             if (isClinicStaff) {
                 refreshSession().catch(() => {
                     // ignore focus refresh errors
@@ -142,11 +162,12 @@ const DashboardScreen = () => {
             revalidateProfile().catch(() => {
                 // ignore focus refresh errors
             });
-        }, [isClinicStaff, refreshSession, revalidateProfile])
+        }, [isClinicStaff, refreshSession, revalidateProfile, unreadSenders.size])
     );
 
     useEffect(() => {
         const checkNotifications = async () => {
+            if (!isFocused) return;
             try {
                 const data = await getChatNotifications(lastNotifCheckAtRef.current);
                 lastNotifCheckAtRef.current = new Date().toISOString();
@@ -174,11 +195,18 @@ const DashboardScreen = () => {
                 // ignore periodic notification errors
             }
         };
+        if (!isFocused) return;
         checkNotifications();
         const interval = setInterval(async () => {
             await checkNotifications();
         }, 12000);
         return () => clearInterval(interval);
+    }, [isFocused]);
+
+    const clearUnreadChatIndicators = React.useCallback(() => {
+        setUnreadSenders(new Map());
+        setNotifCount(0);
+        lastNotifCheckAtRef.current = new Date().toISOString();
     }, []);
 
     const onRefresh = React.useCallback(async () => {
@@ -285,8 +313,7 @@ const DashboardScreen = () => {
                                         onPress={() => {
                                             const snap = [...unreadSenders.entries()];
                                             // Clear immediately on tap
-                                            setUnreadSenders(new Map());
-                                            setNotifCount(0);
+                                            clearUnreadChatIndicators();
                                             if (snap.length === 1) {
                                                 const [[pid, info]] = snap;
                                                 navigation.navigate('Chat', {

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Keyboard } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeft, Send, User } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -17,8 +17,15 @@ export default function ChatScreen({ route, navigation }: Props) {
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
+    const [keyboardHeight, setKeyboardHeight] = useState(0);
     const flatListRef = useRef<FlatList>(null);
     const socketRef = useRef<Socket | null>(null);
+
+    const scrollToLatest = React.useCallback((animated = true) => {
+        requestAnimationFrame(() => {
+            flatListRef.current?.scrollToEnd({ animated });
+        });
+    }, []);
 
     const mergeMessages = (prev: any[], incoming: any[]) => {
         const byId = new Map<string, any>();
@@ -47,6 +54,23 @@ export default function ChatScreen({ route, navigation }: Props) {
         const interval = setInterval(fetchMessages, 3000);
         return () => clearInterval(interval);
     }, [patientId, doctorId]);
+
+    useEffect(() => {
+        const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+        const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+        const showSub = Keyboard.addListener(showEvent, (event) => {
+            setKeyboardHeight(event.endCoordinates?.height || 0);
+            scrollToLatest(false);
+        });
+        const hideSub = Keyboard.addListener(hideEvent, () => {
+            setKeyboardHeight(0);
+            scrollToLatest(false);
+        });
+        return () => {
+            showSub.remove();
+            hideSub.remove();
+        };
+    }, [scrollToLatest]);
 
     useEffect(() => {
         const socket = io(SOCKET_URL, {
@@ -149,8 +173,8 @@ export default function ChatScreen({ route, navigation }: Props) {
             </View>
 
             <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                keyboardVerticalOffset={0}
                 className="flex-1 bg-gray-50"
             >
                 {loading ? (
@@ -167,9 +191,13 @@ export default function ChatScreen({ route, navigation }: Props) {
                                 : `tmp:${item.temp_id || `${item.sender}:${item.created_at}:${index}`}`
                         }
                         renderItem={renderMessage}
-                        contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 20 }}
-                        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-                        onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
+                        contentContainerStyle={{
+                            paddingHorizontal: 16,
+                            paddingTop: 20,
+                            paddingBottom: 28 + (Platform.OS === 'android' ? Math.max(0, keyboardHeight - insets.bottom) : 0),
+                        }}
+                        onContentSizeChange={() => scrollToLatest(true)}
+                        onLayout={() => scrollToLatest(false)}
                         showsVerticalScrollIndicator={false}
                         keyboardShouldPersistTaps="handled"
                     />
@@ -177,7 +205,10 @@ export default function ChatScreen({ route, navigation }: Props) {
 
                 <View
                     className="px-4 pt-3 bg-white border-t border-gray-100 flex-row items-center"
-                    style={{ paddingBottom: Math.max(insets.bottom, 8) }}
+                    style={{
+                        paddingBottom: Math.max(insets.bottom, 8),
+                        marginBottom: Platform.OS === 'android' ? Math.max(0, keyboardHeight - insets.bottom) : 0,
+                    }}
                 >
                     <TextInput
                         className="flex-1 bg-gray-50 border border-gray-200 rounded-full px-5 py-3 text-base text-gray-800 mr-3"
