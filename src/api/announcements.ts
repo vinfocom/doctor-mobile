@@ -54,6 +54,11 @@ export const getAnnouncementHistory = async (limit: number = 200) => {
     };
 };
 
+export const getAnnouncementAvailableDates = async () => {
+    const response = await client.get('/announcements?mode=available_dates');
+    return response.data as { dates: string[] };
+};
+
 export const resendAnnouncementCampaign = async (
     campaignId: number,
     options?: { message?: string; asAnnouncement?: boolean }

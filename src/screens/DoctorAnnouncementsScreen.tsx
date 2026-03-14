@@ -12,13 +12,13 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, Megaphone } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Megaphone } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 import {
+    getAnnouncementAvailableDates,
     getAnnouncementHistory,
     getAnnouncementTargets,
     resendAnnouncementCampaign,
@@ -42,6 +42,115 @@ const ANNOUNCEMENT_TEMPLATES = [
     'Follow-up note: If you are unable to attend, please inform the clinic in advance so we can help reschedule your appointment.',
 ];
 
+const MONTH_NAMES = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+];
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+type AvailableDateCalendarProps = {
+    selectedDate: string;
+    availableDates: string[];
+    onSelect: (date: string) => void;
+};
+
+const AvailableDateCalendar = ({ selectedDate, availableDates, onSelect }: AvailableDateCalendarProps) => {
+    const today = new Date();
+    const fallbackDate = availableDates[0] ? new Date(`${availableDates[0]}T00:00:00`) : today;
+    const initialDate = selectedDate ? new Date(`${selectedDate}T00:00:00`) : fallbackDate;
+    const [viewYear, setViewYear] = useState(initialDate.getFullYear());
+    const [viewMonth, setViewMonth] = useState(initialDate.getMonth());
+
+    useEffect(() => {
+        const next = selectedDate ? new Date(`${selectedDate}T00:00:00`) : fallbackDate;
+        setViewYear(next.getFullYear());
+        setViewMonth(next.getMonth());
+    }, [fallbackDate, selectedDate]);
+
+    const availableSet = new Set(availableDates);
+    const firstDay = new Date(viewYear, viewMonth, 1).getDay();
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const cells: (number | null)[] = [
+        ...Array(firstDay).fill(null),
+        ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+    ];
+    while (cells.length % 7 !== 0) cells.push(null);
+
+    const prevMonth = () => {
+        if (viewMonth === 0) {
+            setViewMonth(11);
+            setViewYear((year) => year - 1);
+            return;
+        }
+        setViewMonth((month) => month - 1);
+    };
+
+    const nextMonth = () => {
+        if (viewMonth === 11) {
+            setViewMonth(0);
+            setViewYear((year) => year + 1);
+            return;
+        }
+        setViewMonth((month) => month + 1);
+    };
+
+    return (
+        <View className="bg-white rounded-2xl overflow-hidden border border-gray-200 shadow-sm elevation-3">
+            <View className="flex-row items-center justify-between px-4 py-3 bg-blue-600 rounded-t-2xl">
+                <TouchableOpacity onPress={prevMonth} className="p-1">
+                    <ChevronLeft size={20} color="#fff" />
+                </TouchableOpacity>
+                <Text className="text-white font-bold text-base">
+                    {MONTH_NAMES[viewMonth]} {viewYear}
+                </Text>
+                <TouchableOpacity onPress={nextMonth} className="p-1">
+                    <ChevronRight size={20} color="#fff" />
+                </TouchableOpacity>
+            </View>
+
+            <View className="flex-row bg-blue-50 px-2 py-2">
+                {DAY_LABELS.map((day) => (
+                    <View key={day} className="flex-1 items-center">
+                        <Text className="text-blue-400 text-xs font-bold">{day}</Text>
+                    </View>
+                ))}
+            </View>
+
+            <View className="px-2 pb-3 pt-1">
+                {Array.from({ length: cells.length / 7 }, (_, row) => (
+                    <View key={row} className="flex-row">
+                        {cells.slice(row * 7, row * 7 + 7).map((day, index) => {
+                            if (!day) return <View key={index} className="flex-1 m-1" />;
+
+                            const date = new Date(viewYear, viewMonth, day);
+                            const dateStr = toYMD(date);
+                            const isSelected = dateStr === selectedDate;
+                            const isAvailable = availableSet.has(dateStr);
+
+                            return (
+                                <TouchableOpacity
+                                    key={index}
+                                    onPress={() => isAvailable && onSelect(dateStr)}
+                                    disabled={!isAvailable}
+                                    className={`flex-1 m-1 h-9 items-center justify-center rounded-xl ${!isAvailable ? 'opacity-25' : 'opacity-100'}`}
+                                    style={{ backgroundColor: isSelected ? '#2563eb' : isAvailable ? '#eff6ff' : 'transparent' }}
+                                >
+                                    <Text
+                                        className="text-sm font-semibold"
+                                        style={{ color: isSelected ? '#fff' : isAvailable ? '#1d4ed8' : '#9ca3af' }}
+                                    >
+                                        {day}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+                ))}
+            </View>
+        </View>
+    );
+};
+
 type Nav = NativeStackNavigationProp<RootStackParamList, 'DoctorAnnouncements'>;
 
 export default function DoctorAnnouncementsScreen() {
@@ -54,32 +163,46 @@ export default function DoctorAnnouncementsScreen() {
     const [history, setHistory] = useState<AnnouncementCampaign[]>([]);
     const [targetCount, setTargetCount] = useState(0);
     const [targetPatients, setTargetPatients] = useState<any[]>([]);
+    const [availableDates, setAvailableDates] = useState<string[]>([]);
     const [message, setMessage] = useState('');
     const [targetMode, setTargetMode] = useState<AnnouncementTargetMode>('TODAY');
     const [targetDate, setTargetDate] = useState(toYMD(new Date()));
-    const [showPicker, setShowPicker] = useState(false);
 
     const canSend = useMemo(() => {
         if (!message.trim()) return false;
         if (targetMode !== 'CUSTOM') return true;
-        return /^\d{4}-\d{2}-\d{2}$/.test(targetDate);
-    }, [message, targetDate, targetMode]);
+        return Boolean(targetDate) && availableDates.includes(targetDate);
+    }, [availableDates, message, targetDate, targetMode]);
 
     const fetchAll = React.useCallback(async () => {
         if (!isDoctor) {
             setHistory([]);
             setTargetCount(0);
             setTargetPatients([]);
+            setAvailableDates([]);
             return;
         }
-        const [h, t] = await Promise.all([
+        const [h, t, available] = await Promise.all([
             getAnnouncementHistory(200),
             getAnnouncementTargets(targetMode, targetMode === 'CUSTOM' ? targetDate : undefined),
+            getAnnouncementAvailableDates(),
         ]);
         setHistory(h?.campaigns || []);
         setTargetCount(Math.max(0, t?.count || 0));
         setTargetPatients(t?.patients || []);
+        setAvailableDates(available?.dates || []);
     }, [isDoctor, targetDate, targetMode]);
+
+    useEffect(() => {
+        if (targetMode !== 'CUSTOM') return;
+        if (availableDates.length === 0) {
+            setTargetDate('');
+            return;
+        }
+        if (!availableDates.includes(targetDate)) {
+            setTargetDate(availableDates[0]);
+        }
+    }, [availableDates, targetDate, targetMode]);
 
     useEffect(() => {
         if (!isDoctor) {
@@ -238,27 +361,17 @@ export default function DoctorAnnouncementsScreen() {
                                 </View>
                                 {targetMode === 'CUSTOM' && (
                                     <View className="mt-3">
-                                        <TouchableOpacity
-                                            onPress={() => setShowPicker(true)}
-                                            className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-3"
-                                        >
-                                            <Text className="text-gray-800">{targetDate || 'Select Date'}</Text>
-                                        </TouchableOpacity>
-                                        {showPicker && (
-                                            <DateTimePicker
-                                                value={targetDate ? new Date(targetDate) : new Date()}
-                                                mode="date"
-                                                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                                                onChange={(event: any, selectedDate?: Date) => {
-                                                    setShowPicker(Platform.OS === 'ios');
-                                                    if (selectedDate) setTargetDate(toYMD(selectedDate));
-                                                }}
+                                        <Text className="text-gray-700 text-xs font-semibold mb-2">Available Dates</Text>
+                                        {availableDates.length === 0 ? (
+                                            <View className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-3">
+                                                <Text className="text-gray-500 text-sm">No upcoming booked appointment dates available.</Text>
+                                            </View>
+                                        ) : (
+                                            <AvailableDateCalendar
+                                                selectedDate={targetDate}
+                                                availableDates={availableDates}
+                                                onSelect={setTargetDate}
                                             />
-                                        )}
-                                        {Platform.OS === 'ios' && showPicker && (
-                                            <TouchableOpacity onPress={() => setShowPicker(false)} className="mt-2 self-end">
-                                                <Text className="text-blue-600 font-bold">Done</Text>
-                                            </TouchableOpacity>
                                         )}
                                     </View>
                                 )}
