@@ -11,6 +11,8 @@ import {
     Modal,
     NativeSyntheticEvent,
     NativeScrollEvent,
+    Image,
+    Linking,
 } from 'react-native';
 import {
     User,
@@ -26,15 +28,21 @@ import {
     Check,
     CalendarDays,
     BedDouble,
+    Camera,
+    Upload,
+    BadgeCheck,
 } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { getProfile, updateProfile } from '../api/auth';
 import { getLeaves, addLeave, deleteLeave } from '../api/leaves';
 import { removeToken } from '../api/token';
+import { uploadDoctorFile } from '../api/uploads';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 
 type ProfileScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Profile'>;
 
@@ -124,9 +132,28 @@ interface WhatsAppNumber {
     is_primary: boolean;
 }
 
+interface DoctorProfile {
+    doctor_id: number;
+    doctor_name?: string | null;
+    phone?: string | null;
+    specialization?: string | null;
+    whatsapp_number?: string | null;
+    whatsapp_numbers?: WhatsAppNumber[];
+    chat_id?: string | null;
+    education?: string | null;
+    address?: string | null;
+    registration_no?: string | null;
+    gst_number?: string | null;
+    pan_number?: string | null;
+    profile_pic_url?: string | null;
+    document_url?: string | null;
+    status?: string | null;
+    num_clinics?: number | null;
+}
+
 const ProfileScreen = () => {
     const navigation = useNavigation<ProfileScreenNavigationProp>();
-    const [profile, setProfile] = useState<any>(null);
+    const [profile, setProfile] = useState<DoctorProfile | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [editing, setEditing] = useState(false);
@@ -135,9 +162,19 @@ const ProfileScreen = () => {
     const [doctorName, setDoctorName] = useState('');
     const [phone, setPhone] = useState('');
     const [specialization, setSpecialization] = useState('');
+    const [chatId, setChatId] = useState('');
+    const [education, setEducation] = useState('');
+    const [address, setAddress] = useState('');
+    const [registrationNo, setRegistrationNo] = useState('');
+    const [gstNumber, setGstNumber] = useState('');
+    const [panNumber, setPanNumber] = useState('');
+    const [profilePicUrl, setProfilePicUrl] = useState('');
+    const [documentUrl, setDocumentUrl] = useState('');
     const [whatsappNumbers, setWhatsappNumbers] = useState<WhatsAppNumber[]>([]);
     const [showAddWa, setShowAddWa] = useState(false);
     const [newWaNumber, setNewWaNumber] = useState('');
+    const [uploadingPhoto, setUploadingPhoto] = useState(false);
+    const [uploadingDocument, setUploadingDocument] = useState(false);
 
     // Leaves state
     interface LeaveItem { leave_id: number; date: string; reason: string; }
@@ -173,11 +210,19 @@ const ProfileScreen = () => {
     const fetchProfile = async () => {
         try {
             const data = await getProfile();
-            const p = data.doctor;
+            const p = data.doctor as DoctorProfile;
             setProfile(p);
             setDoctorName(p?.doctor_name || '');
             setPhone(p?.phone || '');
             setSpecialization(p?.specialization || '');
+            setChatId(p?.chat_id ? String(p.chat_id) : '');
+            setEducation(p?.education || '');
+            setAddress(p?.address || '');
+            setRegistrationNo(p?.registration_no || '');
+            setGstNumber(p?.gst_number || '');
+            setPanNumber(p?.pan_number || '');
+            setProfilePicUrl(p?.profile_pic_url || '');
+            setDocumentUrl(p?.document_url || '');
             setWhatsappNumbers(p?.whatsapp_numbers || (p?.whatsapp_number ? [{ whatsapp_number: p.whatsapp_number, is_primary: true }] : []));
         } catch (error) {
             console.error(error);
@@ -194,6 +239,14 @@ const ProfileScreen = () => {
                 doctor_name: doctorName,
                 phone,
                 specialization,
+                chat_id: chatId,
+                education,
+                address,
+                registration_no: registrationNo,
+                gst_number: gstNumber,
+                pan_number: panNumber,
+                profile_pic_url: profilePicUrl,
+                document_url: documentUrl,
                 whatsapp_numbers: whatsappNumbers,
             });
             Alert.alert('Success', 'Profile updated successfully');
@@ -210,8 +263,102 @@ const ProfileScreen = () => {
         setDoctorName(profile?.doctor_name || '');
         setPhone(profile?.phone || '');
         setSpecialization(profile?.specialization || '');
+        setChatId(profile?.chat_id ? String(profile.chat_id) : '');
+        setEducation(profile?.education || '');
+        setAddress(profile?.address || '');
+        setRegistrationNo(profile?.registration_no || '');
+        setGstNumber(profile?.gst_number || '');
+        setPanNumber(profile?.pan_number || '');
+        setProfilePicUrl(profile?.profile_pic_url || '');
+        setDocumentUrl(profile?.document_url || '');
         setWhatsappNumbers(profile?.whatsapp_numbers || []);
         setEditing(false);
+    };
+
+    const handleProfilePhotoPick = async () => {
+        try {
+            setUploadingPhoto(true);
+            const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (!permission.granted) {
+                Alert.alert('Permission required', 'Please allow photo library access to upload a profile picture.');
+                return;
+            }
+
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                quality: 0.8,
+                allowsEditing: true,
+                aspect: [1, 1],
+            });
+
+            if (result.canceled || !result.assets?.length) {
+                return;
+            }
+
+            const asset = result.assets[0];
+            const uploaded = await uploadDoctorFile({
+                uri: asset.uri,
+                name: asset.fileName || `profile-${Date.now()}.jpg`,
+                mimeType: asset.mimeType || 'image/jpeg',
+                type: 'profile_pic',
+            });
+
+            setProfilePicUrl(uploaded.url);
+            setProfile((prev) => (prev ? { ...prev, profile_pic_url: uploaded.url } : prev));
+        } catch (error: any) {
+            Alert.alert('Upload failed', error?.message || 'Unable to upload profile picture.');
+        } finally {
+            setUploadingPhoto(false);
+        }
+    };
+
+    const handleDocumentPick = async () => {
+        try {
+            setUploadingDocument(true);
+            const result = await DocumentPicker.getDocumentAsync({
+                type: ['application/pdf', 'image/*'],
+                copyToCacheDirectory: true,
+                multiple: false,
+            });
+
+            if (result.canceled || !result.assets?.length) {
+                return;
+            }
+
+            const asset = result.assets[0];
+            const uploaded = await uploadDoctorFile({
+                uri: asset.uri,
+                name: asset.name || `document-${Date.now()}.pdf`,
+                mimeType: asset.mimeType || 'application/pdf',
+                type: 'document',
+            });
+
+            setDocumentUrl(uploaded.url);
+            setProfile((prev) => (prev ? { ...prev, document_url: uploaded.url } : prev));
+        } catch (error: any) {
+            Alert.alert('Upload failed', error?.message || 'Unable to upload document.');
+        } finally {
+            setUploadingDocument(false);
+        }
+    };
+
+    const openDocument = async () => {
+        const url = documentUrl || profile?.document_url;
+        if (!url) {
+            Alert.alert('No document', 'No degree document is available for this profile yet.');
+            return;
+        }
+
+        try {
+            const canOpen = await Linking.canOpenURL(url);
+            if (!canOpen) {
+                Alert.alert('Unable to open', 'This document URL could not be opened on your device.');
+                return;
+            }
+            await Linking.openURL(url);
+        } catch (error) {
+            Alert.alert('Unable to open', 'Something went wrong while opening the document.');
+        }
     };
 
     const addWhatsApp = () => {
@@ -298,6 +445,9 @@ const ProfileScreen = () => {
         );
     }
 
+    const currentProfilePic = profilePicUrl || profile?.profile_pic_url || '';
+    const currentDocumentUrl = documentUrl || profile?.document_url || '';
+
     return (
         <SafeAreaView className="flex-1 bg-blue-700">
             <StatusBar barStyle="light-content" backgroundColor="#1d4ed8" />
@@ -316,14 +466,32 @@ const ProfileScreen = () => {
                             </Text>
                         </View>
                         <View className="flex-row items-center gap-2">
-                            <View className="bg-white w-16 h-16 rounded-full items-center justify-center border-4 border-blue-500"
+                            <View className="bg-white w-16 h-16 rounded-full items-center justify-center border-4 border-blue-500 overflow-hidden"
                                 style={{ shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 6, elevation: 4 }}
                             >
-                                <User size={32} color="#1d4ed8" />
+                                {currentProfilePic ? (
+                                    <Image
+                                        source={{ uri: currentProfilePic }}
+                                        style={{ width: 56, height: 56, borderRadius: 999 }}
+                                        resizeMode="cover"
+                                    />
+                                ) : (
+                                    <User size={32} color="#1d4ed8" />
+                                )}
                             </View>
                         </View>
                     </View>
-                    <View className="flex-row gap-2">
+                    <View className="flex-row gap-2 flex-wrap mt-1">
+                        <View className="bg-white/15 px-3 py-2 rounded-2xl">
+                            <Text className="text-blue-100 text-[11px] font-semibold uppercase">Status</Text>
+                            <Text className="text-white text-sm font-bold mt-0.5">{profile?.status || 'N/A'}</Text>
+                        </View>
+                        <View className="bg-white/15 px-3 py-2 rounded-2xl">
+                            <Text className="text-blue-100 text-[11px] font-semibold uppercase">Allowed Clinics</Text>
+                            <Text className="text-white text-sm font-bold mt-0.5">{profile?.num_clinics ?? 0}</Text>
+                        </View>
+                    </View>
+                    <View className="flex-row gap-2 mt-4">
                         {!editing ? (
                             <TouchableOpacity
                                 onPress={() => setEditing(true)}
@@ -352,6 +520,18 @@ const ProfileScreen = () => {
                             </>
                         )}
                     </View>
+                    {editing && (
+                        <TouchableOpacity
+                            onPress={handleProfilePhotoPick}
+                            disabled={uploadingPhoto}
+                            className="self-start mt-3 flex-row items-center bg-white/20 px-4 py-2 rounded-full"
+                        >
+                            {uploadingPhoto ? <ActivityIndicator size="small" color="#fff" /> : <Camera size={14} color="#fff" />}
+                            <Text className="text-white text-sm font-semibold ml-2">
+                                {currentProfilePic ? 'Change Photo' : 'Upload Photo'}
+                            </Text>
+                        </TouchableOpacity>
+                    )}
                 </Animated.View>
 
                 <View className="px-5 mt-6">
@@ -388,6 +568,16 @@ const ProfileScreen = () => {
                                         placeholder="e.g. Cardiologist"
                                     />
                                 </View>
+                                <View className="bg-white rounded-2xl px-4 py-3 border border-blue-100">
+                                    <Text className="text-xs text-gray-400 font-semibold uppercase mb-1">Telegram Chat ID</Text>
+                                    <TextInput
+                                        className="text-gray-800 text-base"
+                                        value={chatId}
+                                        onChangeText={setChatId}
+                                        placeholder="e.g. 123456789"
+                                        keyboardType="number-pad"
+                                    />
+                                </View>
                             </View>
                         ) : (
                             <>
@@ -405,8 +595,131 @@ const ProfileScreen = () => {
                                         <Text className="text-base text-gray-800 font-medium">{profile?.specialization || 'N/A'}</Text>
                                     </View>
                                 </View>
+                                <View className="bg-white rounded-2xl px-4 py-4 mb-3 flex-row items-start" style={{ elevation: 2 }}>
+                                    <View className="mr-3 mt-0.5"><MessageCircle size={20} color="#4b5563" /></View>
+                                    <View className="flex-1">
+                                        <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-0.5">Telegram Chat ID</Text>
+                                        <Text className="text-base text-gray-800 font-medium">{profile?.chat_id ? String(profile.chat_id) : 'N/A'}</Text>
+                                    </View>
+                                </View>
                             </>
                         )}
+                    </Animated.View>
+
+                    {/* Professional info */}
+                    <Animated.Text entering={FadeInUp.delay(450).duration(500)} className="text-gray-700 font-bold text-base mt-4 mb-3">Professional Info</Animated.Text>
+                    <Animated.View entering={FadeInUp.delay(500).duration(500)}>
+                        {editing ? (
+                            <View className="space-y-3 mb-3">
+                                <View className="bg-white rounded-2xl px-4 py-3 border border-blue-100">
+                                    <Text className="text-xs text-gray-400 font-semibold uppercase mb-1">Education / Qualification</Text>
+                                    <TextInput
+                                        className="text-gray-800 text-base"
+                                        value={education}
+                                        onChangeText={setEducation}
+                                        placeholder="e.g. MBBS, MD"
+                                    />
+                                </View>
+                                <View className="bg-white rounded-2xl px-4 py-3 border border-blue-100">
+                                    <Text className="text-xs text-gray-400 font-semibold uppercase mb-1">Doctor Registration No.</Text>
+                                    <TextInput
+                                        className="text-gray-800 text-base"
+                                        value={registrationNo}
+                                        onChangeText={setRegistrationNo}
+                                        placeholder="Registration number"
+                                    />
+                                </View>
+                                <View className="bg-white rounded-2xl px-4 py-3 border border-blue-100">
+                                    <Text className="text-xs text-gray-400 font-semibold uppercase mb-1">GST Number</Text>
+                                    <TextInput
+                                        className="text-gray-800 text-base"
+                                        value={gstNumber}
+                                        onChangeText={setGstNumber}
+                                        placeholder="GST number"
+                                        autoCapitalize="characters"
+                                    />
+                                </View>
+                                <View className="bg-white rounded-2xl px-4 py-3 border border-blue-100">
+                                    <Text className="text-xs text-gray-400 font-semibold uppercase mb-1">PAN Number</Text>
+                                    <TextInput
+                                        className="text-gray-800 text-base"
+                                        value={panNumber}
+                                        onChangeText={setPanNumber}
+                                        placeholder="PAN number"
+                                        autoCapitalize="characters"
+                                    />
+                                </View>
+                                <View className="bg-white rounded-2xl px-4 py-3 border border-blue-100">
+                                    <Text className="text-xs text-gray-400 font-semibold uppercase mb-1">Address</Text>
+                                    <TextInput
+                                        className="text-gray-800 text-base"
+                                        value={address}
+                                        onChangeText={setAddress}
+                                        placeholder="Clinic / residence address"
+                                        multiline
+                                        textAlignVertical="top"
+                                        style={{ minHeight: 84 }}
+                                    />
+                                </View>
+                            </View>
+                        ) : (
+                            <>
+                                <View className="bg-white rounded-2xl px-4 py-4 mb-3" style={{ elevation: 2 }}>
+                                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-1">Education / Qualification</Text>
+                                    <Text className="text-base text-gray-800 font-medium">{profile?.education || 'N/A'}</Text>
+                                </View>
+                                <View className="bg-white rounded-2xl px-4 py-4 mb-3" style={{ elevation: 2 }}>
+                                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-1">Doctor Registration No.</Text>
+                                    <Text className="text-base text-gray-800 font-medium">{profile?.registration_no || 'N/A'}</Text>
+                                </View>
+                                <View className="flex-row gap-3 mb-3">
+                                    <View className="bg-white rounded-2xl px-4 py-4 flex-1" style={{ elevation: 2 }}>
+                                        <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-1">GST Number</Text>
+                                        <Text className="text-base text-gray-800 font-medium">{profile?.gst_number || 'N/A'}</Text>
+                                    </View>
+                                    <View className="bg-white rounded-2xl px-4 py-4 flex-1" style={{ elevation: 2 }}>
+                                        <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-1">PAN Number</Text>
+                                        <Text className="text-base text-gray-800 font-medium">{profile?.pan_number || 'N/A'}</Text>
+                                    </View>
+                                </View>
+                                <View className="bg-white rounded-2xl px-4 py-4 mb-3" style={{ elevation: 2 }}>
+                                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-1">Address</Text>
+                                    <Text className="text-base text-gray-800 font-medium">{profile?.address || 'N/A'}</Text>
+                                </View>
+                            </>
+                        )}
+                    </Animated.View>
+
+                    {/* Documents */}
+                    <Animated.Text entering={FadeInUp.delay(540).duration(500)} className="text-gray-700 font-bold text-base mt-4 mb-3">Documents</Animated.Text>
+                    <Animated.View entering={FadeInUp.delay(580).duration(500)}>
+                        <View className="bg-white rounded-2xl px-4 py-4 mb-3" style={{ elevation: 2 }}>
+                            <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-1">Degree / Education Document</Text>
+                            <Text className="text-sm text-gray-600 mb-3">
+                                {currentDocumentUrl ? 'A document is uploaded for this profile.' : 'No document uploaded yet.'}
+                            </Text>
+                            <View className="flex-row gap-2">
+                                <TouchableOpacity
+                                    onPress={openDocument}
+                                    className={`px-4 py-2 rounded-xl ${currentDocumentUrl ? 'bg-blue-600' : 'bg-gray-200'}`}
+                                    disabled={!currentDocumentUrl}
+                                >
+                                    <Text className={`font-semibold ${currentDocumentUrl ? 'text-white' : 'text-gray-500'}`}>Open Document</Text>
+                                </TouchableOpacity>
+                                {editing && (
+                                    <TouchableOpacity
+                                        onPress={handleDocumentPick}
+                                        disabled={uploadingDocument}
+                                        className="px-4 py-2 rounded-xl bg-amber-50 flex-row items-center"
+                                    >
+                                        {uploadingDocument ? <ActivityIndicator size="small" color="#b45309" /> : <Upload size={14} color="#b45309" />}
+                                        <Text className="text-amber-700 font-medium text-xs ml-2">
+                                            {currentDocumentUrl ? 'Replace' : 'Upload'}
+                                        </Text>
+                                    </TouchableOpacity>
+                                )}
+                            </View>
+                        </View>
                     </Animated.View>
 
                     {/* WhatsApp Numbers */}

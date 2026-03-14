@@ -8,6 +8,7 @@ import {
     TouchableOpacity,
     StatusBar,
     RefreshControl,
+    Image,
 } from 'react-native';
 import {
     User,
@@ -33,7 +34,7 @@ import { getAppointments } from '../api/appointments';
 import { removeToken } from '../api/token';
 import { getChatNotifications } from '../api/notifications';
 import { useSWRLite } from '../lib/useSWRLite';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -118,6 +119,14 @@ const DashboardScreen = () => {
     }, []);
 
     useEffect(() => { loadUpcoming(); }, [loadUpcoming]);
+
+    useFocusEffect(
+        React.useCallback(() => {
+            revalidateProfile().catch(() => {
+                // ignore focus refresh errors
+            });
+        }, [revalidateProfile])
+    );
 
     useEffect(() => {
         const checkNotifications = async () => {
@@ -209,10 +218,18 @@ const DashboardScreen = () => {
                         <TouchableOpacity
                             activeOpacity={0.7}
                             onPress={() => navigation.navigate('Profile')}
-                            className="bg-white w-20 h-20 rounded-full items-center justify-center"
+                            className="bg-white w-20 h-20 rounded-full items-center justify-center overflow-hidden"
                             style={{ shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 6, elevation: 4 }}
                         >
-                            <User size={38} color="#1d4ed8" />
+                            {profile?.profile_pic_url ? (
+                                <Image
+                                    source={{ uri: profile.profile_pic_url }}
+                                    style={{ width: 80, height: 80, borderRadius: 999 }}
+                                    resizeMode="cover"
+                                />
+                            ) : (
+                                <User size={38} color="#1d4ed8" />
+                            )}
                         </TouchableOpacity>
                         <View>
                             <Text className="text-blue-100 text-lg font-medium">Hello,</Text>

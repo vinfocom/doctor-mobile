@@ -14,6 +14,14 @@ export const updateProfile = async (data: {
     doctor_name?: string;
     phone?: string;
     specialization?: string;
+    chat_id?: string;
+    education?: string;
+    address?: string;
+    registration_no?: string;
+    gst_number?: string;
+    pan_number?: string;
+    profile_pic_url?: string;
+    document_url?: string;
     whatsapp_numbers?: { whatsapp_number: string; is_primary: boolean }[];
 }) => {
     const response = await client.patch('/doctors/me', data);
