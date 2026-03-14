@@ -32,7 +32,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getAppointments, createAppointment, updateAppointment, deleteAppointment } from '../api/appointments';
 import { getClinics } from '../api/clinics';
-import { getSlots } from '../api/slots';
+import { getAvailableDates, getSlots } from '../api/slots';
 import client from '../api/client';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { FlashList } from '@shopify/flash-list';
@@ -232,9 +232,11 @@ interface CalendarPickerProps {
     selectedDate: string;
     onSelect: (date: string) => void;
     minDate?: string;
+    enabledDates?: Set<string>;
+    loadingDates?: boolean;
 }
 
-const CalendarPicker = ({ selectedDate, onSelect, minDate }: CalendarPickerProps) => {
+const CalendarPicker = ({ selectedDate, onSelect, minDate, enabledDates, loadingDates = false }: CalendarPickerProps) => {
     const today = new Date();
     const initDate = selectedDate ? new Date(selectedDate + 'T00:00:00') : today;
 
@@ -289,7 +291,12 @@ const CalendarPicker = ({ selectedDate, onSelect, minDate }: CalendarPickerProps
 
             {/* Date grid */}
             <View className="px-2 pb-3 pt-1">
-                {Array.from({ length: cells.length / 7 }, (_, row) => (
+                {loadingDates ? (
+                    <View className="items-center py-6">
+                        <ActivityIndicator size="small" color="#2563eb" />
+                        <Text className="text-xs text-gray-400 mt-2">Loading available dates...</Text>
+                    </View>
+                ) : Array.from({ length: cells.length / 7 }, (_, row) => (
                     <View key={row} className="flex-row">
                         {cells.slice(row * 7, row * 7 + 7).map((day, col) => {
                             if (!day) return <View key={col} className="flex-1 m-1" />;
@@ -299,7 +306,8 @@ const CalendarPicker = ({ selectedDate, onSelect, minDate }: CalendarPickerProps
                             const dateStr = toYMD(dateObj);
                             const isSelected = dateStr === selectedDate;
                             const isToday = dateStr === toYMD(today);
-                            const isDisabled = dateObj < minDateObj;
+                            const isEnabledDate = enabledDates ? enabledDates.has(dateStr) : true;
+                            const isDisabled = dateObj < minDateObj || !isEnabledDate;
 
                             // Dynamic bg can't be expressed as static NativeWind class — keep inline
                             const bgColor = isSelected ? '#2563eb' : isToday ? '#dbeafe' : 'transparent';
@@ -332,7 +340,7 @@ const CalendarPicker = ({ selectedDate, onSelect, minDate }: CalendarPickerProps
 const AppointmentsScreen = () => {
     const navigation = useNavigation<any>();
     const route = useRoute<any>();
-    const { role, staff_role } = useAuthSession();
+    const { role, staff_role, staff_doctor_id } = useAuthSession();
     const isClinicStaff = role === 'CLINIC_STAFF';
     const isViewerStaff = isClinicStaff && String(staff_role || '').toUpperCase() === 'VIEWER';
     const canUseChat = role === 'DOCTOR';
@@ -361,8 +369,10 @@ const AppointmentsScreen = () => {
 
     const [clinics, setClinics] = useState<any[]>([]);
     const [availableSlots, setAvailableSlots] = useState<string[]>([]);
+    const [availableDates, setAvailableDates] = useState<Set<string>>(new Set());
     const [slotDuration, setSlotDuration] = useState(30);
     const [loadingSlots, setLoadingSlots] = useState(false);
+    const [loadingDates, setLoadingDates] = useState(false);
     const [rescheduleModalVisible, setRescheduleModalVisible] = useState(false);
     const [editingAppointmentId, setEditingAppointmentId] = useState<number | null>(null);
     const [rescheduleDate, setRescheduleDate] = useState('');
@@ -534,6 +544,35 @@ const AppointmentsScreen = () => {
         else setAvailableSlots([]);
     }, [formData.clinic_id, formData.date]);
 
+    const selectedClinic = useMemo(
+        () => clinics.find((clinic) => String(clinic.clinic_id) === String(formData.clinic_id)),
+        [clinics, formData.clinic_id]
+    );
+
+    useEffect(() => {
+        const resolvedDoctorId = Number(selectedClinic?.doctor_id || staff_doctor_id || 0);
+        if (!formData.clinic_id || !resolvedDoctorId) {
+            setAvailableDates(new Set());
+            setLoadingDates(false);
+            return;
+        }
+
+        setLoadingDates(true);
+        getAvailableDates(resolvedDoctorId, Number(formData.clinic_id))
+            .then((dates) => {
+                const nextDates = new Set(dates);
+                setAvailableDates(nextDates);
+                setFormData((prev) => {
+                    if (!prev.date || nextDates.has(prev.date)) return prev;
+                    return { ...prev, date: '', time: '' };
+                });
+            })
+            .catch(() => {
+                setAvailableDates(new Set());
+            })
+            .finally(() => setLoadingDates(false));
+    }, [formData.clinic_id, selectedClinic?.doctor_id, staff_doctor_id]);
+
     useEffect(() => {
         if (!isModalVisible) {
             setMatchedPatients([]);
@@ -608,6 +647,7 @@ const AppointmentsScreen = () => {
     const resetForm = () => {
         setFormData({ patient_phone: '', patient_name: '', booking_for: 'SELF', clinic_id: '', date: '', time: '' });
         setAvailableSlots([]);
+        setAvailableDates(new Set());
         setShowCalendar(false);
         setMatchedPatients([]);
         setLookupLoading(false);
@@ -1470,7 +1510,19 @@ const AppointmentsScreen = () => {
                                                         setShowCalendar(false);
                                                     }}
                                                     minDate={toYMD(new Date())}
+                                                    enabledDates={formData.clinic_id ? availableDates : undefined}
+                                                    loadingDates={!!formData.clinic_id && loadingDates}
                                                 />
+                                                {!formData.clinic_id && (
+                                                    <Text className="text-xs text-gray-400 text-center mt-3">
+                                                        Select a clinic first to see available slot dates.
+                                                    </Text>
+                                                )}
+                                                {!!formData.clinic_id && !loadingDates && availableDates.size === 0 && (
+                                                    <Text className="text-xs text-gray-400 text-center mt-3">
+                                                        No available slot dates found for this clinic yet.
+                                                    </Text>
+                                                )}
                                             </View>
                                         )}
                                     </View>
