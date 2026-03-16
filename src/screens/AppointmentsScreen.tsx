@@ -81,26 +81,23 @@ const parseDateOnly = (value?: string) => {
     return d;
 };
 
-// start_time is stored as 1970-01-01T{HH}:{MM}:00Z — UTC hours = actual appointment hour.
-// Do NOT convert to IST (would add +5:30). Read UTC hours directly and format as 12h.
-const utcTimeToDisplay = (value: any): string => {
+const istTimeToDisplay = (value: any): string => {
     if (!value) return 'N/A';
     const t = new Date(value);
     if (Number.isNaN(t.getTime())) return 'N/A';
-    const h = t.getUTCHours();
-    const m = t.getUTCMinutes();
-    const ampm = h >= 12 ? 'PM' : 'AM';
-    const h12 = h % 12 || 12;
-    return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+    return t.toLocaleTimeString('en-IN', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: 'Asia/Kolkata',
+    });
 };
 
-// appointment_date is stored as a date-only value. Parsing without offset treats it as
-// UTC midnight = IST previous day. Use +05:30 to keep the correct IST calendar date.
 const istDateToDisplay = (value: any): string => {
     if (!value) return 'N/A';
     const dateStr = String(value).slice(0, 10); // 'YYYY-MM-DD'
     const d = new Date(`${dateStr}T00:00:00+05:30`);
-    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'Asia/Kolkata' });
 };
 
 const parseAppointmentStart = (appointment: any): Date | null => {
@@ -112,16 +109,15 @@ const parseAppointmentStart = (appointment: any): Date | null => {
     // take the first 10 chars; otherwise use as-is.
     const datePart = String(dateStr).slice(0, 10); // "2026-02-26"
 
-    // Get hours & minutes from start_time (stored as 1970-01-01T HH:MM:00Z)
     const timeDate = new Date(timeRaw);
     if (Number.isNaN(timeDate.getTime())) return null;
-    const hh = timeDate.getUTCHours();
-    const mm = timeDate.getUTCMinutes();
-
-    // Build combined ISO string in IST so the date is not shifted by UTC offset
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const combined = `${datePart}T${pad(hh)}:${pad(mm)}:00+05:30`;
-    const result = new Date(combined);
+    const timeStr = timeDate.toLocaleTimeString('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Kolkata',
+    });
+    const result = new Date(`${datePart}T${timeStr}:00+05:30`);
     return Number.isNaN(result.getTime()) ? null : result;
 };
 
@@ -716,9 +712,12 @@ const AppointmentsScreen = () => {
         if (value.includes(':') && value.length <= 5) return value;
         const d = new Date(value);
         if (Number.isNaN(d.getTime())) return '';
-        const hh = String(d.getUTCHours()).padStart(2, '0');
-        const mm = String(d.getUTCMinutes()).padStart(2, '0');
-        return `${hh}:${mm}`;
+        return d.toLocaleTimeString('en-GB', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+            timeZone: 'Asia/Kolkata',
+        });
     };
 
     const handleStatusChange = async (appointmentId: number, status: 'CANCELLED' | 'COMPLETED' | 'PENDING') => {
@@ -864,7 +863,7 @@ const AppointmentsScreen = () => {
         const pairKey = `${item.patient_id}:${item.doctor_id}`;
         const isHighlighted = highlightedPairKey === pairKey;
         const slotDate = istDateToDisplay(item.appointment_date);
-        const slotTime = utcTimeToDisplay(item.start_time);
+        const slotTime = istTimeToDisplay(item.start_time);
 
         return (
             <View

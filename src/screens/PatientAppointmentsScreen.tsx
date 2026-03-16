@@ -34,10 +34,7 @@ const toYMD = (value?: string) => {
     if (!value) return '';
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return '';
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
+    return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 };
 
 const toHM = (value?: string) => {
@@ -45,7 +42,12 @@ const toHM = (value?: string) => {
     if (String(value).includes(':') && String(value).length <= 5) return String(value).slice(0, 5);
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return '';
-    return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+    return d.toLocaleTimeString('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Kolkata',
+    });
 };
 
 const to12h = (time?: string) => {
