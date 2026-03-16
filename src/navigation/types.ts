@@ -38,6 +38,7 @@ export type RootStackParamList = {
       valid_to: string | null;
       clinic_id: number | null;
       clinic_name?: string | null;
+      doctor_whatsapp_number?: string | null;
     };
   };
   PatientProfile: undefined;

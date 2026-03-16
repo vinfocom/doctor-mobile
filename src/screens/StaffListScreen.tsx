@@ -205,6 +205,7 @@ export default function StaffListScreen() {
                                                     valid_to: member.valid_to,
                                                     clinic_id: member.clinic_id,
                                                     clinic_name: member.clinic_name,
+                                                    doctor_whatsapp_number: member.doctor_whatsapp_number,
                                                 },
                                             })}
                                             className="flex-1 bg-blue-600 rounded-xl py-3 flex-row items-center justify-center"

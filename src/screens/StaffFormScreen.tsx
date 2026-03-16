@@ -108,6 +108,7 @@ export default function StaffFormScreen() {
     const [staffRole, setStaffRole] = React.useState(initialStaff?.role || 'VIEWER');
     const [status, setStatus] = React.useState(initialStaff?.status || 'ACTIVE');
     const [clinicId, setClinicId] = React.useState(initialStaff?.clinic_id ? String(initialStaff.clinic_id) : '');
+    const [doctorWhatsAppNumber, setDoctorWhatsAppNumber] = React.useState(initialStaff?.doctor_whatsapp_number || '');
     const [isLimited, setIsLimited] = React.useState(Boolean(initialStaff?.valid_from || initialStaff?.valid_to));
     const [validFrom, setValidFrom] = React.useState(initialStaff?.valid_from ? String(initialStaff.valid_from).slice(0, 10) : '');
     const [validTo, setValidTo] = React.useState(initialStaff?.valid_to ? String(initialStaff.valid_to).slice(0, 10) : '');
@@ -194,6 +195,7 @@ export default function StaffFormScreen() {
                     is_limited: isLimited,
                     valid_from: validFrom,
                     valid_to: validTo,
+                    doctor_whatsapp_number: doctorWhatsAppNumber.trim(),
                 });
             } else {
                 await createStaff({
@@ -206,6 +208,7 @@ export default function StaffFormScreen() {
                     is_limited: isLimited,
                     valid_from: validFrom,
                     valid_to: validTo,
+                    doctor_whatsapp_number: doctorWhatsAppNumber.trim(),
                 });
             }
 
@@ -216,7 +219,7 @@ export default function StaffFormScreen() {
         } finally {
             setSaving(false);
         }
-    }, [clinicId, email, initialStaff?.staff_id, isEdit, isLimited, navigation, password, staffRole, status, username, validFrom, validTo]);
+    }, [clinicId, doctorWhatsAppNumber, email, initialStaff?.staff_id, isEdit, isLimited, navigation, password, staffRole, status, username, validFrom, validTo]);
 
     if (role !== 'DOCTOR') {
         return (
@@ -325,6 +328,17 @@ export default function StaffFormScreen() {
                                 options={clinicOptions}
                             />
                         )}
+
+                        <View className="mt-4" />
+
+                        <Text className="text-sm font-bold text-gray-700 mb-2">Doctor WhatsApp Number</Text>
+                        <TextInput
+                            className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3.5 text-gray-800 text-base"
+                            placeholder="+91 98765 43210"
+                            value={doctorWhatsAppNumber}
+                            onChangeText={setDoctorWhatsAppNumber}
+                            keyboardType="phone-pad"
+                        />
                     </View>
 
                     <View className="bg-white rounded-2xl px-4 py-4 mb-4 border border-gray-100">

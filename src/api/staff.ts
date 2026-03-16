@@ -12,6 +12,7 @@ export interface StaffMember {
     created_at: string;
     clinic_id: number | null;
     clinic_name: string | null;
+    doctor_whatsapp_number?: string | null;
 }
 
 export interface StaffPayload {
@@ -24,6 +25,7 @@ export interface StaffPayload {
     is_limited: boolean;
     valid_from: string;
     valid_to: string;
+    doctor_whatsapp_number?: string;
 }
 
 export const getStaff = async (): Promise<{ staff: StaffMember[] }> => {
