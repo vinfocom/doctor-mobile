@@ -146,6 +146,7 @@ interface DoctorProfile {
     registration_no?: string | null;
     gst_number?: string | null;
     pan_number?: string | null;
+    telegram_userid?: string | null;
     profile_pic_url?: string | null;
     document_url?: string | null;
     status?: string | null;
@@ -171,6 +172,7 @@ const ProfileScreen = () => {
     const [registrationNo, setRegistrationNo] = useState('');
     const [gstNumber, setGstNumber] = useState('');
     const [panNumber, setPanNumber] = useState('');
+    const [telegramUserid, setTelegramUserid] = useState('');
     const [profilePicUrl, setProfilePicUrl] = useState('');
     const [documentUrl, setDocumentUrl] = useState('');
     const [whatsappNumbers, setWhatsappNumbers] = useState<WhatsAppNumber[]>([]);
@@ -228,6 +230,7 @@ const ProfileScreen = () => {
             setRegistrationNo(p?.registration_no || '');
             setGstNumber(p?.gst_number || '');
             setPanNumber(p?.pan_number || '');
+            setTelegramUserid(p?.telegram_userid || '');
             setProfilePicUrl(p?.profile_pic_url || '');
             setDocumentUrl(p?.document_url || '');
             setWhatsappNumbers(p?.whatsapp_numbers || (p?.whatsapp_number ? [{ whatsapp_number: p.whatsapp_number, is_primary: true }] : []));
@@ -252,6 +255,7 @@ const ProfileScreen = () => {
                 registration_no: registrationNo,
                 gst_number: gstNumber,
                 pan_number: panNumber,
+                telegram_userid: telegramUserid,
                 profile_pic_url: profilePicUrl,
                 document_url: documentUrl,
                 whatsapp_numbers: whatsappNumbers,
@@ -276,6 +280,7 @@ const ProfileScreen = () => {
         setRegistrationNo(profile?.registration_no || '');
         setGstNumber(profile?.gst_number || '');
         setPanNumber(profile?.pan_number || '');
+        setTelegramUserid(profile?.telegram_userid || '');
         setProfilePicUrl(profile?.profile_pic_url || '');
         setDocumentUrl(profile?.document_url || '');
         setWhatsappNumbers(profile?.whatsapp_numbers || []);
@@ -703,6 +708,15 @@ const ProfileScreen = () => {
                                         onChangeText={setChatId}
                                         placeholder="e.g. 123456789"
                                         keyboardType="number-pad"
+                                    />
+                                </View>
+                                <View className="bg-white rounded-2xl px-4 py-3 border border-blue-100">
+                                    <Text className="text-xs text-gray-400 font-semibold uppercase mb-1">Telegram User ID</Text>
+                                    <TextInput
+                                        className="text-gray-800 text-base"
+                                        value={telegramUserid}
+                                        onChangeText={setTelegramUserid}
+                                        placeholder="e.g. @doctor_smith"
                                     />
                                 </View>
                             </View>

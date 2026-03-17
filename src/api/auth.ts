@@ -27,11 +27,13 @@ export const getProfile = async () => {
     return response.data;
 };
 
+
 export const updateProfile = async (data: {
     doctor_name?: string;
     phone?: string;
     specialization?: string;
     chat_id?: string;
+    telegram_userid?: string;
     education?: string;
     address?: string;
     registration_no?: string;
