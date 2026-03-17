@@ -13,6 +13,7 @@ import {
     Alert,
     ScrollView,
     Linking,
+    RefreshControl,
 } from 'react-native';
 import {
     Building2,
@@ -64,7 +65,9 @@ const timeToMinutes = (value?: string) => {
     return Number(match[1]) * 60 + Number(match[2]);
 };
 const formatTime = (value?: string) => {
-    const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})/);
+    const str = String(value || '').trim();
+    if (/AM|PM/i.test(str)) return str;
+    const match = str.match(/^(\d{1,2}):(\d{2})/);
     if (!match) return 'N/A';
     let hour = Number(match[1]);
     const meridiem = hour >= 12 ? 'PM' : 'AM';
@@ -290,7 +293,7 @@ const StatusBadge = ({ status }: { status: string }) => {
     );
 };
 
-const ClinicsTab = ({ onAdd, clinics, filteredClinics, searchTerm, setSearchTerm, filterStatus, setFilterStatus, handleOpenEdit, handleDeleteClinic, loading }: any) => {
+const ClinicsTab = ({ onAdd, clinics, filteredClinics, searchTerm, setSearchTerm, filterStatus, setFilterStatus, handleOpenEdit, handleDeleteClinic, loading, refreshing, onRefresh }: any) => {
     const renderItem = ({ item, index }: { item: any; index: number }) => (
         <AnimListItem index={index}>
             <TouchableOpacity activeOpacity={0.7} className="bg-white rounded-2xl mb-4 overflow-hidden" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4 }}>
@@ -359,6 +362,9 @@ const ClinicsTab = ({ onAdd, clinics, filteredClinics, searchTerm, setSearchTerm
                     renderItem={renderItem}
                     contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
                     showsVerticalScrollIndicator={false}
+                    refreshControl={
+                        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0e7490']} tintColor="#0e7490" />
+                    }
                     ListEmptyComponent={
                         <View className="items-center mt-16">
                             <Building size={48} color="#9ca3af" />
@@ -374,7 +380,7 @@ const ClinicsTab = ({ onAdd, clinics, filteredClinics, searchTerm, setSearchTerm
 
 // ─── Schedule sub-view ────────────────────────────────────────────────────────
 
-const ScheduleTab = ({ onAdd, clinics, grouped, schedule, loading, handleEditSlot, handleDeleteSlot }: any) => {
+const ScheduleTab = ({ onAdd, clinics, grouped, schedule, loading, handleEditSlot, handleDeleteSlot, refreshing, onRefresh }: any) => {
     const [selectedClinicId, setSelectedClinicId] = useState<number | null>(null);
 
     const clinicGroups = useMemo<ClinicScheduleGroup[]>(() => {
@@ -469,6 +475,9 @@ const ScheduleTab = ({ onAdd, clinics, grouped, schedule, loading, handleEditSlo
                     renderItem={({ item, index }) => <ClinicScheduleCard group={item} index={index} onEditSlot={handleEditSlot} onDeleteSlot={handleDeleteSlot} />}
                     contentContainerStyle={{ padding: 14, paddingBottom: 40 }}
                     showsVerticalScrollIndicator={false}
+                    refreshControl={
+                        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#7c3aed']} tintColor="#7c3aed" />
+                    }
                     ListEmptyComponent={
                         <View className="items-center mt-20">
                             <View className="w-16 h-16 rounded-full bg-violet-100 items-center justify-center mb-4">
@@ -506,6 +515,7 @@ const ClinicsScreen = () => {
     const [clinicSubmitting, setClinicSubmitting] = useState(false);
     const [barcodeUploading, setBarcodeUploading] = useState(false);
     const [barcodeError, setBarcodeError] = useState<string | null>(null);
+    const [clinicsRefreshing, setClinicsRefreshing] = useState(false);
 
     // ── Schedule state
     const [schedule, setSchedule] = useState<ScheduleItem[]>([]);
@@ -521,6 +531,7 @@ const ClinicsScreen = () => {
     const [pickerHour, setPickerHour] = useState(9);
     const [pickerMinute, setPickerMinute] = useState('00');
     const [pickerPeriod, setPickerPeriod] = useState<'AM' | 'PM'>('AM');
+    const [scheduleRefreshing, setScheduleRefreshing] = useState(false);
 
     useEffect(() => { fetchClinics(); fetchSchedule(); }, []);
 
@@ -535,6 +546,12 @@ const ClinicsScreen = () => {
             setScheduleForm(prev => ({ ...prev, clinic_id: prev.clinic_id || (list[0]?.clinic_id ? String(list[0].clinic_id) : '') }));
         } catch (e) { console.error(e); }
         setClinicsLoading(false);
+    };
+
+    const handleClinicsRefresh = async () => {
+        setClinicsRefreshing(true);
+        await fetchClinics();
+        setClinicsRefreshing(false);
     };
 
     const handleCreateOrUpdateClinic = async () => {
@@ -645,6 +662,12 @@ const ClinicsScreen = () => {
             setSchedule(list); setGrouped(groupSchedules(list));
         } catch (e) { console.error(e); }
         setScheduleLoading(false);
+    };
+
+    const handleScheduleRefresh = async () => {
+        setScheduleRefreshing(true);
+        await fetchSchedule();
+        setScheduleRefreshing(false);
     };
 
     const createEmptySlot = (seed?: Partial<FormSlot>): FormSlot => ({
@@ -764,8 +787,8 @@ const ClinicsScreen = () => {
 
                 {/* ── Content ── */}
                 {activeTab === 'clinics'
-                    ? <ClinicsTab clinics={clinics} filteredClinics={filteredClinics} loading={clinicsLoading} searchTerm={searchTerm} setSearchTerm={setSearchTerm} filterStatus={filterStatus} setFilterStatus={setFilterStatus} handleOpenEdit={handleOpenEdit} handleDeleteClinic={handleDeleteClinic} onAdd={addHandler} />
-                    : <ScheduleTab clinics={clinics} grouped={grouped} schedule={schedule} loading={scheduleLoading} handleEditSlot={handleEditSlot} handleDeleteSlot={handleDeleteSlot} onAdd={addHandler} />
+                    ? <ClinicsTab clinics={clinics} filteredClinics={filteredClinics} loading={clinicsLoading} refreshing={clinicsRefreshing} onRefresh={handleClinicsRefresh} searchTerm={searchTerm} setSearchTerm={setSearchTerm} filterStatus={filterStatus} setFilterStatus={setFilterStatus} handleOpenEdit={handleOpenEdit} handleDeleteClinic={handleDeleteClinic} onAdd={addHandler} />
+                    : <ScheduleTab clinics={clinics} grouped={grouped} schedule={schedule} loading={scheduleLoading} refreshing={scheduleRefreshing} onRefresh={handleScheduleRefresh} handleEditSlot={handleEditSlot} handleDeleteSlot={handleDeleteSlot} onAdd={addHandler} />
                 }
             </View>
 

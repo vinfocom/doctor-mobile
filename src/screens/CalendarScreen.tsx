@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
     View, Text, ScrollView, TouchableOpacity,
     ActivityIndicator, StatusBar, Modal, FlatList,
-    Animated,
+    Animated, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -236,6 +236,7 @@ const CalendarScreen = () => {
     const [loading, setLoading] = useState(true);
     const [selectedDate, setSelectedDate] = useState<string | null>(null);
     const [modalVisible, setModalVisible] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
 
     const loadData = useCallback(async (y: number, m: number) => {
         setLoading(true);
@@ -243,6 +244,12 @@ const CalendarScreen = () => {
         catch (e) { console.error('Calendar load error', e); }
         setLoading(false);
     }, []);
+
+    const onRefresh = useCallback(async () => {
+        setRefreshing(true);
+        await loadData(year, month);
+        setRefreshing(false);
+    }, [year, month, loadData]);
 
     useEffect(() => { loadData(year, month); }, [year, month]);
 
@@ -317,7 +324,14 @@ const CalendarScreen = () => {
                     </View>
                 </View>
 
-                <ScrollView className="flex-1" contentContainerStyle={{ padding: 14, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+                <ScrollView
+                    className="flex-1"
+                    contentContainerStyle={{ padding: 14, paddingBottom: 40 }}
+                    showsVerticalScrollIndicator={false}
+                    refreshControl={
+                        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#16a34a']} tintColor="#16a34a" />
+                    }
+                >
 
                     {/* Legend */}
                     <View className="flex-row items-center justify-end mb-2" style={{ gap: 12 }}>

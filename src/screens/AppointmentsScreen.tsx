@@ -58,12 +58,13 @@ const formatDisplayDate = (dateStr: string) => {
 
 const to12h = (time?: string) => {
     if (!time) return '';
-    const [h, m] = time.split(':');
-    if (!h || !m) return time;
-    let hour = parseInt(h, 10);
+    if (/AM|PM/i.test(time)) return time;
+    const match = time.match(/(\d{1,2}):(\d{2})/);
+    if (!match) return time;
+    let hour = parseInt(match[1], 10);
     const ampm = hour >= 12 ? 'PM' : 'AM';
     hour = hour % 12 || 12;
-    return `${hour}:${m} ${ampm}`;
+    return `${hour}:${match[2]} ${ampm}`;
 };
 
 const pad2 = (value: number) => String(value).padStart(2, '0');
