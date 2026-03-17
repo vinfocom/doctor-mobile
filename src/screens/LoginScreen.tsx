@@ -71,10 +71,10 @@ const LoginScreen = () => {
         } catch (error: any) {
             const status = error?.response?.status;
             let message = error?.response?.data?.error || 'Login failed. Please check your credentials and try again.';
-            
+
             if (status === 401 || status === 400 || status === 404) {
-                message = mode === 'DOCTOR' 
-                    ? 'Invalid email or password.' 
+                message = mode === 'DOCTOR'
+                    ? 'Invalid email or password.'
                     : 'Invalid phone number or username.';
             } else if (status === 500) {
                 message = 'Server error. Please try again later.';
@@ -222,13 +222,6 @@ const LoginScreen = () => {
                                             </TouchableOpacity>
                                         </View>
                                     </View>
-
-                                    {/* Forgot Password */}
-                                    <TouchableOpacity className="self-end mb-8 mt-1">
-                                        <Text className="text-sm text-blue-600 font-semibold">
-                                            Forgot Password?
-                                        </Text>
-                                    </TouchableOpacity>
                                 </>
                             ) : (
                                 <View className="mb-8">
