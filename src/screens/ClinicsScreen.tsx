@@ -35,6 +35,7 @@ import {
     Stethoscope,
     Camera,
     Image as ImageIcon,
+    QrCode,
 } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getClinics, createClinic, updateClinic, deleteClinic } from '../api/clinics';
@@ -293,7 +294,7 @@ const StatusBadge = ({ status }: { status: string }) => {
     );
 };
 
-const ClinicsTab = ({ onAdd, clinics, filteredClinics, searchTerm, setSearchTerm, filterStatus, setFilterStatus, handleOpenEdit, handleDeleteClinic, loading, refreshing, onRefresh }: any) => {
+const ClinicsTab = ({ onAdd, clinics, filteredClinics, searchTerm, setSearchTerm, filterStatus, setFilterStatus, handleOpenEdit, handleDeleteClinic, handleGenerateBarcode, loading, refreshing, onRefresh }: any) => {
     const renderItem = ({ item, index }: { item: any; index: number }) => (
         <AnimListItem index={index}>
             <TouchableOpacity activeOpacity={0.7} className="bg-white rounded-2xl mb-4 overflow-hidden" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4 }}>
@@ -315,14 +316,13 @@ const ClinicsTab = ({ onAdd, clinics, filteredClinics, searchTerm, setSearchTerm
                         <Text className="text-gray-800 text-sm font-semibold flex-1" numberOfLines={1}>{item.location}</Text>
                     </View>
                     <StatusBadge status={item.status} />
-                    {!!item.barcode_url && (
-                        <TouchableOpacity
-                            onPress={() => Linking.openURL(String(item.barcode_url))}
-                            className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50 py-2.5 flex-row items-center justify-center"
-                        >
-                            <Text className="text-indigo-700 font-semibold text-sm">View Barcode</Text>
-                        </TouchableOpacity>
-                    )}
+                    <TouchableOpacity
+                        onPress={() => handleGenerateBarcode(item)}
+                        className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50 py-2.5 flex-row items-center justify-center"
+                    >
+                        <QrCode size={16} color="#4338ca" />
+                        <Text className="ml-2 text-indigo-700 font-semibold text-sm">Generate Bar Code</Text>
+                    </TouchableOpacity>
                     <View className="mt-3 flex-row">
                         <TouchableOpacity onPress={() => handleOpenEdit(item)} className="flex-1 mr-2 rounded-xl border border-cyan-200 bg-cyan-50 py-2.5 flex-row items-center justify-center">
                             <Pencil size={14} color="#0e7490" /><Text className="ml-2 text-cyan-700 font-semibold text-sm">Edit</Text>
@@ -554,6 +554,17 @@ const ClinicsScreen = () => {
         setClinicsRefreshing(false);
     };
 
+    const handleGenerateBarcode = async (item: any) => {
+        try {
+            const url = `https://msgbot.duckdns.org/qr/checkin?doctor_id=${item.doctor_id || ''}&clinic_id=${item.clinic_id}`;
+            await updateClinic(item.clinic_id, { barcode_url: url });
+            Linking.openURL(url);
+            fetchClinics();
+        } catch (e: any) {
+            Alert.alert('Error', e?.response?.data?.error || e?.message || 'Failed to generate barcode');
+        }
+    };
+
     const handleCreateOrUpdateClinic = async () => {
         if (!clinicForm.clinic_name || !clinicForm.location) { Alert.alert('Error', 'Please fill in Name and Location'); return; }
         setClinicSubmitting(true);
@@ -564,7 +575,6 @@ const ClinicsScreen = () => {
                     location: clinicForm.location.trim(),
                     phone: clinicForm.phone.trim(),
                     status: clinicForm.status,
-                    barcode_url: clinicForm.barcode_url || null,
                 });
             } else {
                 await createClinic({
@@ -572,7 +582,6 @@ const ClinicsScreen = () => {
                     location: clinicForm.location.trim(),
                     phone: clinicForm.phone.trim(),
                     status: clinicForm.status,
-                    barcode_url: clinicForm.barcode_url || null,
                 });
             }
             setClinicModalVisible(false); setEditingClinicId(null);
@@ -787,7 +796,7 @@ const ClinicsScreen = () => {
 
                 {/* ── Content ── */}
                 {activeTab === 'clinics'
-                    ? <ClinicsTab clinics={clinics} filteredClinics={filteredClinics} loading={clinicsLoading} refreshing={clinicsRefreshing} onRefresh={handleClinicsRefresh} searchTerm={searchTerm} setSearchTerm={setSearchTerm} filterStatus={filterStatus} setFilterStatus={setFilterStatus} handleOpenEdit={handleOpenEdit} handleDeleteClinic={handleDeleteClinic} onAdd={addHandler} />
+                    ? <ClinicsTab clinics={clinics} filteredClinics={filteredClinics} loading={clinicsLoading} refreshing={clinicsRefreshing} onRefresh={handleClinicsRefresh} searchTerm={searchTerm} setSearchTerm={setSearchTerm} filterStatus={filterStatus} setFilterStatus={setFilterStatus} handleOpenEdit={handleOpenEdit} handleDeleteClinic={handleDeleteClinic} handleGenerateBarcode={handleGenerateBarcode} onAdd={addHandler} />
                     : <ScheduleTab clinics={clinics} grouped={grouped} schedule={schedule} loading={scheduleLoading} refreshing={scheduleRefreshing} onRefresh={handleScheduleRefresh} handleEditSlot={handleEditSlot} handleDeleteSlot={handleDeleteSlot} onAdd={addHandler} />
                 }
             </View>
@@ -815,68 +824,28 @@ const ClinicsScreen = () => {
                                     <TextInput className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-800 text-base" placeholder="Full address" multiline value={clinicForm.location} onChangeText={t => setClinicForm({ ...clinicForm, location: t })} />
                                 </View>
 
-                                {/* Barcode */}
-                                <View>
-                                    <Text className="text-sm font-bold text-gray-700 mb-2">Clinic Barcode (optional)</Text>
-                                    <TextInput
-                                        className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-800 text-base"
-                                        placeholder="Paste barcode image URL (https://...)"
-                                        value={clinicForm.barcode_url}
-                                        onChangeText={t => setClinicForm({ ...clinicForm, barcode_url: t })}
-                                        autoCapitalize="none"
-                                    />
-                                    <View className="flex-row mt-3" style={{ gap: 10 }}>
-                                        <TouchableOpacity
-                                            onPress={handlePickBarcodeFromCamera}
-                                            disabled={barcodeUploading}
-                                            className="flex-1 rounded-xl border border-cyan-200 bg-cyan-50 py-3 flex-row items-center justify-center"
-                                        >
-                                            {barcodeUploading ? <ActivityIndicator size="small" color="#0e7490" /> : <Camera size={16} color="#0e7490" />}
-                                            <Text className="ml-2 font-bold text-cyan-800">{barcodeUploading ? 'Uploading…' : 'Camera'}</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            onPress={handlePickBarcodeFromGallery}
-                                            disabled={barcodeUploading}
-                                            className="flex-1 rounded-xl border border-violet-200 bg-violet-50 py-3 flex-row items-center justify-center"
-                                        >
-                                            {barcodeUploading ? <ActivityIndicator size="small" color="#7c3aed" /> : <ImageIcon size={16} color="#7c3aed" />}
-                                            <Text className="ml-2 font-bold text-violet-800">{barcodeUploading ? 'Uploading…' : 'Gallery'}</Text>
-                                        </TouchableOpacity>
-                                    </View>
-
-                                    {!!clinicForm.barcode_url && (
-                                        <View className="flex-row justify-between items-center mt-3">
-                                            <TouchableOpacity onPress={() => Linking.openURL(clinicForm.barcode_url)}>
-                                                <Text className="text-cyan-700 font-bold">View</Text>
-                                            </TouchableOpacity>
-                                            <TouchableOpacity onPress={() => setClinicForm({ ...clinicForm, barcode_url: '' })}>
-                                                <Text className="text-gray-400 font-bold">Clear</Text>
-                                            </TouchableOpacity>
-                                        </View>
-                                    )}
-                                    {!!barcodeError && <Text className="text-red-500 text-xs mt-2 font-semibold">{barcodeError}</Text>}
-                                </View>
-                                <View>
-                                    <Text className="text-sm font-bold text-gray-700 mb-2">Status</Text>
-                                    <View className="flex-row" style={{ gap: 12 }}>
-                                        {['ACTIVE', 'INACTIVE'].map(s => (
-                                            <TouchableOpacity key={s} onPress={() => setClinicForm({ ...clinicForm, status: s })} className={`flex-1 py-3 items-center rounded-xl border ${clinicForm.status === s ? (s === 'ACTIVE' ? 'bg-green-50 border-green-500' : 'bg-red-50 border-red-500') : 'bg-white border-gray-200'}`}>
-                                                <Text className={`font-bold ${clinicForm.status === s ? (s === 'ACTIVE' ? 'text-green-700' : 'text-red-700') : 'text-gray-500'}`}>{s}</Text>
-                                            </TouchableOpacity>
-                                        ))}
-                                    </View>
-                                </View>
-                                <TouchableOpacity
-                                    onPress={handleCreateOrUpdateClinic}
-                                    disabled={clinicSubmitting || barcodeUploading}
-                                    className={`bg-cyan-600 rounded-2xl py-4 items-center mt-2 ${(clinicSubmitting || barcodeUploading) ? 'opacity-70' : ''}`}
-                                    style={{ shadowColor: '#0891b2', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 }}
-                                >
-                                    {(clinicSubmitting || barcodeUploading)
-                                        ? <ActivityIndicator color="white" />
-                                        : <Text className="text-white font-bold text-lg">{editingClinicId ? 'Save Changes' : 'Create Clinic'}</Text>}
-                                </TouchableOpacity>
                             </View>
+                            <View>
+                                <Text className="text-sm font-bold text-gray-700 mb-2">Status</Text>
+                                <View className="flex-row" style={{ gap: 12 }}>
+                                    {['ACTIVE', 'INACTIVE'].map(s => (
+                                        <TouchableOpacity key={s} onPress={() => setClinicForm({ ...clinicForm, status: s })} className={`flex-1 py-3 items-center rounded-xl border ${clinicForm.status === s ? (s === 'ACTIVE' ? 'bg-green-50 border-green-500' : 'bg-red-50 border-red-500') : 'bg-white border-gray-200'}`}>
+                                            <Text className={`font-bold ${clinicForm.status === s ? (s === 'ACTIVE' ? 'text-green-700' : 'text-red-700') : 'text-gray-500'}`}>{s}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            </View>
+
+                            <TouchableOpacity
+                                onPress={handleCreateOrUpdateClinic}
+                                disabled={clinicSubmitting}
+                                className={`bg-cyan-600 rounded-2xl py-4 items-center mt-2 ${clinicSubmitting ? 'opacity-70' : ''}`}
+                                style={{ shadowColor: '#0891b2', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 }}
+                            >
+                                {clinicSubmitting
+                                    ? <ActivityIndicator color="white" />
+                                    : <Text className="text-white font-bold text-lg">{editingClinicId ? 'Save Changes' : 'Create Clinic'}</Text>}
+                            </TouchableOpacity>
                         </ScrollView>
                     </View>
                 </View>
@@ -997,10 +966,10 @@ const ClinicsScreen = () => {
                         </ScrollView>
                     </View>
                 </View>
-            </Modal>
+            </Modal >
 
             {/* ── Time Picker Modal ── */}
-            <Modal animationType="fade" transparent visible={timePickerVisible} onRequestClose={() => { setTimePickerVisible(false); setTimePickerTarget(null); }}>
+            < Modal animationType="fade" transparent visible={timePickerVisible} onRequestClose={() => { setTimePickerVisible(false); setTimePickerTarget(null); }}>
                 <View className="flex-1 justify-center items-center bg-black/40 px-5">
                     <View className="w-full bg-white rounded-2xl p-5">
                         <Text className="text-lg font-bold text-gray-800 mb-1">Select Time</Text>
@@ -1044,8 +1013,8 @@ const ClinicsScreen = () => {
                         </View>
                     </View>
                 </View>
-            </Modal>
-        </SafeAreaView>
+            </Modal >
+        </SafeAreaView >
     );
 };
 
