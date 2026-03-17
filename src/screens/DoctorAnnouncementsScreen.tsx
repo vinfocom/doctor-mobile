@@ -409,7 +409,7 @@ export default function DoctorAnnouncementsScreen() {
                                         }
                                         return (
                                             <Text key={p.patient_id} className="text-blue-700 text-xs mt-0.5" numberOfLines={1}>
-                                                • {p.name} {dStr && tStr ? `(${dStr} @ ${tStr})` : ''}
+                                                • {p.name} {dStr ? `(${dStr})` : ''}
                                             </Text>
                                         );
                                     })}
