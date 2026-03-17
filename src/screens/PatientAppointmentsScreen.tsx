@@ -23,11 +23,15 @@ import { getAllDoctors } from '../api/doctors';
 
 type AppointmentItem = {
     appointment_id: number;
+    booking_id?: number;
     appointment_date: string;
     start_time: string;
     status: string;
     doctor?: { doctor_id: number; doctor_name?: string | null };
     clinic?: { clinic_id: number; clinic_name?: string | null };
+    patient?: {
+        booking_id?: number | null;
+    };
 };
 
 const toYMD = (value?: string) => {
@@ -78,6 +82,19 @@ const formatWhen = (date?: string, time?: string) => {
     });
 };
 
+const formatDateOnly = (date?: string) => {
+    if (!date) return 'N/A';
+    const ymd = toYMD(date);
+    if (!ymd) return 'N/A';
+    return new Date(ymd).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+};
+
+const formatTimeOnly = (time?: string) => {
+    const hm = toHM(time);
+    if (!hm) return 'N/A';
+    return to12h(hm);
+};
+
 export default function PatientAppointmentsScreen() {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -89,6 +106,7 @@ export default function PatientAppointmentsScreen() {
     const [slotDuration, setSlotDuration] = useState(30);
     const [booking, setBooking] = useState(false);
     const [open, setOpen] = useState(false);
+    const [openCardMenuId, setOpenCardMenuId] = useState<number | null>(null);
     const [selectedAppointment, setSelectedAppointment] = useState<AppointmentItem | null>(null);
     const [showDoctorSearch, setShowDoctorSearch] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -119,6 +137,7 @@ export default function PatientAppointmentsScreen() {
         ]);
 
         const appts = (apptsRes?.appointments || []) as AppointmentItem[];
+        console.log("Fetched appointments in App:", JSON.stringify(appts.slice(0, 2), null, 2));
         setItems(appts);
         setPatientName(profileRes?.patient?.full_name || '');
 
@@ -410,49 +429,78 @@ export default function PatientAppointmentsScreen() {
                     }
                     renderItem={({ item }) => {
                         const isPast = item.ts < now;
+                        const isMenuOpen = openCardMenuId === item.appointment_id;
+                        const canCancel = !isPast && item.status !== 'CANCELLED' && item.status !== 'COMPLETED';
                         return (
-                            <View className={`rounded-2xl p-4 mb-3 border ${isPast ? 'bg-gray-50 border-gray-200' : 'bg-white border-blue-100'}`}>
-                                <View className="flex-row items-center justify-between">
-                                    <View className="flex-1">
-                                        <Text className="text-gray-900 font-bold">{item.clinic?.clinic_name || 'Clinic'}</Text>
+                            <View className={`rounded-2xl mb-3 px-3.5 py-3 ${isPast ? 'bg-gray-50 border border-gray-200' : 'bg-white border border-blue-100'}`}>
+                                <View className="flex-row items-start">
+                                    <View className="bg-blue-100 w-10 h-10 rounded-xl items-center justify-center mr-3">
+                                        <User size={16} color="#1d4ed8" />
                                     </View>
-                                    <View className="flex-row items-center">
-                                        <Text className={`text-xs font-semibold mr-2 ${isPast ? 'text-gray-500' : 'text-blue-700'}`}>{item.status || 'BOOKED'}</Text>
-                                        {!isPast && item.status !== 'CANCELLED' && (
+                                    <View className="flex-1">
+                                        <Text className="text-gray-900 font-bold text-sm" numberOfLines={1}>
+                                            {item.doctor?.doctor_name || 'Unknown Doctor'}
+                                        </Text>
+                                        <Text className="text-gray-500 text-xs mt-0.5" numberOfLines={1}>
+                                            {item.clinic?.clinic_name || 'Clinic'}
+                                        </Text>
+                                        <View className="mt-1.5 self-start px-2 py-1 rounded-md bg-gray-100">
+                                            <Text className="text-[10px] font-semibold text-gray-600">Appointment No. {item.patient?.booking_id ?? item.booking_id ?? item.appointment_id}</Text>
+                                        </View>
+                                    </View>
+                                    <View className="items-end ml-2">
+                                        <View className={`px-2 py-1 rounded-md ${isPast ? 'bg-gray-200' : item.status === 'CANCELLED' ? 'bg-red-100' : item.status === 'COMPLETED' ? 'bg-green-100' : 'bg-blue-100'}`}>
+                                            <Text className={`text-[10px] font-bold uppercase ${isPast ? 'text-gray-600' : item.status === 'CANCELLED' ? 'text-red-600' : item.status === 'COMPLETED' ? 'text-green-700' : 'text-blue-700'}`}>{item.status || 'BOOKED'}</Text>
+                                        </View>
+                                        <TouchableOpacity
+                                            onPress={() => setOpenCardMenuId((prev) => (prev === item.appointment_id ? null : item.appointment_id))}
+                                            className="mt-2 p-1.5 rounded-lg bg-gray-100"
+                                        >
+                                            {isMenuOpen ? <X size={14} color="#4b5563" /> : <MoreVertical size={14} color="#4b5563" />}
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+
+                                <View className="mt-3 flex-row">
+                                    <View className="flex-1 bg-blue-50 rounded-xl px-3 py-2 mr-2">
+                                        <Text className="text-[10px] uppercase tracking-wide text-blue-500 font-bold">Date</Text>
+                                        <Text className="text-xs font-semibold text-blue-900 mt-0.5">{formatDateOnly(item.appointment_date)}</Text>
+                                    </View>
+                                    <View className="flex-1 bg-emerald-50 rounded-xl px-3 py-2 ml-2">
+                                        <Text className="text-[10px] uppercase tracking-wide text-emerald-600 font-bold">Time</Text>
+                                        <Text className="text-xs font-semibold text-emerald-900 mt-0.5">{formatTimeOnly(item.start_time)}</Text>
+                                    </View>
+                                </View>
+
+                                {isMenuOpen && (
+                                    <View
+                                        className="absolute top-12 right-3 w-48 bg-white rounded-xl border border-gray-200 overflow-hidden"
+                                        style={{ zIndex: 60, elevation: 10 }}
+                                    >
+                                        {canCancel && (
                                             <TouchableOpacity
-                                                onPress={() => {
-                                                    Alert.alert(
-                                                        'Options',
-                                                        'What would you like to do?',
-                                                        [
-                                                            { text: 'Reschedule', onPress: () => handleReschedule(item) },
-                                                            { text: 'Cancel', onPress: () => cancelBooking(item.appointment_id), style: 'destructive' },
-                                                            { text: 'Close', style: 'cancel' }
-                                                        ]
-                                                    );
-                                                }}
+                                                onPress={() => { setOpenCardMenuId(null); handleReschedule(item); }}
+                                                className="px-4 py-3 border-b border-gray-100"
                                             >
-                                                <MoreVertical size={18} color="#6b7280" />
+                                                <Text className="text-sm text-gray-800 font-medium">Reschedule</Text>
                                             </TouchableOpacity>
                                         )}
+                                        {canCancel && (
+                                            <TouchableOpacity
+                                                onPress={() => { setOpenCardMenuId(null); cancelBooking(item.appointment_id); }}
+                                                className="px-4 py-3 border-b border-gray-100"
+                                            >
+                                                <Text className="text-sm text-red-600 font-medium">Cancel Appointment</Text>
+                                            </TouchableOpacity>
+                                        )}
+                                        <TouchableOpacity
+                                            onPress={() => setOpenCardMenuId(null)}
+                                            className="px-4 py-3"
+                                        >
+                                            <Text className="text-sm text-gray-500 font-medium">Close</Text>
+                                        </TouchableOpacity>
                                     </View>
-                                </View>
-                                <View className="flex-row items-center justify-between">
-                                    <View className="flex-row items-center mt-2">
-                                        <User size={14} color="#6b7280" />
-                                        <Text className="text-gray-600 text-sm ml-2">{item.doctor?.doctor_name || 'Doctor'}</Text>
-                                    </View>
-                                    <View className="flex-row items-center mt-1">
-                                        <Clock3 size={14} color="#6b7280" />
-                                        <Text className="text-gray-600 text-sm ml-2">{formatWhen(item.appointment_date, item.start_time)}</Text>
-                                    </View>
-                                </View>
-                                {isPast ? (
-                                    <View className="mt-2 self-start bg-gray-200 rounded-full px-2 py-1 flex-row items-center">
-                                        <History size={11} color="#4b5563" />
-                                        <Text className="text-gray-700 text-[11px] font-semibold ml-1">Past</Text>
-                                    </View>
-                                ) : null}
+                                )}
                             </View>
                         );
                     }}
