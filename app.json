@@ -20,6 +20,9 @@
       }
     },
     "android": {
+      "android": {
+      "usesCleartextTraffic": true
+    },
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -32,13 +35,14 @@
       "favicon": "./assets/favicon.png",
       "bundler": "metro"
     },
-    "extra": {
-      "eas": {
-        "projectId": "d8a20cac-0ff7-412f-9a03-26759a4a6319"
-      }
-    },
     "plugins": [
       "@react-native-community/datetimepicker"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "bc39d0b4-2a38-42dc-9400-21b7bbc216a1"
+      }
+    },
+    "owner": "harshittripathi22"
   }
 }

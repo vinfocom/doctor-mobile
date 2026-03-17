@@ -51,12 +51,13 @@ const DAY_FULL: Record<string, string> = {
     monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday',
     thursday: 'Thursday', friday: 'Friday', saturday: 'Saturday', sunday: 'Sunday',
 };
+// Align with backend: Monday=0 ... Sunday=6
 const DAY_NUMBER_TO_KEY: Record<number, string> = {
-    1: 'monday', 2: 'tuesday', 3: 'wednesday',
-    4: 'thursday', 5: 'friday', 6: 'saturday', 0: 'sunday',
+    0: 'monday', 1: 'tuesday', 2: 'wednesday',
+    3: 'thursday', 4: 'friday', 5: 'saturday', 6: 'sunday',
 };
-const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
-const normalizeDayNumber = (day: number) => (day === 7 ? 0 : day);
+const DAY_ORDER = [0, 1, 2, 3, 4, 5, 6];
+const normalizeDayNumber = (day: number) => (day === 7 ? 6 : day);
 const timeToMinutes = (value?: string) => {
     const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})/);
     if (!match) return 0;
@@ -96,6 +97,17 @@ interface GroupedSchedule {
     groupKey: string; dayNumber: number; dayKey: string;
     dayShort: string; dayFull: string; clinicName: string; slots: ScheduleItem[];
 }
+interface ClinicScheduleGroup {
+    clinicId: number;
+    clinicName: string;
+    days: Array<{
+        dayNumber: number;
+        dayKey: string;
+        dayShort: string;
+        dayFull: string;
+        slots: ScheduleItem[];
+    }>;
+}
 interface FormSlot {
     local_id: string; schedule_id?: number; day_of_week: string;
     start_time: string; end_time: string; slot_duration: string;
@@ -123,7 +135,12 @@ const groupSchedules = (schedules: ScheduleItem[]): GroupedSchedule[] => {
     });
     return Array.from(map.values())
         .map(g => ({ ...g, slots: [...g.slots].sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time)) }))
-        .sort((a, b) => { const dc = DAY_ORDER.indexOf(a.dayNumber) - DAY_ORDER.indexOf(b.dayNumber); return dc !== 0 ? dc : a.clinicName.localeCompare(b.clinicName); });
+        // Sort clinic-wise first, then by day order
+        .sort((a, b) => {
+            const cc = a.clinicName.localeCompare(b.clinicName);
+            if (cc !== 0) return cc;
+            return DAY_ORDER.indexOf(a.dayNumber) - DAY_ORDER.indexOf(b.dayNumber);
+        });
 };
 
 // ─── Animated wrapper ─────────────────────────────────────────────────────────
@@ -221,6 +238,40 @@ const GroupCard = ({ group, index, onEditSlot, onDeleteSlot }: { group: GroupedS
             <View className="pt-0.5">
                 {group.slots.map((slot, i) => (
                     <SlotRow key={slot.schedule_id} slot={slot} index={i} isLast={i === group.slots.length - 1} onEdit={onEditSlot} onDelete={onDeleteSlot} />
+                ))}
+            </View>
+        </View>
+    </AnimListItem>
+);
+
+const ClinicScheduleCard = ({ group, index, onEditSlot, onDeleteSlot }: { group: ClinicScheduleGroup; index: number; onEditSlot: (s: ScheduleItem) => void; onDeleteSlot: (s: ScheduleItem) => void }) => (
+    <AnimListItem index={index} style={{ zIndex: 1000 - index }}>
+        <View className="bg-white rounded-2xl mb-3 border border-violet-100" style={{ shadowColor: '#845ac9', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.07, shadowRadius: 6, elevation: 2 }}>
+            <View className="flex-row items-center px-4 py-3 bg-violet-50 border-b border-violet-100 rounded-t-2xl">
+                <View className="bg-violet-600 px-2.5 py-1 rounded-lg mr-2.5">
+                    <Text className="text-white font-black text-xs tracking-wider">{group.days.length}</Text>
+                </View>
+                <View className="flex-1">
+                    <Text className="text-violet-900 font-bold text-sm" numberOfLines={1}>{group.clinicName}</Text>
+                    <Text className="text-violet-400 text-xs mt-0.5">Clinic Schedule</Text>
+                </View>
+            </View>
+
+            <View className="pt-1 pb-2">
+                {group.days.map((d) => (
+                    <View key={`${group.clinicId}-${d.dayNumber}`}>
+                        <View className="flex-row items-center px-4 py-2">
+                            <View className="bg-violet-100 px-2 py-0.5 rounded-md mr-2">
+                                <Text className="text-violet-700 font-bold text-xs">{d.dayShort}</Text>
+                            </View>
+                            <Text className="text-gray-800 font-semibold text-sm flex-1">{d.dayFull}</Text>
+                            <Text className="text-gray-400 text-xs font-semibold">{d.slots.length} slot{d.slots.length !== 1 ? 's' : ''}</Text>
+                        </View>
+                        {d.slots.map((slot, i) => (
+                            <SlotRow key={slot.schedule_id} slot={slot} index={i} isLast={i === d.slots.length - 1} onEdit={onEditSlot} onDelete={onDeleteSlot} />
+                        ))}
+                        <View className="mx-4 h-px bg-gray-100" />
+                    </View>
                 ))}
             </View>
         </View>
@@ -326,13 +377,47 @@ const ClinicsTab = ({ onAdd, clinics, filteredClinics, searchTerm, setSearchTerm
 const ScheduleTab = ({ onAdd, clinics, grouped, schedule, loading, handleEditSlot, handleDeleteSlot }: any) => {
     const [selectedClinicId, setSelectedClinicId] = useState<number | null>(null);
 
-    const filteredGrouped = useMemo(() => {
-        if (!selectedClinicId) return grouped;
-        return grouped.filter((g: GroupedSchedule) => {
-            // match by clinic_id via the slots inside the group
-            return g.slots.some((s: ScheduleItem) => Number(s.clinic_id) === selectedClinicId);
+    const clinicGroups = useMemo<ClinicScheduleGroup[]>(() => {
+        const map = new Map<number, ClinicScheduleGroup>();
+        (schedule || []).forEach((item: ScheduleItem) => {
+            const clinicId = Number(item.clinic_id);
+            const clinicLabel = (item.clinic?.clinic_name || '').trim() || (clinicId ? `Clinic ${clinicId}` : 'Unknown Clinic');
+            const normalizedDay = normalizeDayNumber(Number(item.day_of_week));
+            const dayKey = DAY_NUMBER_TO_KEY[normalizedDay] ?? 'monday';
+
+            if (!map.has(clinicId)) {
+                map.set(clinicId, { clinicId, clinicName: clinicLabel, days: [] });
+            }
+            const group = map.get(clinicId)!;
+            let dayGroup = group.days.find((d) => d.dayNumber === normalizedDay);
+            if (!dayGroup) {
+                dayGroup = {
+                    dayNumber: normalizedDay,
+                    dayKey,
+                    dayShort: DAY_SHORT[dayKey] ?? '???',
+                    dayFull: DAY_FULL[dayKey] ?? dayKey,
+                    slots: [],
+                };
+                group.days.push(dayGroup);
+            }
+            if (!dayGroup.slots.some((s) => Number(s.schedule_id) === Number(item.schedule_id))) {
+                dayGroup.slots.push({ ...item, day_of_week: normalizedDay });
+            }
         });
-    }, [grouped, selectedClinicId]);
+
+        const result = Array.from(map.values());
+        result.forEach((g) => {
+            g.days.sort((a, b) => DAY_ORDER.indexOf(a.dayNumber) - DAY_ORDER.indexOf(b.dayNumber));
+            g.days.forEach((d) => d.slots.sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time)));
+        });
+        result.sort((a, b) => a.clinicName.localeCompare(b.clinicName));
+        return result;
+    }, [schedule]);
+
+    const filteredClinicGroups = useMemo(() => {
+        if (!selectedClinicId) return clinicGroups;
+        return clinicGroups.filter((g) => g.clinicId === selectedClinicId);
+    }, [clinicGroups, selectedClinicId]);
 
     return (
         <View className="flex-1">
@@ -379,9 +464,9 @@ const ScheduleTab = ({ onAdd, clinics, grouped, schedule, loading, handleEditSlo
             {loading
                 ? <View className="flex-1 justify-center items-center"><ActivityIndicator size="large" color="#7c3aed" /></View>
                 : <FlatList
-                    data={filteredGrouped}
-                    keyExtractor={item => item.groupKey}
-                    renderItem={({ item, index }) => <GroupCard group={item} index={index} onEditSlot={handleEditSlot} onDeleteSlot={handleDeleteSlot} />}
+                    data={filteredClinicGroups}
+                    keyExtractor={item => String(item.clinicId)}
+                    renderItem={({ item, index }) => <ClinicScheduleCard group={item} index={index} onEditSlot={handleEditSlot} onDeleteSlot={handleDeleteSlot} />}
                     contentContainerStyle={{ padding: 14, paddingBottom: 40 }}
                     showsVerticalScrollIndicator={false}
                     ListEmptyComponent={
@@ -430,7 +515,7 @@ const ClinicsScreen = () => {
     const [submitting, setSubmitting] = useState(false);
     const [editingScheduleId, setEditingScheduleId] = useState<number | null>(null);
     const [scheduleForm, setScheduleForm] = useState({ clinic_id: '' });
-    const [formSlots, setFormSlots] = useState<FormSlot[]>([{ local_id: `slot-${Date.now()}`, day_of_week: '1', start_time: '09:00', end_time: '17:00', slot_duration: '30' }]);
+    const [formSlots, setFormSlots] = useState<FormSlot[]>([{ local_id: `slot-${Date.now()}`, day_of_week: '0', start_time: '09:00', end_time: '17:00', slot_duration: '30' }]);
     const [timePickerVisible, setTimePickerVisible] = useState(false);
     const [timePickerTarget, setTimePickerTarget] = useState<{ local_id: string; field: 'start_time' | 'end_time' } | null>(null);
     const [pickerHour, setPickerHour] = useState(9);
@@ -564,7 +649,7 @@ const ClinicsScreen = () => {
 
     const createEmptySlot = (seed?: Partial<FormSlot>): FormSlot => ({
         local_id: `slot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        day_of_week: seed?.day_of_week || '1', start_time: seed?.start_time || '09:00',
+        day_of_week: seed?.day_of_week || '0', start_time: seed?.start_time || '09:00',
         end_time: seed?.end_time || '17:00', slot_duration: seed?.slot_duration || '30',
     });
     const resetScheduleForm = () => {
@@ -806,7 +891,7 @@ const ClinicsScreen = () => {
                                     <Text className="text-sm font-bold text-gray-700 mb-2">Day of Week</Text>
                                     <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-3">
                                         <View className="flex-row" style={{ gap: 8, paddingBottom: 4 }}>
-                                            {([1, 2, 3, 4, 5, 6, 0] as number[]).map(day => {
+                                            {([0, 1, 2, 3, 4, 5, 6] as number[]).map(day => {
                                                 const key = DAY_NUMBER_TO_KEY[day];
                                                 const label = DAY_SHORT[key]?.slice(0, 1) ?? String(day);
                                                 const selected = slot.day_of_week === day.toString();

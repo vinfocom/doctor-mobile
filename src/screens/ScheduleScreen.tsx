@@ -41,14 +41,15 @@ const DAY_FULL: Record<string, string> = {
     thursday: 'Thursday', friday: 'Friday', saturday: 'Saturday', sunday: 'Sunday',
 };
 
+// Align with backend: Monday=0 ... Sunday=6
 const DAY_NUMBER_TO_KEY: Record<number, string> = {
-    1: 'monday', 2: 'tuesday', 3: 'wednesday',
-    4: 'thursday', 5: 'friday', 6: 'saturday', 0: 'sunday',
+    0: 'monday', 1: 'tuesday', 2: 'wednesday',
+    3: 'thursday', 4: 'friday', 5: 'saturday', 6: 'sunday',
 };
 
-const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
+const DAY_ORDER = [0, 1, 2, 3, 4, 5, 6];
 
-const normalizeDayNumber = (day: number): number => (day === 7 ? 0 : day);
+const normalizeDayNumber = (day: number): number => (day === 7 ? 6 : day);
 
 const timeToMinutes = (value?: string): number => {
     if (!value) return 0;
@@ -643,7 +644,7 @@ const ScheduleScreen = () => {
                                     <Text className="text-sm font-bold text-gray-700 mb-2">Day of Week</Text>
                                     <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-3">
                                         <View className="flex-row gap-2 pb-1">
-                                            {([1, 2, 3, 4, 5, 6, 0] as number[]).map(day => {
+                                            {([0, 1, 2, 3, 4, 5, 6] as number[]).map(day => {
                                                 const key = DAY_NUMBER_TO_KEY[day];
                                                 const label = DAY_SHORT[key]?.slice(0, 1) ?? String(day);
                                                 const selected = slot.day_of_week === day.toString();

@@ -66,11 +66,15 @@ const to12h = (time?: string) => {
     return `${hour}:${m} ${ampm}`;
 };
 
-const toYMD = (date: Date) => {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+const pad2 = (value: number) => String(value).padStart(2, '0');
+const ymdFromParts = (year: number, month: number, day: number) =>
+    `${year}-${pad2(month)}-${pad2(day)}`;
+const toYMDUTC = (date: Date) =>
+    ymdFromParts(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
+const getISTTodayYMD = () => {
+    const now = new Date();
+    const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+    return toYMDUTC(ist);
 };
 
 const parseDateOnly = (value?: string) => {
@@ -233,17 +237,22 @@ interface CalendarPickerProps {
 }
 
 const CalendarPicker = ({ selectedDate, onSelect, minDate, enabledDates, loadingDates = false }: CalendarPickerProps) => {
-    const today = new Date();
-    const initDate = selectedDate ? new Date(selectedDate + 'T00:00:00') : today;
+    const todayYMD = getISTTodayYMD();
+    const [initYear, initMonth] = (() => {
+        if (selectedDate && /^\d{4}-\d{2}-\d{2}$/.test(selectedDate)) {
+            const [y, m] = selectedDate.split('-').map(Number);
+            return [y || Number(todayYMD.slice(0, 4)), (m || 1) - 1];
+        }
+        return [Number(todayYMD.slice(0, 4)), Number(todayYMD.slice(5, 7)) - 1];
+    })();
 
-    const [viewYear, setViewYear] = useState(initDate.getFullYear());
-    const [viewMonth, setViewMonth] = useState(initDate.getMonth());
+    const [viewYear, setViewYear] = useState(initYear);
+    const [viewMonth, setViewMonth] = useState(initMonth);
 
-    const minDateObj = minDate ? new Date(minDate + 'T00:00:00') : today;
-    minDateObj.setHours(0, 0, 0, 0);
+    const minDateStr = minDate && /^\d{4}-\d{2}-\d{2}$/.test(minDate) ? minDate : todayYMD;
 
-    const firstDay = new Date(viewYear, viewMonth, 1).getDay();
-    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const firstDay = new Date(Date.UTC(viewYear, viewMonth, 1)).getUTCDay();
+    const daysInMonth = new Date(Date.UTC(viewYear, viewMonth + 1, 0)).getUTCDate();
 
     const prevMonth = () => {
         if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
@@ -297,13 +306,11 @@ const CalendarPicker = ({ selectedDate, onSelect, minDate, enabledDates, loading
                         {cells.slice(row * 7, row * 7 + 7).map((day, col) => {
                             if (!day) return <View key={col} className="flex-1 m-1" />;
 
-                            const dateObj = new Date(viewYear, viewMonth, day);
-                            dateObj.setHours(0, 0, 0, 0);
-                            const dateStr = toYMD(dateObj);
+                            const dateStr = ymdFromParts(viewYear, viewMonth + 1, day);
                             const isSelected = dateStr === selectedDate;
-                            const isToday = dateStr === toYMD(today);
+                            const isToday = dateStr === todayYMD;
                             const isEnabledDate = enabledDates ? enabledDates.has(dateStr) : true;
-                            const isDisabled = dateObj < minDateObj || !isEnabledDate;
+                            const isDisabled = dateStr < minDateStr || !isEnabledDate;
 
                             // Dynamic bg can't be expressed as static NativeWind class — keep inline
                             const bgColor = isSelected ? '#2563eb' : isToday ? '#dbeafe' : 'transparent';
@@ -1083,9 +1090,9 @@ const AppointmentsScreen = () => {
                     {/* Quick date filter chips */}
                     {(() => {
                         const nowIST = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
-                        const todayStr = toYMD(nowIST);
+                        const todayStr = toYMDUTC(nowIST);
                         const tomorrowIST = new Date(nowIST.getTime() + 86400000);
-                        const tomorrowStr = toYMD(tomorrowIST);
+                        const tomorrowStr = toYMDUTC(tomorrowIST);
                         const isAllTime = !dateFrom && !dateTo;
                         const isToday = dateFrom === todayStr && dateTo === todayStr;
                         const isTomorrow = dateFrom === tomorrowStr && dateTo === tomorrowStr;
@@ -1506,9 +1513,10 @@ const AppointmentsScreen = () => {
                                                     selectedDate={formData.date}
                                                     onSelect={d => {
                                                         setFormData({ ...formData, date: d, time: '' });
+                                                        
                                                         setShowCalendar(false);
                                                     }}
-                                                    minDate={toYMD(new Date())}
+                                                    minDate={getISTTodayYMD()}
                                                     enabledDates={formData.clinic_id ? availableDates : undefined}
                                                     loadingDates={!!formData.clinic_id && loadingDates}
                                                 />
