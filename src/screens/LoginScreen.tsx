@@ -70,13 +70,19 @@ const LoginScreen = () => {
             }
         } catch (error: any) {
             const status = error?.response?.status;
-            const apiPath = error?.config?.url || '';
-            const apiBase = error?.config?.baseURL || '';
-            const message = error?.response?.data?.error || error?.message || 'Login failed';
-            const details = status
-                ? `${message}\n\nHTTP ${status}\n${apiBase}${apiPath}`
-                : `${message}\n\n${apiBase}${apiPath}`;
-            Alert.alert('Error', details);
+            let message = error?.response?.data?.error || 'Login failed. Please check your credentials and try again.';
+            
+            if (status === 401 || status === 400 || status === 404) {
+                message = mode === 'DOCTOR' 
+                    ? 'Invalid email or password.' 
+                    : 'Invalid phone number or username.';
+            } else if (status === 500) {
+                message = 'Server error. Please try again later.';
+            } else if (!status) {
+                message = 'Network error. Please check your internet connection.';
+            }
+
+            Alert.alert('Login Failed', message);
         } finally {
             setLoading(false);
         }
