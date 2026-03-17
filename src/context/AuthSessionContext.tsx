@@ -1,6 +1,8 @@
 import React from 'react';
 import { getMe, type AuthMeUser } from '../api/auth';
 import { getRole, getToken, type AppRole } from '../api/token';
+import { updateProfile, updatePatientProfile } from '../api/auth';
+import { registerForPushNotificationsAsync } from '../hooks/usePushNotifications';
 
 type SessionState = {
     role: AppRole | null;
@@ -74,11 +76,23 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
                     email: null,
                     user: null,
                 });
+                registerForPushNotificationsAsync().then(token => {
+                    if (token?.data) {
+                        updatePatientProfile({ push_token: token.data }).catch(() => undefined);
+                    }
+                }).catch(() => undefined);
                 return;
             }
 
             const response = await getMe();
             setSession(mapUserToSession(response.user));
+            if (response.user.role === 'DOCTOR') {
+                registerForPushNotificationsAsync().then(token => {
+                    if (token?.data) {
+                        updateProfile({ push_token: token.data }).catch(() => undefined);
+                    }
+                }).catch(() => undefined);
+            }
         } catch {
             clearSession();
         } finally {

@@ -42,6 +42,7 @@ export const updateProfile = async (data: {
     profile_pic_url?: string;
     document_url?: string;
     whatsapp_numbers?: { whatsapp_number: string; is_primary: boolean }[];
+    push_token?: string;
 }) => {
     const response = await client.patch('/doctors/me', data);
     return response.data;
@@ -62,6 +63,7 @@ export const updatePatientProfile = async (data: {
     phone?: string;
     age?: number | string;
     gender?: string;
+    push_token?: string;
 }) => {
     const response = await client.patch('/patient/me', data);
     return response.data;
