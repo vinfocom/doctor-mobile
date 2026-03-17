@@ -9,6 +9,7 @@ import { getPatientProfile } from '../api/auth';
 import { io, type Socket } from 'socket.io-client';
 import { SOCKET_URL } from '../config/env';
 import { markPatientAnnouncementsRead } from '../lib/mobileNotificationState';
+import { useNotificationSound } from '../hooks/useNotificationSound';
 
 interface PatientAnnouncement {
     message_id: number;
@@ -25,6 +26,7 @@ export default function PatientAnnouncementsScreen() {
     const [patientId, setPatientId] = useState<number | null>(null);
     const [doctorIds, setDoctorIds] = useState<number[]>([]);
     const socketRef = useRef<Socket | null>(null);
+    const playSound = useNotificationSound();
 
     useFocusEffect(
         React.useCallback(() => {
@@ -72,49 +74,6 @@ export default function PatientAnnouncementsScreen() {
         socketRef.current = socket;
 
         const joinAllRooms = () => {
-            doctorIds.forEach((doctorId) => {
-                socket.emit('join_chat', { patientId, doctorId });
-            });
-        };
-
-        socket.on('connect', joinAllRooms);
-        socket.on('receive_message', (msg: any) => {
-            if (!msg || msg.sender !== 'DOCTOR' || !String(msg.content || '').startsWith('Announcement:')) return;
-            if (msg.patient_id !== patientId) return;
-            const cleanedContent = String(msg.content).replace(/^Announcement:\s*/, '');
-            setItems((prev) => {
-                const exists = prev.some((p) => p.message_id && msg.message_id && p.message_id === msg.message_id);
-                if (exists) return prev;
-                const incoming: PatientAnnouncement = {
-                    message_id: msg.message_id || Date.now(),
-                    doctor_id: msg.doctor_id,
-                    doctor_name: prev.find((p) => p.doctor_id === msg.doctor_id)?.doctor_name || 'Doctor',
-                    content: cleanedContent,
-                    created_at: msg.created_at || new Date().toISOString(),
-                };
-                return [incoming, ...prev];
-            });
-        });
-        socket.on('announcement_received', (msg: any) => {
-            if (!msg || msg.sender !== 'DOCTOR' || msg.patient_id !== patientId) return;
-            setItems((prev) => {
-                const exists = prev.some((p) => (msg.campaign_id && p.message_id === msg.campaign_id));
-                if (exists) return prev;
-                const incoming: PatientAnnouncement = {
-                    message_id: msg.campaign_id || Date.now(),
-                    doctor_id: msg.doctor_id,
-                    doctor_name: prev.find((p) => p.doctor_id === msg.doctor_id)?.doctor_name || 'Doctor',
-                    content: String(msg.content || ''),
-                    created_at: msg.created_at || new Date().toISOString(),
-                };
-                return [incoming, ...prev];
-            });
-        });
-        if (socket.connected) joinAllRooms();
-
-        return () => {
-            socket.removeAllListeners();
-            socket.disconnect();
             socketRef.current = null;
         };
     }, [doctorIds, patientId]);

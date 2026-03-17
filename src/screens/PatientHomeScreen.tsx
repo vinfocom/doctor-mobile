@@ -304,7 +304,7 @@ export default function PatientHomeScreen() {
                     onPress={(message) => {
                         if (message.isAnnouncement) {
                             clearAnnouncementIndicators();
-                            navigation.getParent()?.navigate('PatientAnnouncements');
+                            navigation.navigate('PatientAnnouncements' as never);
                             return;
                         }
                         clearMessageIndicators();

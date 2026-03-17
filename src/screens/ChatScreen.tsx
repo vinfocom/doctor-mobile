@@ -7,6 +7,7 @@ import type { RootStackParamList } from '../navigation/types';
 import { getChatMessages, sendChatMessage } from '../api/chat';
 import { io, type Socket } from 'socket.io-client';
 import { SOCKET_URL } from '../config/env';
+import { useNotificationSound } from '../hooks/useNotificationSound';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Chat'>;
 
@@ -20,6 +21,7 @@ export default function ChatScreen({ route, navigation }: Props) {
     const [keyboardHeight, setKeyboardHeight] = useState(0);
     const flatListRef = useRef<FlatList>(null);
     const socketRef = useRef<Socket | null>(null);
+    const playSound = useNotificationSound();
 
     const scrollToLatest = React.useCallback((animated = true) => {
         requestAnimationFrame(() => {
@@ -71,7 +73,6 @@ export default function ChatScreen({ route, navigation }: Props) {
             hideSub.remove();
         };
     }, [scrollToLatest]);
-
     useEffect(() => {
         const socket = io(SOCKET_URL, {
             transports: ['websocket', 'polling'],
@@ -88,6 +89,9 @@ export default function ChatScreen({ route, navigation }: Props) {
         socket.on('receive_message', (data: any) => {
             if (data?.patient_id !== patientId || data?.doctor_id !== doctorId) return;
             if (data?.content && typeof data.content === 'string' && data.content.startsWith('Announcement:')) return;
+            // Play sound only for incoming messages (not our own sent messages)
+            const isOurMessage = viewer === 'PATIENT' ? data.sender === 'PATIENT' : data.sender === 'DOCTOR';
+            if (!isOurMessage) playSound();
             setMessages((prev) => mergeMessages(prev, [data]));
         });
         if (socket.connected) join();
@@ -97,7 +101,7 @@ export default function ChatScreen({ route, navigation }: Props) {
             socket.disconnect();
             socketRef.current = null;
         };
-    }, [doctorId, patientId]);
+    }, [doctorId, patientId, playSound, viewer]);
 
     const handleSend = async () => {
         if (!newMessage.trim()) return;
