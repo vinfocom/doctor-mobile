@@ -8,17 +8,28 @@ import AppNavigator from './src/navigation';
 import type { RootStackParamList } from './src/navigation/types';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
-import * as Notifications from 'expo-notifications';
+import type * as NotificationsType from 'expo-notifications';
+import Constants from 'expo-constants';
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+// Expo Go (SDK 53+) removed remote push notification support.
+// Lazy-load expo-notifications so the package never initialises in Expo Go,
+// preventing its own startup error from firing.
+const isExpoGo = Constants.appOwnership === 'expo';
+const Notifications: typeof NotificationsType | null = isExpoGo
+  ? null
+  : require('expo-notifications');
+
+if (Notifications) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+}
 
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
