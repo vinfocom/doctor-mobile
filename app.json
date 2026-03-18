@@ -16,13 +16,21 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.singhaditya1627.doctormobile",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "Allow access to camera to send photos in chat.",
+        "NSPhotoLibraryUsageDescription": "Allow access to your photos to send images in chat.",
+        "NSPhotoLibraryAddUsageDescription": "Allow saving images to your library."
       }
     },
     "android": {
       "android": {
       "usesCleartextTraffic": true
     },
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ],
       "softwareKeyboardLayoutMode": "pan",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",

@@ -616,7 +616,7 @@ const ClinicsScreen = () => {
             return;
         }
         const result = await ImagePicker.launchCameraAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            mediaTypes: ['images'],
             quality: 0.9,
         });
         if (result.canceled) return;
@@ -631,7 +631,7 @@ const ClinicsScreen = () => {
             return;
         }
         const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            mediaTypes: ['images'],
             quality: 0.9,
         });
         if (result.canceled) return;
