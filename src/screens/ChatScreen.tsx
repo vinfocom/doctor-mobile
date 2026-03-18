@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Keyboard } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, Platform, ActivityIndicator, KeyboardAvoidingView, Keyboard } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeft, Send, User } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -18,7 +18,6 @@ export default function ChatScreen({ route, navigation }: Props) {
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
-    const [keyboardHeight, setKeyboardHeight] = useState(0);
     const flatListRef = useRef<FlatList>(null);
     const socketRef = useRef<Socket | null>(null);
     const playSound = useNotificationSound();
@@ -58,22 +57,6 @@ export default function ChatScreen({ route, navigation }: Props) {
     }, [patientId, doctorId]);
 
     useEffect(() => {
-        const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-        const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-        const showSub = Keyboard.addListener(showEvent, (event) => {
-            setKeyboardHeight(event.endCoordinates?.height || 0);
-            scrollToLatest(false);
-        });
-        const hideSub = Keyboard.addListener(hideEvent, () => {
-            setKeyboardHeight(0);
-            scrollToLatest(false);
-        });
-        return () => {
-            showSub.remove();
-            hideSub.remove();
-        };
-    }, [scrollToLatest]);
-    useEffect(() => {
         const socket = io(SOCKET_URL, {
             transports: ['websocket', 'polling'],
             timeout: 20000,
@@ -89,7 +72,6 @@ export default function ChatScreen({ route, navigation }: Props) {
         socket.on('receive_message', (data: any) => {
             if (data?.patient_id !== patientId || data?.doctor_id !== doctorId) return;
             if (data?.content && typeof data.content === 'string' && data.content.startsWith('Announcement:')) return;
-            // Play sound only for incoming messages (not our own sent messages)
             const isOurMessage = viewer === 'PATIENT' ? data.sender === 'PATIENT' : data.sender === 'DOCTOR';
             if (!isOurMessage) playSound();
             setMessages((prev) => mergeMessages(prev, [data]));
@@ -158,6 +140,7 @@ export default function ChatScreen({ route, navigation }: Props) {
 
     return (
         <SafeAreaView className="flex-1 bg-white" edges={['top']}>
+            {/* Header Section */}
             <View className="flex-row items-center px-4 py-4 border-b border-gray-100 bg-white">
                 <TouchableOpacity onPress={() => navigation.goBack()} className="mr-3 p-2 bg-gray-50 rounded-full">
                     <ChevronLeft size={24} color="#1f2937" />
@@ -176,9 +159,10 @@ export default function ChatScreen({ route, navigation }: Props) {
                 ) : null}
             </View>
 
-            <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                keyboardVerticalOffset={0}
+            {/* Unified Keyboard Logic */}
+            <KeyboardAvoidingView 
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
                 className="flex-1 bg-gray-50"
             >
                 {loading ? (
@@ -198,7 +182,7 @@ export default function ChatScreen({ route, navigation }: Props) {
                         contentContainerStyle={{
                             paddingHorizontal: 16,
                             paddingTop: 20,
-                            paddingBottom: 28 + (Platform.OS === 'android' ? Math.max(0, keyboardHeight - insets.bottom) : 0),
+                            paddingBottom: 20,
                         }}
                         onContentSizeChange={() => scrollToLatest(true)}
                         onLayout={() => scrollToLatest(false)}
@@ -207,13 +191,8 @@ export default function ChatScreen({ route, navigation }: Props) {
                     />
                 )}
 
-                <View
-                    className="px-4 pt-3 bg-white border-t border-gray-100 flex-row items-center"
-                    style={{
-                        paddingBottom: Math.max(insets.bottom, 8),
-                        marginBottom: Platform.OS === 'android' ? Math.max(0, keyboardHeight - insets.bottom) : 0,
-                    }}
-                >
+                {/* Unified Input Section */}
+                <View className="px-4 pt-3 pb-10 bg-white border-t border-gray-100 flex-row items-center">
                     <TextInput
                         className="flex-1 bg-gray-50 border border-gray-200 rounded-full px-5 py-3 text-base text-gray-800 mr-3"
                         placeholder="Type a message..."
