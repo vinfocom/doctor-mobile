@@ -252,8 +252,9 @@ const CalendarPicker = ({ selectedDate, onSelect, minDate, enabledDates, loading
 
     const minDateStr = minDate && /^\d{4}-\d{2}-\d{2}$/.test(minDate) ? minDate : todayYMD;
 
-    const firstDay = new Date(Date.UTC(viewYear, viewMonth, 1)).getUTCDay();
-    const daysInMonth = new Date(Date.UTC(viewYear, viewMonth + 1, 0)).getUTCDate();
+    // Sunday=0 ... Saturday=6
+    const firstDay = new Date(viewYear, viewMonth, 1).getDay();
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
 
     const prevMonth = () => {
         if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }

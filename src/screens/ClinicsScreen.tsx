@@ -53,10 +53,10 @@ const DAY_FULL: Record<string, string> = {
     monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday',
     thursday: 'Thursday', friday: 'Friday', saturday: 'Saturday', sunday: 'Sunday',
 };
-// Align with backend: Monday=0 ... Sunday=6
+// Align with backend: Sunday=0 ... Saturday=6
 const DAY_NUMBER_TO_KEY: Record<number, string> = {
-    0: 'monday', 1: 'tuesday', 2: 'wednesday',
-    3: 'thursday', 4: 'friday', 5: 'saturday', 6: 'sunday',
+    0: 'sunday', 1: 'monday', 2: 'tuesday',
+    3: 'wednesday', 4: 'thursday', 5: 'friday', 6: 'saturday',
 };
 const DAY_ORDER = [0, 1, 2, 3, 4, 5, 6];
 const normalizeDayNumber = (day: number) => (day === 7 ? 6 : day);
