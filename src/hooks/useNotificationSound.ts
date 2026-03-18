@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { Audio } from 'expo-av';
+import { Platform } from 'react-native';
+import * as Notifications from 'expo-notifications';
 
 /**
  * A reusable hook that plays a short notification beep sound.
@@ -9,40 +10,59 @@ import { Audio } from 'expo-av';
  *   // Call playSound() when a new message or announcement arrives
  */
 export function useNotificationSound() {
-    const soundRef = useRef<Audio.Sound | null>(null);
+    const readyRef = useRef(false);
 
     useEffect(() => {
         let mounted = true;
-        const load = async () => {
+        const setup = async () => {
             try {
-                await Audio.setAudioModeAsync({
-                    playsInSilentModeIOS: false, // Respect silent mode on iOS
-                    allowsRecordingIOS: false,
+                Notifications.setNotificationHandler({
+                    handleNotification: async () => ({
+                        shouldShowBanner: false,
+                        shouldShowList: false,
+                        shouldPlaySound: true,
+                        shouldSetBadge: false,
+                    }),
                 });
-                // Using a reliable locally bundled notification sound
-                const { sound } = await Audio.Sound.createAsync(
-                    require('../../assets/notification.wav'),
-                    { shouldPlay: false, volume: 1.0 }
-                );
-                if (mounted) soundRef.current = sound;
-            } catch (e) {
+
+                const permissions = await Notifications.getPermissionsAsync();
+                if (!permissions.granted) {
+                    await Notifications.requestPermissionsAsync();
+                }
+
+                if (Platform.OS === 'android') {
+                    await Notifications.setNotificationChannelAsync('default', {
+                        name: 'default',
+                        importance: Notifications.AndroidImportance.DEFAULT,
+                        sound: 'default',
+                        vibrationPattern: [0, 250, 250, 250],
+                    });
+                }
+
+                if (mounted) readyRef.current = true;
+            } catch {
                 // Fail silently – sound is non-critical
             }
         };
-        load();
+        setup();
         return () => {
             mounted = false;
-            soundRef.current?.unloadAsync().catch(() => undefined);
-            soundRef.current = null;
+            readyRef.current = false;
         };
     }, []);
 
     const playSound = useCallback(async () => {
         try {
-            if (!soundRef.current) return;
-            await soundRef.current.setPositionAsync(0);
-            await soundRef.current.playAsync();
-        } catch (e) {
+            if (!readyRef.current) return;
+            await Notifications.scheduleNotificationAsync({
+                content: {
+                    title: 'New message',
+                    body: '',
+                    sound: 'default',
+                },
+                trigger: null,
+            });
+        } catch {
             // Fail silently
         }
     }, []);
