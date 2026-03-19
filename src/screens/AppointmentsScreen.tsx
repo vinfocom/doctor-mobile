@@ -28,6 +28,7 @@ import {
     PlusCircle,
     Eraser,
     MessageCircle,
+    Download,
 } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getAppointments, createAppointment, updateAppointment, deleteAppointment } from '../api/appointments';
@@ -39,8 +40,11 @@ import { FlashList } from '@shopify/flash-list';
 import { getChatNotifications, type IncomingNotificationMessage } from '../api/notifications';
 import IncomingMessageBubble from '../components/IncomingMessageBubble';
 import { io, type Socket } from 'socket.io-client';
-import { SOCKET_URL } from '../config/env';
+import { API_URL, SOCKET_URL } from '../config/env';
 import { useAuthSession } from '../context/AuthSessionContext';
+import { getToken } from '../api/token';
+import * as FileSystem from 'expo-file-system';
+import { Buffer } from 'buffer';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -75,6 +79,12 @@ const toYMDUTC = (date: Date) =>
 const getISTTodayYMD = () => {
     const now = new Date();
     const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+    return toYMDUTC(ist);
+};
+const addDaysToYMD = (ymd: string, days: number) => {
+    const base = new Date(`${ymd}T00:00:00+05:30`);
+    const shifted = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+    const ist = new Date(shifted.getTime() + 5.5 * 60 * 60 * 1000);
     return toYMDUTC(ist);
 };
 
@@ -398,6 +408,14 @@ const AppointmentsScreen = () => {
     const [showQuickDatePicker, setShowQuickDatePicker] = useState(false);
     const [statusFilter, setStatusFilter] = useState<'ALL' | 'BOOKED' | 'PENDING' | 'COMPLETED' | 'CANCELLED'>('ALL');
     const [headerMenuVisible, setHeaderMenuVisible] = useState(false);
+    const [exportModalVisible, setExportModalVisible] = useState(false);
+    const [exportPreset, setExportPreset] = useState<'ONE_DAY' | 'ONE_WEEK' | 'ONE_MONTH' | 'CUSTOM'>('ONE_DAY');
+    const [exportFormat, setExportFormat] = useState<'pdf' | 'excel'>('pdf');
+    const [exportFrom, setExportFrom] = useState('');
+    const [exportTo, setExportTo] = useState('');
+    const [exporting, setExporting] = useState(false);
+    const [exportError, setExportError] = useState('');
+    const [exportCalendarMode, setExportCalendarMode] = useState<'FROM' | 'TO' | null>(null);
     const [openCardMenuId, setOpenCardMenuId] = useState<number | null>(null);
     const [highlightedPairKey, setHighlightedPairKey] = useState<string | null>(null);
     const handledPrefillKeyRef = useRef<string>('');
@@ -623,6 +641,116 @@ const AppointmentsScreen = () => {
             console.error(e);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const getExportRange = () => {
+        const today = getISTTodayYMD();
+        if (exportPreset === 'ONE_DAY') {
+            return { from: today, to: today };
+        }
+        if (exportPreset === 'ONE_WEEK') {
+            return { from: addDaysToYMD(today, -6), to: today };
+        }
+        if (exportPreset === 'ONE_MONTH') {
+            return { from: addDaysToYMD(today, -29), to: today };
+        }
+        const from = exportFrom;
+        const to = exportTo || exportFrom;
+        return { from, to };
+    };
+
+    const handleExportDownload = async () => {
+        setExportError('');
+        if (exportPreset === 'CUSTOM' && !exportFrom) {
+            setExportError('Please select a From date.');
+            return;
+        }
+        if (exportPreset === 'CUSTOM' && exportTo && exportTo < exportFrom) {
+            setExportError('To date cannot be earlier than From date.');
+            return;
+        }
+        const { from, to } = getExportRange();
+        if (!from || !to) {
+            setExportError('Please choose a valid date range.');
+            return;
+        }
+
+        setExporting(true);
+        try {
+            const token = await getToken();
+            if (!token) {
+                setExportError('Unauthorized. Please log in again.');
+                return;
+            }
+
+            const format = exportFormat;
+            const ext = format === 'excel' ? 'xlsx' : 'pdf';
+            const filename = `appointments_${from.replaceAll('-', '')}_${to.replaceAll('-', '')}.${ext}`;
+            const url = `${API_URL}/appointments/export?dateFrom=${from}&dateTo=${to}&format=${format}`;
+
+            if (Platform.OS === 'web') {
+                const res = await fetch(url, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                if (!res.ok) {
+                    setExportError(`Failed to download export (status ${res.status}).`);
+                    return;
+                }
+                const blob = await res.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = blobUrl;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                URL.revokeObjectURL(blobUrl);
+            } else {
+                const res = await fetch(url, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                if (!res.ok) {
+                    const body = await res.text().catch(() => '');
+                    setExportError(`Failed to download export (status ${res.status}). ${body}`.trim());
+                    return;
+                }
+                const arrayBuffer = await res.arrayBuffer();
+                const base64 = Buffer.from(arrayBuffer).toString('base64');
+
+                if (Platform.OS === 'android') {
+                    const perm = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+                    if (!perm.granted) {
+                        Alert.alert('Permission needed', 'Allow folder access to save the file.');
+                        return;
+                    }
+                    const mimeType =
+                        format === 'excel'
+                            ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                            : 'application/pdf';
+                    const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
+                        perm.directoryUri,
+                        filename,
+                        mimeType
+                    );
+                    await FileSystem.writeAsStringAsync(fileUri, base64, {
+                        encoding: FileSystem.EncodingType.Base64,
+                    });
+                    Alert.alert('Downloaded', 'Saved to selected folder.');
+                } else {
+                    const fileUri = `${FileSystem.documentDirectory}${filename}`;
+                    await FileSystem.writeAsStringAsync(fileUri, base64, {
+                        encoding: FileSystem.EncodingType.Base64,
+                    });
+                    Alert.alert('Downloaded', `Saved in app files: ${fileUri}`);
+                }
+            }
+
+            setExportModalVisible(false);
+        } catch (e) {
+            setExportError('Failed to download export.');
+        } finally {
+            setExporting(false);
         }
     };
 
@@ -1192,6 +1320,17 @@ const AppointmentsScreen = () => {
                         >
                             <TouchableOpacity
                                 onPress={() => {
+                                    setExportError('');
+                                    setExportModalVisible(true);
+                                    setHeaderMenuVisible(false);
+                                }}
+                                className="px-4 py-3 flex-row items-center border-b border-gray-100"
+                            >
+                                <Download size={14} color="#1f2937" />
+                                <Text className="text-sm text-gray-800 font-medium ml-2">Download Report</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={() => {
                                     setFilterModalVisible(true);
                                     setHeaderMenuVisible(false);
                                 }}
@@ -1319,6 +1458,145 @@ const AppointmentsScreen = () => {
                     />
                 )}
             </View>
+
+            {/* Export Modal */}
+            <Modal
+                animationType="slide"
+                transparent
+                visible={exportModalVisible}
+                onRequestClose={() => setExportModalVisible(false)}
+            >
+                <View className="flex-1 justify-end bg-black/50">
+                    <View className="bg-white rounded-t-3xl p-6">
+                        <View className="flex-row justify-between items-center mb-4">
+                            <Text className="text-xl font-bold text-gray-800">Download Appointments</Text>
+                            <TouchableOpacity onPress={() => setExportModalVisible(false)} className="bg-gray-100 p-2 rounded-full">
+                                <X size={18} color="#374151" />
+                            </TouchableOpacity>
+                        </View>
+
+                        <View className="space-y-4">
+                            <View>
+                                <Text className="text-sm font-bold text-gray-700 mb-2">Timeframe</Text>
+                                <View className="flex-row flex-wrap gap-2">
+                                    {[
+                                        { value: 'ONE_DAY', label: '1 Day' },
+                                        { value: 'ONE_WEEK', label: '1 Week' },
+                                        { value: 'ONE_MONTH', label: '1 Month' },
+                                        { value: 'CUSTOM', label: 'Custom Range' },
+                                    ].map((item) => {
+                                        const active = exportPreset === item.value;
+                                        return (
+                                            <TouchableOpacity
+                                                key={item.value}
+                                                onPress={() => setExportPreset(item.value as typeof exportPreset)}
+                                                className={`px-3 py-2 rounded-xl border ${active ? 'bg-blue-50 border-blue-500' : 'bg-white border-gray-200'}`}
+                                            >
+                                                <Text className={`text-sm font-semibold ${active ? 'text-blue-700' : 'text-gray-600'}`}>
+                                                    {item.label}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                                {exportPreset === 'CUSTOM' && (
+                                    <View className="mt-3 space-y-3">
+                                        <View>
+                                            <Text className="text-sm font-bold text-gray-700 mb-1">From (YYYY-MM-DD)</Text>
+                                            <TouchableOpacity
+                                                onPress={() => setExportCalendarMode(exportCalendarMode === 'FROM' ? null : 'FROM')}
+                                                className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3"
+                                            >
+                                                <Text className={`text-base ${exportFrom ? 'text-gray-800 font-medium' : 'text-gray-400'}`}>
+                                                    {exportFrom ? formatDisplayDate(exportFrom) : 'Select date'}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                        <View>
+                                            <Text className="text-sm font-bold text-gray-700 mb-1">To (YYYY-MM-DD)</Text>
+                                            <TouchableOpacity
+                                                onPress={() => setExportCalendarMode(exportCalendarMode === 'TO' ? null : 'TO')}
+                                                className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3"
+                                            >
+                                                <Text className={`text-base ${exportTo ? 'text-gray-800 font-medium' : 'text-gray-400'}`}>
+                                                    {exportTo ? formatDisplayDate(exportTo) : 'Select date'}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                        {exportCalendarMode && (
+                                            <View className="mt-2">
+                                                <CalendarPicker
+                                                    selectedDate={exportCalendarMode === 'FROM' ? exportFrom : exportTo}
+                                                    onSelect={(d) => {
+                                                        if (exportCalendarMode === 'FROM') {
+                                                            setExportFrom(d);
+                                                            if (exportTo && exportTo < d) setExportTo(d);
+                                                        } else {
+                                                            setExportTo(d);
+                                                        }
+                                                        setExportCalendarMode(null);
+                                                    }}
+                                                    minDate={exportCalendarMode === 'TO' ? (exportFrom || '1900-01-01') : '1900-01-01'}
+                                                />
+                                            </View>
+                                        )}
+                                    </View>
+                                )}
+                            </View>
+
+                            <View>
+                                <Text className="text-sm font-bold text-gray-700 mb-2">Format</Text>
+                                <View className="flex-row gap-2">
+                                    {[
+                                        { value: 'pdf', label: 'PDF' },
+                                        { value: 'excel', label: 'Excel' },
+                                    ].map((item) => {
+                                        const active = exportFormat === item.value;
+                                        return (
+                                            <TouchableOpacity
+                                                key={item.value}
+                                                onPress={() => setExportFormat(item.value as typeof exportFormat)}
+                                                className={`px-3 py-2 rounded-xl border ${active ? 'bg-blue-50 border-blue-500' : 'bg-white border-gray-200'}`}
+                                            >
+                                                <Text className={`text-sm font-semibold ${active ? 'text-blue-700' : 'text-gray-600'}`}>
+                                                    {item.label}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                            </View>
+
+                            {exportError ? (
+                                <View className="bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                                    <Text className="text-sm text-red-600">{exportError}</Text>
+                                </View>
+                            ) : null}
+                        </View>
+
+                        <View className="flex-row justify-end gap-3 mt-5">
+                            <TouchableOpacity
+                                onPress={() => setExportModalVisible(false)}
+                                disabled={exporting}
+                                className="px-4 py-3 rounded-xl bg-gray-100"
+                            >
+                                <Text className="text-gray-600 font-semibold">Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={handleExportDownload}
+                                disabled={exporting}
+                                className="px-4 py-3 rounded-xl bg-blue-600"
+                            >
+                                {exporting ? (
+                                    <ActivityIndicator color="white" />
+                                ) : (
+                                    <Text className="text-white font-semibold">Download</Text>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
 
             {/* Filter Modal */}
             <Modal
