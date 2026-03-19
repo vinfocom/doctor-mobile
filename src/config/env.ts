@@ -1,10 +1,60 @@
+import Constants from 'expo-constants';
+
 const ensureHttpProtocol = (url: string) => {
     const trimmed = url.trim();
     if (!trimmed) return trimmed;
     return /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
 };
 
-const rawApiUrl = ensureHttpProtocol(process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.126:3000/api");
+type PublicEnvName = 'EXPO_PUBLIC_API_URL' | 'EXPO_PUBLIC_SOCKET_URL';
+
+type ExpoExtra = {
+    apiUrl?: string;
+    socketUrl?: string;
+};
+
+const getExpoExtra = (): ExpoExtra => {
+    const constantsAny = Constants as unknown as {
+        expoConfig?: { extra?: ExpoExtra };
+        manifest?: { extra?: ExpoExtra };
+        manifest2?: { extra?: ExpoExtra };
+    };
+
+    return (
+        constantsAny.expoConfig?.extra ??
+        constantsAny.manifest2?.extra ??
+        constantsAny.manifest?.extra ??
+        {}
+    ) as ExpoExtra;
+};
+
+const getEnvValue = (name: PublicEnvName) => {
+    // Keep direct property access so Expo can inline EXPO_PUBLIC_* values in bundles.
+    if (name === 'EXPO_PUBLIC_API_URL') return process.env.EXPO_PUBLIC_API_URL;
+    if (name === 'EXPO_PUBLIC_SOCKET_URL') return process.env.EXPO_PUBLIC_SOCKET_URL;
+    return undefined;
+};
+
+const readConfigValue = (envName: PublicEnvName, extraName: keyof ExpoExtra) => {
+    const envValue = getEnvValue(envName);
+    if (envValue) return envValue;
+
+    const extraValue = getExpoExtra()[extraName]?.trim();
+    if (extraValue) return extraValue;
+
+    const modeHint = __DEV__
+        ? `Set ${envName} in your local env or set expo.extra.${extraName} in app.json.`
+        : `Release build is missing ${envName}. Set EAS env or expo.extra.${extraName} in app.json.`;
+
+    throw new Error(`[env] Missing required configuration: ${envName}. ${modeHint}`);
+};
+
+const rawApiUrl = ensureHttpProtocol(readConfigValue('EXPO_PUBLIC_API_URL', 'apiUrl'));
 const normalized = rawApiUrl.replace(/\/+$/, "");
 export const API_URL = normalized.endsWith("/api") ? normalized : `${normalized}/api`;
-export const SOCKET_URL = ensureHttpProtocol(process.env.EXPO_PUBLIC_SOCKET_URL || API_URL.replace(/\/api$/, "")).replace(/\/+$/, "");
+const rawSocketUrl = readConfigValue('EXPO_PUBLIC_SOCKET_URL', 'socketUrl');
+export const SOCKET_URL = ensureHttpProtocol(rawSocketUrl).replace(/\/+$/, "");
+
+if (__DEV__) {
+    console.log(`[env] API_URL=${API_URL} SOCKET_URL=${SOCKET_URL}`);
+}

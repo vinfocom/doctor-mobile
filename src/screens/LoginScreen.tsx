@@ -22,6 +22,7 @@ import { setAuthSession, type AppRole } from '../api/token';
 import { useAuthSession } from '../context/AuthSessionContext';
 import { Stethoscope, Mail, Lock, Eye, EyeOff, ArrowRight, ShieldCheck } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
+import { API_URL } from '../config/env';
 
 type LoginScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Login'>;
 
@@ -38,6 +39,7 @@ const LoginScreen = () => {
     const [showPassword, setShowPassword] = useState(false);
 
     const handleLogin = async () => {
+        Alert.alert('API Check', `Using API URL:\n${API_URL}`);
         setLoading(true);
         try {
             if (mode === 'DOCTOR') {
@@ -80,6 +82,11 @@ const LoginScreen = () => {
                 message = 'Server error. Please try again later.';
             } else if (!status) {
                 message = 'Network error. Please check your internet connection.';
+                if (__DEV__) {
+                    const code = error?.code ?? 'unknown';
+                    const rawMessage = error?.message ?? 'unknown';
+                    message += `\n\nAPI: ${API_URL}\nCode: ${code}\nRaw: ${rawMessage}`;
+                }
             }
 
             Alert.alert('Login Failed', message);

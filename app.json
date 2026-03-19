@@ -4,11 +4,11 @@
     "slug": "doctor-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/daptao.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/daptao.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -23,9 +23,7 @@
       }
     },
     "android": {
-      "android": {
-      "usesCleartextTraffic": true
-    },
+      "usesCleartextTraffic": true,
       "permissions": [
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
@@ -33,7 +31,7 @@
       ],
       "softwareKeyboardLayoutMode": "pan",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/daptao.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
@@ -48,6 +46,8 @@
       "@react-native-community/datetimepicker"
     ],
     "extra": {
+      "apiUrl": "http://103.205.140.228/api",
+      "socketUrl": "http://103.205.140.228",
       "eas": {
         "projectId": "bc39d0b4-2a38-42dc-9400-21b7bbc216a1"
       }

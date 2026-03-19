@@ -7,10 +7,12 @@ import { AuthSessionProvider } from './src/context/AuthSessionContext';
 import AppNavigator from './src/navigation';
 import type { RootStackParamList } from './src/navigation/types';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { Alert } from 'react-native';
 
 import type * as NotificationsType from 'expo-notifications';
 import Constants from 'expo-constants';
 
+Alert.alert("ENV CHECK", String(process.env.EXPO_PUBLIC_API_URL));
 // Expo Go (SDK 53+) removed remote push notification support.
 // Lazy-load expo-notifications so the package never initialises in Expo Go,
 // preventing its own startup error from firing.
