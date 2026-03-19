@@ -39,7 +39,7 @@ const LoginScreen = () => {
     const [showPassword, setShowPassword] = useState(false);
 
     const handleLogin = async () => {
-        Alert.alert('API Check', `Using API URL:\n${API_URL}`);
+        // Alert.alert('API Check', `Using API URL:\n${API_URL}`);
         setLoading(true);
         try {
             if (mode === 'DOCTOR') {
