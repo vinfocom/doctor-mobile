@@ -27,7 +27,6 @@ import {
     CalendarRange,
     PlusCircle,
     Eraser,
-    MessageCircle,
     Download,
 } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -44,7 +43,6 @@ import { API_URL, SOCKET_URL } from '../config/env';
 import { useAuthSession } from '../context/AuthSessionContext';
 import { getToken } from '../api/token';
 import * as FileSystem from 'expo-file-system';
-import { Buffer } from 'buffer';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -742,17 +740,14 @@ const AppointmentsScreen = () => {
                 link.remove();
                 URL.revokeObjectURL(blobUrl);
             } else {
-                const res = await fetch(url, {
+                const tempUri = `${FileSystem.cacheDirectory}${filename}`;
+                const download = await FileSystem.downloadAsync(url, tempUri, {
                     headers: { Authorization: `Bearer ${token}` },
                 });
-                if (!res.ok) {
-                    const body = await res.text().catch(() => '');
-                    setExportError(`Failed to download export (status ${res.status}). ${body}`.trim());
+                if (download.status !== 200) {
+                    setExportError(`Failed to download export (status ${download.status}).`);
                     return;
                 }
-                const arrayBuffer = await res.arrayBuffer();
-                const base64 = Buffer.from(arrayBuffer).toString('base64');
-
                 if (Platform.OS === 'android') {
                     const perm = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
                     if (!perm.granted) {
@@ -768,15 +763,16 @@ const AppointmentsScreen = () => {
                         filename,
                         mimeType
                     );
+                    const base64 = await FileSystem.readAsStringAsync(tempUri, {
+                        encoding: FileSystem.EncodingType.Base64,
+                    });
                     await FileSystem.writeAsStringAsync(fileUri, base64, {
                         encoding: FileSystem.EncodingType.Base64,
                     });
                     Alert.alert('Downloaded', 'Saved to selected folder.');
                 } else {
                     const fileUri = `${FileSystem.documentDirectory}${filename}`;
-                    await FileSystem.writeAsStringAsync(fileUri, base64, {
-                        encoding: FileSystem.EncodingType.Base64,
-                    });
+                    await FileSystem.copyAsync({ from: tempUri, to: fileUri });
                     Alert.alert('Downloaded', `Saved in app files: ${fileUri}`);
                 }
             }
@@ -1051,18 +1047,6 @@ const AppointmentsScreen = () => {
                 className={`rounded-2xl mb-3 px-3.5 py-3 ${isHighlighted ? 'bg-blue-50 border-2 border-blue-400' : 'bg-white border border-gray-100'}`}
                 style={isHighlighted ? { shadowColor: '#2563eb', shadowOpacity: 0.18, shadowRadius: 10, elevation: 4 } : undefined}
             >
-                <TouchableOpacity
-                    onPress={() => {
-                        if (isMenuOpen) {
-                            setOpenCardMenuId(null);
-                            return;
-                        }
-                        if (isHighlighted) setHighlightedPairKey(null);
-                        if (!canUseChat) return;
-                        navigation.navigate('Chat', { patientId: item.patient_id, doctorId: item.doctor_id, patientName: item.patient?.full_name || 'Unknown Patient' });
-                    }}
-                    activeOpacity={canUseChat ? 0.7 : 1}
-                >
                     <View className="flex-row items-start">
                         <View className="bg-blue-100 w-10 h-10 rounded-xl items-center justify-center mr-3 relative">
                             <User size={16} color="#1d4ed8" />
@@ -1080,7 +1064,7 @@ const AppointmentsScreen = () => {
                                 {item.clinic?.clinic_name || 'N/A'}
                             </Text>
                             <View className="mt-1.5 self-start px-2 py-1 rounded-md bg-gray-100">
-                                <Text className="text-[10px] font-semibold text-gray-600">Appointment No. {item.patient?.booking_id ?? item.appointment_id}</Text>
+                                <Text className="text-xs font-semibold text-gray-600">Appointment No. {item.patient?.booking_id ?? item.appointment_id}</Text>
                             </View>
                             {canUseChat && isHighlighted && (
                                 <View className="mt-1.5 self-start px-2 py-1 rounded-md bg-blue-600">
@@ -1131,15 +1115,6 @@ const AppointmentsScreen = () => {
                             </TouchableOpacity>
                         </View>
                     )}
-                    {canUseChat && (
-                        <View className="mt-3 flex-row justify-end">
-                            <View className="px-3 py-2 rounded-lg bg-blue-600 flex-row items-center">
-                                <MessageCircle size={12} color="#fff" />
-                                <Text className="text-white text-xs font-semibold ml-1.5">Open Chat</Text>
-                            </View>
-                        </View>
-                    )}
-                </TouchableOpacity>
 
                 {isMenuOpen && (
                     <View
