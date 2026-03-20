@@ -14,6 +14,7 @@ import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/n
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 import { getPatientProfile } from '../api/auth';
+import { getPatientAppointments } from '../api/patientAppointments';
 import { removeToken } from '../api/token';
 import { getChatNotifications, type IncomingNotificationMessage } from '../api/notifications';
 import { useSWRLite } from '../lib/useSWRLite';
@@ -33,6 +34,37 @@ interface DoctorItem {
     phone: string | null;
 }
 
+type AppointmentItem = {
+    appointment_id: number;
+    booking_id?: number;
+    appointment_date?: string;
+    start_time?: string;
+    doctor?: { doctor_id: number };
+    patient?: { booking_id?: number | null };
+};
+
+const toYMD = (value?: string) => {
+    if (!value) return '';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+};
+
+const toHM = (value?: string) => {
+    if (!value) return '';
+    if (String(value).includes(':') && String(value).length <= 5) return String(value).slice(0, 5);
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '';
+    const hh = String(d.getUTCHours()).padStart(2, '0');
+    const mm = String(d.getUTCMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
+};
+
+const getAppointmentNo = (item?: AppointmentItem | null) => {
+    if (!item) return null;
+    return item.patient?.booking_id ?? item.booking_id ?? item.appointment_id ?? null;
+};
+
 export default function PatientHomeScreen() {
     const navigation = useNavigation<Nav>();
     const isFocused = useIsFocused();
@@ -41,6 +73,7 @@ export default function PatientHomeScreen() {
     const [notifCount, setNotifCount] = useState(0);
     const [announcementCount, setAnnouncementCount] = useState(0);
     const [incomingMessage, setIncomingMessage] = useState<IncomingNotificationMessage | null>(null);
+    const [latestAppointmentByDoctor, setLatestAppointmentByDoctor] = useState<Map<number, AppointmentItem>>(new Map());
     const lastNotifCheckAtRef = useRef<string>(new Date(Date.now() - 2 * 60 * 1000).toISOString());
     const bubbleHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const socketRef = useRef<Socket | null>(null);
@@ -58,6 +91,35 @@ export default function PatientHomeScreen() {
         });
         return Array.from(byId.values());
     }, [doctors]);
+
+    const loadLatestAppointments = React.useCallback(async () => {
+        try {
+            const res = await getPatientAppointments();
+            const list = (res?.appointments || []) as AppointmentItem[];
+            const next = new Map<number, AppointmentItem>();
+            list.forEach((item) => {
+                const doctorId = item?.doctor?.doctor_id;
+                if (!doctorId) return;
+                const ymd = toYMD(item.appointment_date);
+                const hm = toHM(item.start_time);
+                const ts = ymd && hm ? new Date(`${ymd}T${hm}:00`).getTime() : 0;
+                const prev = next.get(doctorId);
+                if (!prev) {
+                    next.set(doctorId, item);
+                    return;
+                }
+                const prevYmd = toYMD(prev.appointment_date);
+                const prevHm = toHM(prev.start_time);
+                const prevTs = prevYmd && prevHm ? new Date(`${prevYmd}T${prevHm}:00`).getTime() : 0;
+                if (ts >= prevTs) {
+                    next.set(doctorId, item);
+                }
+            });
+            setLatestAppointmentByDoctor(next);
+        } catch {
+            // ignore appointment load errors on dashboard
+        }
+    }, []);
 
     const checkIncomingNotifications = React.useCallback(async () => {
         if (!isFocused) return;
@@ -99,6 +161,11 @@ export default function PatientHomeScreen() {
             }
         };
     }, [checkIncomingNotifications, isFocused]);
+
+    useEffect(() => {
+        if (!isFocused) return;
+        loadLatestAppointments();
+    }, [isFocused, loadLatestAppointments]);
 
     useFocusEffect(
         React.useCallback(() => {
@@ -203,9 +270,12 @@ export default function PatientHomeScreen() {
 
     const onRefresh = async () => {
         setRefreshing(true);
-        await revalidate().catch(() => {
-            Alert.alert("Error", "Failed to load patient data");
-        });
+        await Promise.all([
+            revalidate().catch(() => {
+                Alert.alert("Error", "Failed to load patient data");
+            }),
+            loadLatestAppointments(),
+        ]);
         setRefreshing(false);
     };
 
@@ -280,6 +350,16 @@ export default function PatientHomeScreen() {
                             <View className="flex-1">
                                 <Text className="text-gray-800 font-bold">{item.doctor_name || "Doctor"}</Text>
                                 <Text className="text-gray-500 text-xs mt-0.5">{item.specialization || "General"}</Text>
+                                {(() => {
+                                    const appt = latestAppointmentByDoctor.get(item.doctor_id);
+                                    const apptNo = getAppointmentNo(appt);
+                                    if (!apptNo) return null;
+                                    return (
+                                        <Text className="text-[10px] font-semibold text-gray-500 mt-1">
+                                            Appointment No. {apptNo}
+                                        </Text>
+                                    );
+                                })()}
                             </View>
                             <MessageCircle size={18} color="#1d4ed8" />
                         </TouchableOpacity>

@@ -100,12 +100,11 @@ const istTimeToDisplay = (value: any): string => {
     if (!value) return 'N/A';
     const t = new Date(value);
     if (Number.isNaN(t.getTime())) return 'N/A';
-    return t.toLocaleTimeString('en-IN', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-        timeZone: 'Asia/Kolkata',
-    });
+    const hours = t.getUTCHours();
+    const minutes = t.getUTCMinutes();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const hours12 = hours % 12 || 12;
+    return `${hours12}:${String(minutes).padStart(2, '0')} ${ampm}`;
 };
 
 const istDateToDisplay = (value: any): string => {
@@ -126,12 +125,9 @@ const parseAppointmentStart = (appointment: any): Date | null => {
 
     const timeDate = new Date(timeRaw);
     if (Number.isNaN(timeDate.getTime())) return null;
-    const timeStr = timeDate.toLocaleTimeString('en-GB', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-        timeZone: 'Asia/Kolkata',
-    });
+    const hh = String(timeDate.getUTCHours()).padStart(2, '0');
+    const mm = String(timeDate.getUTCMinutes()).padStart(2, '0');
+    const timeStr = `${hh}:${mm}`;
     const result = new Date(`${datePart}T${timeStr}:00+05:30`);
     return Number.isNaN(result.getTime()) ? null : result;
 };
@@ -393,6 +389,14 @@ const AppointmentsScreen = () => {
     const [rescheduleDate, setRescheduleDate] = useState('');
     const [rescheduleStart, setRescheduleStart] = useState('');
     const [rescheduleEnd, setRescheduleEnd] = useState('');
+    const [rescheduleClinicId, setRescheduleClinicId] = useState('');
+    const [rescheduleDoctorId, setRescheduleDoctorId] = useState<number>(0);
+    const [rescheduleAvailableDates, setRescheduleAvailableDates] = useState<Set<string>>(new Set());
+    const [rescheduleAvailableSlots, setRescheduleAvailableSlots] = useState<string[]>([]);
+    const [rescheduleSlotDuration, setRescheduleSlotDuration] = useState(30);
+    const [rescheduleLoadingDates, setRescheduleLoadingDates] = useState(false);
+    const [rescheduleLoadingSlots, setRescheduleLoadingSlots] = useState(false);
+    const [showRescheduleCalendar, setShowRescheduleCalendar] = useState(false);
     const [incomingMessage, setIncomingMessage] = useState<IncomingNotificationMessage | null>(null);
     const lastNotifCheckAtRef = useRef(new Date(Date.now() - 2 * 60 * 1000).toISOString());
     const bubbleHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -566,6 +570,37 @@ const AppointmentsScreen = () => {
         if (formData.clinic_id && formData.date) fetchSlotsData();
         else setAvailableSlots([]);
     }, [formData.clinic_id, formData.date]);
+
+    useEffect(() => {
+        if (!rescheduleModalVisible || !rescheduleClinicId || !rescheduleDoctorId) {
+            setRescheduleAvailableDates(new Set());
+            return;
+        }
+        setRescheduleLoadingDates(true);
+        getAvailableDates(rescheduleDoctorId, Number(rescheduleClinicId))
+            .then((dates) => {
+                const next = new Set(dates);
+                setRescheduleAvailableDates(next);
+                setRescheduleDate((prev) => (prev && next.has(prev) ? prev : prev));
+            })
+            .catch(() => setRescheduleAvailableDates(new Set()))
+            .finally(() => setRescheduleLoadingDates(false));
+    }, [rescheduleModalVisible, rescheduleClinicId, rescheduleDoctorId]);
+
+    useEffect(() => {
+        if (!rescheduleModalVisible || !rescheduleClinicId || !rescheduleDate) {
+            setRescheduleAvailableSlots([]);
+            return;
+        }
+        setRescheduleLoadingSlots(true);
+        getSlots(rescheduleDate, Number(rescheduleClinicId), rescheduleDoctorId || undefined)
+            .then((data) => {
+                setRescheduleAvailableSlots(data.slots || []);
+                if (data.slot_duration) setRescheduleSlotDuration(data.slot_duration);
+            })
+            .catch(() => setRescheduleAvailableSlots([]))
+            .finally(() => setRescheduleLoadingSlots(false));
+    }, [rescheduleModalVisible, rescheduleClinicId, rescheduleDoctorId, rescheduleDate]);
 
     const selectedClinic = useMemo(
         () => clinics.find((clinic) => String(clinic.clinic_id) === String(formData.clinic_id)),
@@ -849,12 +884,9 @@ const AppointmentsScreen = () => {
         if (value.includes(':') && value.length <= 5) return value;
         const d = new Date(value);
         if (Number.isNaN(d.getTime())) return '';
-        return d.toLocaleTimeString('en-GB', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false,
-            timeZone: 'Asia/Kolkata',
-        });
+        const hh = String(d.getUTCHours()).padStart(2, '0');
+        const mm = String(d.getUTCMinutes()).padStart(2, '0');
+        return `${hh}:${mm}`;
     };
 
     const handleStatusChange = async (appointmentId: number, status: 'CANCELLED' | 'COMPLETED' | 'PENDING') => {
@@ -925,6 +957,11 @@ const AppointmentsScreen = () => {
         setRescheduleDate(toDateInput(item.appointment_date));
         setRescheduleStart(toTimeInput(item.start_time));
         setRescheduleEnd(toTimeInput(item.end_time));
+        const clinicId = item?.clinic_id || item?.clinic?.clinic_id || '';
+        const doctorId = item?.doctor_id || item?.doctor?.doctor_id || staff_doctor_id || 0;
+        setRescheduleClinicId(clinicId ? String(clinicId) : '');
+        setRescheduleDoctorId(Number(doctorId) || 0);
+        setShowRescheduleCalendar(false);
         setRescheduleModalVisible(true);
     };
 
@@ -933,10 +970,15 @@ const AppointmentsScreen = () => {
             showPermissionDenied();
             return;
         }
-        if (!editingAppointmentId || !rescheduleDate || !rescheduleStart || !rescheduleEnd) {
-            Alert.alert('Error', 'Please fill date, start and end time');
+        if (!editingAppointmentId || !rescheduleDate || !rescheduleStart) {
+            Alert.alert('Error', 'Please select a date and slot');
             return;
         }
+        const [sh, sm] = rescheduleStart.split(':').map(Number);
+        const startDate = new Date(Date.UTC(1970, 0, 1, sh || 0, sm || 0, 0, 0));
+        const endDate = new Date(startDate.getTime() + rescheduleSlotDuration * 60000);
+        const endTime = `${pad2(endDate.getUTCHours())}:${pad2(endDate.getUTCMinutes())}`;
+        setRescheduleEnd(endTime);
         Alert.alert('Confirm reschedule', 'Apply this new date and time?', [
             { text: 'No', style: 'cancel' },
             {
@@ -947,18 +989,19 @@ const AppointmentsScreen = () => {
                             appointmentId: editingAppointmentId,
                             appointment_date: rescheduleDate,
                             start_time: rescheduleStart,
-                            end_time: rescheduleEnd,
+                            end_time: endTime,
                             status: 'BOOKED',
                         });
                         setAppointments((prev) =>
                             prev.map((a) =>
                                 a.appointment_id === editingAppointmentId
-                                    ? { ...a, appointment_date: rescheduleDate, start_time: rescheduleStart, end_time: rescheduleEnd, status: 'BOOKED' }
+                                    ? { ...a, appointment_date: rescheduleDate, start_time: rescheduleStart, end_time: endTime, status: 'BOOKED' }
                                     : a
                             )
                         );
                         setRescheduleModalVisible(false);
                         setEditingAppointmentId(null);
+                        setRescheduleAvailableSlots([]);
                     } catch (error: any) {
                         console.error(error);
                         Alert.alert('Error', getApiErrorMessage(error, 'Failed to reschedule appointment'));
@@ -1901,37 +1944,103 @@ const AppointmentsScreen = () => {
                 onRequestClose={() => setRescheduleModalVisible(false)}
             >
                 <View className="flex-1 justify-end bg-black/50">
-                    <View className="bg-white rounded-t-3xl p-6">
+                    <View className="bg-white rounded-t-3xl p-6 h-[88%]">
                         <Text className="text-xl font-bold text-gray-800 mb-4">Reschedule Appointment</Text>
-                        <View className="space-y-3">
-                            <View>
-                                <Text className="text-sm font-bold text-gray-700 mb-1">Date</Text>
-                                <TextInput
-                                    className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-gray-800"
-                                    placeholder="YYYY-MM-DD"
-                                    value={rescheduleDate}
-                                    onChangeText={setRescheduleDate}
-                                />
+                        <ScrollView showsVerticalScrollIndicator={false}>
+                            <View className="space-y-4 pb-6">
+                                {/* Date */}
+                                <View>
+                                    <Text className="text-sm font-bold text-gray-700 mb-2">Date</Text>
+                                    <TouchableOpacity
+                                        onPress={() => setShowRescheduleCalendar((prev) => !prev)}
+                                        className={`bg-gray-50 border px-4 py-3.5 flex-row items-center justify-between rounded-xl
+                                            ${showRescheduleCalendar ? 'border-blue-500' : 'border-gray-200'}`}
+                                    >
+                                        <Text className={`text-base ${rescheduleDate ? 'text-gray-800 font-medium' : 'text-gray-400'}`}>
+                                            {rescheduleDate ? formatDisplayDate(rescheduleDate) : 'Select a date'}
+                                        </Text>
+                                        <ChevronDown
+                                            size={18}
+                                            color="#9ca3af"
+                                            style={{ transform: [{ rotate: showRescheduleCalendar ? '180deg' : '0deg' }] }}
+                                        />
+                                    </TouchableOpacity>
+                                    {showRescheduleCalendar && (
+                                        <View className="mt-3">
+                                            <CalendarPicker
+                                                selectedDate={rescheduleDate}
+                                                onSelect={(d) => {
+                                                    setRescheduleDate(d);
+                                                    setRescheduleStart('');
+                                                    setRescheduleEnd('');
+                                                    setShowRescheduleCalendar(false);
+                                                }}
+                                                minDate={getISTTodayYMD()}
+                                                enabledDates={rescheduleClinicId ? rescheduleAvailableDates : undefined}
+                                                loadingDates={!!rescheduleClinicId && rescheduleLoadingDates}
+                                            />
+                                            {!rescheduleClinicId && (
+                                                <Text className="text-xs text-gray-400 text-center mt-3">
+                                                    Clinic not linked for this appointment.
+                                                </Text>
+                                            )}
+                                            {!!rescheduleClinicId && !rescheduleLoadingDates && rescheduleAvailableDates.size === 0 && (
+                                                <Text className="text-xs text-gray-400 text-center mt-3">
+                                                    No available slot dates found for this clinic yet.
+                                                </Text>
+                                            )}
+                                        </View>
+                                    )}
+                                </View>
+
+                                {/* Time Slots */}
+                                <View>
+                                    <Text className="text-sm font-bold text-gray-700 mb-2">Time Slot</Text>
+                                    {rescheduleLoadingSlots ? (
+                                        <View className="py-4 items-center">
+                                            <ActivityIndicator size="small" color="#2563eb" />
+                                            <Text className="text-gray-400 text-sm mt-2">Fetching available slots...</Text>
+                                        </View>
+                                    ) : rescheduleAvailableSlots.length > 0 ? (
+                                        <View className="flex-row flex-wrap gap-2">
+                                            {rescheduleAvailableSlots.map((slot) => {
+                                                const isSelected = rescheduleStart === slot;
+                                                return (
+                                                    <TouchableOpacity
+                                                        key={slot}
+                                                        onPress={() => setRescheduleStart(slot)}
+                                                        className={`rounded-xl border px-3 py-2
+                                                            ${isSelected ? 'bg-blue-50 border-blue-500' : 'bg-white border-gray-200'}`}
+                                                    >
+                                                        <Text className={`font-semibold text-sm ${isSelected ? 'text-blue-700' : 'text-gray-500'}`}>
+                                                            {to12h(slot)}
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                );
+                                            })}
+                                        </View>
+                                    ) : (
+                                        <View className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-4 items-center">
+                                            <Text className="text-gray-400 text-sm italic text-center">
+                                                {rescheduleClinicId && rescheduleDate
+                                                    ? 'No slots available for this date'
+                                                    : 'Select a date to see available slots'}
+                                            </Text>
+                                        </View>
+                                    )}
+                                </View>
+
+                                {/* Summary */}
+                                {rescheduleDate && rescheduleStart ? (
+                                    <View className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-4">
+                                        <Text className="text-blue-700 font-bold text-sm mb-2">Reschedule Summary</Text>
+                                        <Text className="text-blue-600 text-sm">
+                                            {formatDisplayDate(rescheduleDate)}{'  ·  '}{to12h(rescheduleStart)}
+                                        </Text>
+                                    </View>
+                                ) : null}
                             </View>
-                            <View>
-                                <Text className="text-sm font-bold text-gray-700 mb-1">Start Time</Text>
-                                <TextInput
-                                    className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-gray-800"
-                                    placeholder="HH:MM"
-                                    value={rescheduleStart}
-                                    onChangeText={setRescheduleStart}
-                                />
-                            </View>
-                            <View>
-                                <Text className="text-sm font-bold text-gray-700 mb-1">End Time</Text>
-                                <TextInput
-                                    className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-gray-800"
-                                    placeholder="HH:MM"
-                                    value={rescheduleEnd}
-                                    onChangeText={setRescheduleEnd}
-                                />
-                            </View>
-                        </View>
+                        </ScrollView>
                         <View className="flex-row justify-end gap-3 mt-5">
                             <TouchableOpacity onPress={() => setRescheduleModalVisible(false)} className="px-4 py-3 rounded-xl bg-gray-100">
                                 <Text className="text-gray-600 font-semibold">Close</Text>

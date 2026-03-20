@@ -46,12 +46,9 @@ const toHM = (value?: string) => {
     if (String(value).includes(':') && String(value).length <= 5) return String(value).slice(0, 5);
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return '';
-    return d.toLocaleTimeString('en-GB', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-        timeZone: 'Asia/Kolkata',
-    });
+    const hh = String(d.getUTCHours()).padStart(2, '0');
+    const mm = String(d.getUTCMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
 };
 
 const to12h = (time?: string) => {
