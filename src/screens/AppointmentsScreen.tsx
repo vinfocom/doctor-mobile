@@ -1039,6 +1039,7 @@ const AppointmentsScreen = () => {
     const renderItem = useCallback(({ item }: { item: any }) => {
         const statusUpper = String(item?.status || '').toUpperCase();
         const canUpdate = canManageAppointments && statusUpper !== 'COMPLETED' && statusUpper !== 'CANCELLED' && statusUpper !== 'PENDING';
+        const canReschedule = canManageAppointments;
         const isMenuOpen = openCardMenuId === item.appointment_id;
         const pairKey = `${item.patient_id}:${item.doctor_id}`;
         const isHighlighted = highlightedPairKey === pairKey;
@@ -1160,17 +1161,17 @@ const AppointmentsScreen = () => {
                                 <Text className="text-sm text-gray-800 font-medium">Open Chat</Text>
                             </TouchableOpacity>
                         )}
-                        <TouchableOpacity
-                            disabled={!canUpdate}
-                            onPress={() => {
-                                if (!canUpdate) return;
-                                setOpenCardMenuId(null);
-                                openReschedule(item);
-                            }}
-                            className="px-4 py-3 border-b border-gray-100"
-                        >
-                            <Text className={`text-sm font-medium ${canUpdate ? 'text-gray-800' : 'text-gray-400'}`}>Reschedule appointment</Text>
-                        </TouchableOpacity>
+                            <TouchableOpacity
+                                disabled={!canReschedule}
+                                onPress={() => {
+                                    if (!canReschedule) return;
+                                    setOpenCardMenuId(null);
+                                    openReschedule(item);
+                                }}
+                                className="px-4 py-3 border-b border-gray-100"
+                            >
+                                <Text className={`text-sm font-medium ${canReschedule ? 'text-gray-800' : 'text-gray-400'}`}>Reschedule appointment</Text>
+                            </TouchableOpacity>
                         <TouchableOpacity
                             disabled={!canUpdate}
                             onPress={() => {
