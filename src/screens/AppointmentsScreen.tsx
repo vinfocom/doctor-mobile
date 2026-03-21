@@ -407,6 +407,7 @@ const AppointmentsScreen = () => {
     const [filterModalVisible, setFilterModalVisible] = useState(false);
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
+    const [filterCalendarMode, setFilterCalendarMode] = useState<'FROM' | 'TO' | null>(null);
     const [showQuickDatePicker, setShowQuickDatePicker] = useState(false);
     const [statusFilter, setStatusFilter] = useState<'ALL' | 'BOOKED' | 'PENDING' | 'COMPLETED' | 'CANCELLED'>('ALL');
     const [headerMenuVisible, setHeaderMenuVisible] = useState(false);
@@ -1622,49 +1623,78 @@ const AppointmentsScreen = () => {
                 animationType="slide"
                 transparent
                 visible={filterModalVisible}
-                onRequestClose={() => setFilterModalVisible(false)}
+                onRequestClose={() => { setFilterCalendarMode(null); setFilterModalVisible(false); }}
             >
-                <View className="flex-1 justify-end bg-black/50">
-                    <View className="bg-white rounded-t-3xl p-6">
-                        <View className="flex-row justify-between items-center mb-4">
-                            <Text className="text-xl font-bold text-gray-800">Date Range Filter</Text>
-                            <TouchableOpacity onPress={() => setFilterModalVisible(false)} className="bg-gray-100 p-2 rounded-full">
-                                <X size={18} color="#374151" />
-                            </TouchableOpacity>
-                        </View>
-                        <View className="space-y-3">
-                            <View>
-                                <Text className="text-sm font-bold text-gray-700 mb-1">From (YYYY-MM-DD)</Text>
-                                <TextInput
-                                    className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-gray-800"
-                                    value={dateFrom}
-                                    onChangeText={setDateFrom}
-                                    placeholder="e.g. 2026-02-01"
-                                />
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 72}
+                    className="flex-1"
+                >
+                    <View className="flex-1 justify-end bg-black/50">
+                        <View className="bg-white rounded-t-3xl p-6 max-h-[85%]">
+                            <View className="flex-row justify-between items-center mb-4">
+                                <Text className="text-xl font-bold text-gray-800">Date Range Filter</Text>
+                                <TouchableOpacity onPress={() => { setFilterCalendarMode(null); setFilterModalVisible(false); }} className="bg-gray-100 p-2 rounded-full">
+                                    <X size={18} color="#374151" />
+                                </TouchableOpacity>
                             </View>
-                            <View>
-                                <Text className="text-sm font-bold text-gray-700 mb-1">To (YYYY-MM-DD)</Text>
-                                <TextInput
-                                    className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-gray-800"
-                                    value={dateTo}
-                                    onChangeText={setDateTo}
-                                    placeholder="e.g. 2026-02-29"
-                                />
+                            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                                <View className="space-y-3 pb-2">
+                                    <View>
+                                        <Text className="text-sm font-bold text-gray-700 mb-1">From</Text>
+                                        <TouchableOpacity
+                                            onPress={() => setFilterCalendarMode(filterCalendarMode === 'FROM' ? null : 'FROM')}
+                                            className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3"
+                                        >
+                                            <Text className={`text-base ${dateFrom ? 'text-gray-800 font-medium' : 'text-gray-400'}`}>
+                                                {dateFrom ? formatDisplayDate(dateFrom) : 'Select date'}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                    <View>
+                                        <Text className="text-sm font-bold text-gray-700 mb-1">To</Text>
+                                        <TouchableOpacity
+                                            onPress={() => setFilterCalendarMode(filterCalendarMode === 'TO' ? null : 'TO')}
+                                            className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3"
+                                        >
+                                            <Text className={`text-base ${dateTo ? 'text-gray-800 font-medium' : 'text-gray-400'}`}>
+                                                {dateTo ? formatDisplayDate(dateTo) : 'Select date'}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                    {filterCalendarMode && (
+                                        <View className="mt-2">
+                                            <CalendarPicker
+                                                selectedDate={filterCalendarMode === 'FROM' ? dateFrom : dateTo}
+                                                onSelect={(d) => {
+                                                    if (filterCalendarMode === 'FROM') {
+                                                        setDateFrom(d);
+                                                        if (dateTo && dateTo < d) setDateTo(d);
+                                                    } else {
+                                                        setDateTo(d);
+                                                    }
+                                                    setFilterCalendarMode(null);
+                                                }}
+                                                minDate={filterCalendarMode === 'TO' ? (dateFrom || '1900-01-01') : '1900-01-01'}
+                                            />
+                                        </View>
+                                    )}
+                                </View>
+                            </ScrollView>
+                            <View className="flex-row justify-end gap-3 mt-5">
+                                <TouchableOpacity
+                                    onPress={() => { setDateFrom(''); setDateTo(''); setFilterCalendarMode(null); }}
+                                    className="px-4 py-3 rounded-xl bg-gray-100"
+                                >
+                                    <Text className="text-gray-600 font-semibold">Clear</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={() => { setFilterCalendarMode(null); setFilterModalVisible(false); }} className="px-4 py-3 rounded-xl bg-blue-600">
+                                    <Text className="text-white font-semibold">Apply</Text>
+                                </TouchableOpacity>
                             </View>
-                        </View>
-                        <View className="flex-row justify-end gap-3 mt-5">
-                            <TouchableOpacity
-                                onPress={() => { setDateFrom(''); setDateTo(''); }}
-                                className="px-4 py-3 rounded-xl bg-gray-100"
-                            >
-                                <Text className="text-gray-600 font-semibold">Clear</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={() => setFilterModalVisible(false)} className="px-4 py-3 rounded-xl bg-blue-600">
-                                <Text className="text-white font-semibold">Apply</Text>
-                            </TouchableOpacity>
                         </View>
                     </View>
-                </View>
+                </KeyboardAvoidingView>
             </Modal>
 
             {/* ── Add Appointment Modal ── */}
@@ -1847,26 +1877,100 @@ const AppointmentsScreen = () => {
                                                 </Text>
                                             </View>
                                         ) : availableSlots.length > 0 ? (
-                                            <View className="flex-row flex-wrap gap-2">
-                                                {availableSlots.map(slot => {
-                                                    const isSelected = formData.time === slot;
-                                                    return (
-                                                        <TouchableOpacity
-                                                            key={slot}
-                                                            onPress={() => setFormData({ ...formData, time: slot })}
-                                                            className={`rounded-xl border px-3 py-2
-                                                            ${isSelected
-                                                                    ? 'bg-blue-50 border-blue-500'
-                                                                    : 'bg-white border-gray-200'}`}
-                                                        >
-                                                            <Text className={`font-semibold text-sm
-                                                            ${isSelected ? 'text-blue-700' : 'text-gray-500'}`}>
-                                                                {to12h(slot)}
-                                                            </Text>
-                                                        </TouchableOpacity>
-                                                    );
-                                                })}
-                                            </View>
+                                            (() => {
+                                                const toMin = (s: string) => {
+                                                    const [h, m] = s.split(':').map(Number);
+                                                    return h * 60 + (m || 0);
+                                                };
+
+                                                const sortedSlots = [...availableSlots].sort((a, b) => toMin(a) - toMin(b));
+                                                const sections = [
+                                                    {
+                                                        key: 'morning',
+                                                        title: 'Morning',
+                                                        subtitle: '12:00 AM - 11:59 AM',
+                                                        from: 0,
+                                                        to: 12 * 60 - 1,
+                                                        headerBg: 'bg-amber-50',
+                                                        headerText: 'text-amber-900',
+                                                        pillBg: 'bg-amber-100',
+                                                        pillText: 'text-amber-700',
+                                                    },
+                                                    {
+                                                        key: 'afternoon',
+                                                        title: 'Afternoon',
+                                                        subtitle: '12:00 PM - 4:59 PM',
+                                                        from: 12 * 60,
+                                                        to: 16 * 60 + 59,
+                                                        headerBg: 'bg-emerald-50',
+                                                        headerText: 'text-emerald-900',
+                                                        pillBg: 'bg-emerald-100',
+                                                        pillText: 'text-emerald-700',
+                                                    },
+                                                    {
+                                                        key: 'evening',
+                                                        title: 'Evening / Night',
+                                                        subtitle: '5:00 PM - onwards',
+                                                        from: 17 * 60,
+                                                        to: 24 * 60 - 1,
+                                                        headerBg: 'bg-indigo-50',
+                                                        headerText: 'text-indigo-900',
+                                                        pillBg: 'bg-indigo-100',
+                                                        pillText: 'text-indigo-700',
+                                                    },
+                                                ];
+
+                                                return (
+                                                    <View>
+                                                        {sections.map((section) => {
+                                                            const sectionSlots = sortedSlots.filter((s) => {
+                                                                const mins = toMin(s);
+                                                                return mins >= section.from && mins <= section.to;
+                                                            });
+                                                            return (
+                                                                <View key={section.key} className="mb-4">
+                                                                    <View className={`flex-row items-center justify-between rounded-2xl px-3 py-2 border border-gray-100 ${section.headerBg}`}>
+                                                                        <View>
+                                                                            <Text className={`text-sm font-bold ${section.headerText}`}>{section.title}</Text>
+                                                                            <Text className="text-[11px] text-gray-500">{section.subtitle}</Text>
+                                                                        </View>
+                                                                        <View className={`rounded-full px-2.5 py-1 ${section.pillBg}`}>
+                                                                            <Text className={`text-[11px] font-semibold ${section.pillText}`}>
+                                                                                {sectionSlots.length} slot{sectionSlots.length !== 1 ? 's' : ''}
+                                                                            </Text>
+                                                                        </View>
+                                                                    </View>
+
+                                                                    {sectionSlots.length === 0 ? (
+                                                                        <Text className="mt-2 text-xs text-gray-400">No slots available</Text>
+                                                                    ) : (
+                                                                        <View className="flex-row flex-wrap mt-2">
+                                                                            {sectionSlots.map((slot) => {
+                                                                                const isSelected = formData.time === slot;
+                                                                                return (
+                                                                                    <TouchableOpacity
+                                                                                        key={`${section.key}-${slot}`}
+                                                                                        onPress={() => setFormData({ ...formData, time: slot })}
+                                                                                        className={`rounded-full border px-3 py-2 mr-2 mb-2
+                                                                                        ${isSelected
+                                                                                                ? 'bg-blue-600 border-blue-600'
+                                                                                                : 'bg-white border-gray-200'}`}
+                                                                                    >
+                                                                                        <Text className={`font-semibold text-xs
+                                                                                        ${isSelected ? 'text-white' : 'text-gray-600'}`}>
+                                                                                            {to12h(slot)}
+                                                                                        </Text>
+                                                                                    </TouchableOpacity>
+                                                                                );
+                                                                            })}
+                                                                        </View>
+                                                                    )}
+                                                                </View>
+                                                            );
+                                                        })}
+                                                    </View>
+                                                );
+                                            })()
                                         ) : (
                                             <View className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-4 items-center">
                                                 <Text className="text-gray-400 text-sm italic text-center">
@@ -1978,23 +2082,97 @@ const AppointmentsScreen = () => {
                                             <Text className="text-gray-400 text-sm mt-2">Fetching available slots...</Text>
                                         </View>
                                     ) : rescheduleAvailableSlots.length > 0 ? (
-                                        <View className="flex-row flex-wrap gap-2">
-                                            {rescheduleAvailableSlots.map((slot) => {
-                                                const isSelected = rescheduleStart === slot;
-                                                return (
-                                                    <TouchableOpacity
-                                                        key={slot}
-                                                        onPress={() => setRescheduleStart(slot)}
-                                                        className={`rounded-xl border px-3 py-2
-                                                            ${isSelected ? 'bg-blue-50 border-blue-500' : 'bg-white border-gray-200'}`}
-                                                    >
-                                                        <Text className={`font-semibold text-sm ${isSelected ? 'text-blue-700' : 'text-gray-500'}`}>
-                                                            {to12h(slot)}
-                                                        </Text>
-                                                    </TouchableOpacity>
-                                                );
-                                            })}
-                                        </View>
+                                        (() => {
+                                            const toMin = (s: string) => {
+                                                const [h, m] = s.split(':').map(Number);
+                                                return h * 60 + (m || 0);
+                                            };
+
+                                            const sortedSlots = [...rescheduleAvailableSlots].sort((a, b) => toMin(a) - toMin(b));
+                                            const sections = [
+                                                {
+                                                    key: 'morning',
+                                                    title: 'Morning',
+                                                    subtitle: '12:00 AM - 11:59 AM',
+                                                    from: 0,
+                                                    to: 12 * 60 - 1,
+                                                    headerBg: 'bg-amber-50',
+                                                    headerText: 'text-amber-900',
+                                                    pillBg: 'bg-amber-100',
+                                                    pillText: 'text-amber-700',
+                                                },
+                                                {
+                                                    key: 'afternoon',
+                                                    title: 'Afternoon',
+                                                    subtitle: '12:00 PM - 4:59 PM',
+                                                    from: 12 * 60,
+                                                    to: 16 * 60 + 59,
+                                                    headerBg: 'bg-emerald-50',
+                                                    headerText: 'text-emerald-900',
+                                                    pillBg: 'bg-emerald-100',
+                                                    pillText: 'text-emerald-700',
+                                                },
+                                                {
+                                                    key: 'evening',
+                                                    title: 'Evening / Night',
+                                                    subtitle: '5:00 PM - onwards',
+                                                    from: 17 * 60,
+                                                    to: 24 * 60 - 1,
+                                                    headerBg: 'bg-indigo-50',
+                                                    headerText: 'text-indigo-900',
+                                                    pillBg: 'bg-indigo-100',
+                                                    pillText: 'text-indigo-700',
+                                                },
+                                            ];
+
+                                            return (
+                                                <View>
+                                                    {sections.map((section) => {
+                                                        const sectionSlots = sortedSlots.filter((s) => {
+                                                            const mins = toMin(s);
+                                                            return mins >= section.from && mins <= section.to;
+                                                        });
+                                                        return (
+                                                            <View key={section.key} className="mb-4">
+                                                                <View className={`flex-row items-center justify-between rounded-2xl px-3 py-2 border border-gray-100 ${section.headerBg}`}>
+                                                                    <View>
+                                                                        <Text className={`text-sm font-bold ${section.headerText}`}>{section.title}</Text>
+                                                                        <Text className="text-[11px] text-gray-500">{section.subtitle}</Text>
+                                                                    </View>
+                                                                    <View className={`rounded-full px-2.5 py-1 ${section.pillBg}`}>
+                                                                        <Text className={`text-[11px] font-semibold ${section.pillText}`}>
+                                                                            {sectionSlots.length} slot{sectionSlots.length !== 1 ? 's' : ''}
+                                                                        </Text>
+                                                                    </View>
+                                                                </View>
+
+                                                                {sectionSlots.length === 0 ? (
+                                                                    <Text className="mt-2 text-xs text-gray-400">No slots available</Text>
+                                                                ) : (
+                                                                    <View className="flex-row flex-wrap mt-2">
+                                                                        {sectionSlots.map((slot) => {
+                                                                            const isSelected = rescheduleStart === slot;
+                                                                            return (
+                                                                                <TouchableOpacity
+                                                                                    key={`${section.key}-${slot}`}
+                                                                                    onPress={() => setRescheduleStart(slot)}
+                                                                                    className={`rounded-full border px-3 py-2 mr-2 mb-2
+                                                                                        ${isSelected ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-200'}`}
+                                                                                >
+                                                                                    <Text className={`font-semibold text-xs ${isSelected ? 'text-white' : 'text-gray-600'}`}>
+                                                                                        {to12h(slot)}
+                                                                                    </Text>
+                                                                                </TouchableOpacity>
+                                                                            );
+                                                                        })}
+                                                                    </View>
+                                                                )}
+                                                            </View>
+                                                        );
+                                                    })}
+                                                </View>
+                                            );
+                                        })()
                                     ) : (
                                         <View className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-4 items-center">
                                             <Text className="text-gray-400 text-sm italic text-center">
