@@ -92,12 +92,20 @@ const formatTimeOnly = (time?: string) => {
     return to12h(hm);
 };
 
+const formatDoctorName = (name?: string | null) => {
+    const trimmed = String(name || '').trim();
+    if (!trimmed) return 'Doctor';
+    if (/^dr\./i.test(trimmed)) return trimmed;
+    return `Dr. ${trimmed}`;
+};
+
 export default function PatientAppointmentsScreen() {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [items, setItems] = useState<AppointmentItem[]>([]);
     const [patientName, setPatientName] = useState('');
-    const [doctors, setDoctors] = useState<Array<{ doctor_id: number; doctor_name: string }>>([]);
+    const [doctors, setDoctors] = useState<Array<{ doctor_id: number; doctor_name: string; specialization?: string | null }>>([]);
+    const [allClinics, setAllClinics] = useState<any[]>([]);
     const [clinics, setClinics] = useState<any[]>([]);
     const [slots, setSlots] = useState<string[]>([]);
     const [slotDuration, setSlotDuration] = useState(30);
@@ -140,13 +148,18 @@ export default function PatientAppointmentsScreen() {
 
         const ds = ((doctorsRes?.doctors || []) as any[])
             .filter((d) => d?.doctor_id)
-            .map((d) => ({ doctor_id: d.doctor_id, doctor_name: d.doctor_name || 'Doctor' }));
+            .map((d) => ({
+                doctor_id: d.doctor_id,
+                doctor_name: d.doctor_name || 'Doctor',
+                specialization: d?.specialization ?? null,
+            }));
         setDoctors(ds);
 
-        const cs = (clinicsRes?.clinics || []).filter((c: any) => {
+        const all = (clinicsRes?.clinics || []) as any[];
+        setAllClinics(all);
+        const cs = all.filter((c: any) => {
             if (!form.doctor_id) return true;
-            if (!c?.doctor_id) return true;
-            return String(c.doctor_id) === String(form.doctor_id);
+            return String(c?.doctor_id || '') === String(form.doctor_id);
         });
         setClinics(cs);
     };
@@ -183,9 +196,12 @@ export default function PatientAppointmentsScreen() {
     }, [form.doctor_id, form.clinic_id]);
 
     useEffect(() => {
-        if (!form.doctor_id) return;
-        setClinics((prev) => prev.filter((c) => !c?.doctor_id || String(c.doctor_id) === String(form.doctor_id)));
-    }, [form.doctor_id]);
+        const filtered = allClinics.filter((c) => {
+            if (!form.doctor_id) return true;
+            return String(c?.doctor_id || '') === String(form.doctor_id);
+        });
+        setClinics(filtered);
+    }, [form.doctor_id, allClinics]);
 
     const now = Date.now();
     const withTs = (a: AppointmentItem) => {
@@ -525,7 +541,7 @@ export default function PatientAppointmentsScreen() {
                                     >
                                         <Text className={form.doctor_id ? "text-gray-800" : "text-gray-400"}>
                                             {form.doctor_id
-                                                ? doctors.find(d => String(d.doctor_id) === form.doctor_id)?.doctor_name || 'Select a Doctor'
+                                                ? formatDoctorName(doctors.find(d => String(d.doctor_id) === form.doctor_id)?.doctor_name)
                                                 : "Select a Doctor"}
                                         </Text>
                                         <Search size={16} color="#6b7280" />
@@ -544,7 +560,7 @@ export default function PatientAppointmentsScreen() {
                                         >
                                             <Picker.Item label={form.doctor_id ? "Select a Clinic" : "Select Doctor First"} value="" color="#9ca3af" />
                                             {clinics
-                                                .filter((c) => !form.doctor_id || !c?.doctor_id || String(c.doctor_id) === String(form.doctor_id))
+                                                .filter((c) => !form.doctor_id || String(c?.doctor_id || '') === String(form.doctor_id))
                                                 .map((c) => (
                                                     <Picker.Item key={c.clinic_id} label={c.clinic_name} value={String(c.clinic_id)} />
                                                 ))}
@@ -580,74 +596,91 @@ export default function PatientAppointmentsScreen() {
                                             {form.clinic_id && form.date ? 'No slots available for this date' : 'Select doctor, clinic and date first'}
                                         </Text>
                                     ) : (() => {
-                                        // Group into 30-min (or 60-min) bands
-                                        const groupMin = slotDuration <= 30 ? 30 : 60;
-
                                         const toMin = (s: string) => {
                                             const [h, m] = s.split(':').map(Number);
                                             return h * 60 + (m || 0);
                                         };
 
-                                        // Build group map: key = band start "HH:MM", value = sorted slots[]
-                                        const groupMap = new Map<string, string[]>();
-                                        slots.forEach(s => {
-                                            const mins = toMin(s);
-                                            const groupStart = Math.floor(mins / groupMin) * groupMin;
-                                            const gh = String(Math.floor(groupStart / 60)).padStart(2, '0');
-                                            const gm = String(groupStart % 60).padStart(2, '0');
-                                            const key = `${gh}:${gm}`;
-                                            if (!groupMap.has(key)) groupMap.set(key, []);
-                                            groupMap.get(key)!.push(s);
-                                        });
-
-                                        const groupLabel = (key: string) => {
-                                            const [h, m] = key.split(':').map(Number);
-                                            const endMins = h * 60 + m + groupMin;
-                                            const eh = Math.floor(endMins / 60) % 24;
-                                            const em = endMins % 60;
-                                            const fmt = (hr: number, mn: number) => {
-                                                const ampm = hr >= 12 ? 'PM' : 'AM';
-                                                return `${hr % 12 || 12}:${String(mn).padStart(2, '0')} ${ampm}`;
-                                            };
-                                            return `${fmt(h, m)} – ${fmt(eh, em)}`;
-                                        };
+                                        const sortedSlots = [...slots].sort((a, b) => toMin(a) - toMin(b));
+                                        const sections = [
+                                            {
+                                                key: 'morning',
+                                                title: 'Morning',
+                                                subtitle: '12:00 AM - 11:59 AM',
+                                                from: 0,
+                                                to: 12 * 60 - 1,
+                                                headerBg: 'bg-amber-50',
+                                                headerText: 'text-amber-900',
+                                                pillBg: 'bg-amber-100',
+                                                pillText: 'text-amber-700',
+                                            },
+                                            {
+                                                key: 'afternoon',
+                                                title: 'Afternoon',
+                                                subtitle: '12:00 PM - 4:59 PM',
+                                                from: 12 * 60,
+                                                to: 16 * 60 + 59,
+                                                headerBg: 'bg-emerald-50',
+                                                headerText: 'text-emerald-900',
+                                                pillBg: 'bg-emerald-100',
+                                                pillText: 'text-emerald-700',
+                                            },
+                                            {
+                                                key: 'evening',
+                                                title: 'Evening / Night',
+                                                subtitle: '5:00 PM - onwards',
+                                                from: 17 * 60,
+                                                to: 24 * 60 - 1,
+                                                headerBg: 'bg-indigo-50',
+                                                headerText: 'text-indigo-900',
+                                                pillBg: 'bg-indigo-100',
+                                                pillText: 'text-indigo-700',
+                                            },
+                                        ];
 
                                         return (
                                             <View>
-                                                {[...groupMap.entries()].map(([key, groupSlots]) => {
-                                                    // The nearest available slot = first in sorted groupSlots
-                                                    const nearestSlot = groupSlots[0];
-                                                    const isSelected = groupSlots.some(s => form.time === s);
-
+                                                {sections.map((section) => {
+                                                    const sectionSlots = sortedSlots.filter((s) => {
+                                                        const mins = toMin(s);
+                                                        return mins >= section.from && mins <= section.to;
+                                                    });
                                                     return (
-                                                        <TouchableOpacity
-                                                            key={key}
-                                                            onPress={() => setForm(p => ({ ...p, time: nearestSlot }))}
-                                                            className={`flex-row items-center justify-between rounded-2xl border px-4 py-3.5 mb-2
-                                                                ${isSelected
-                                                                    ? 'bg-blue-600 border-blue-600'
-                                                                    : 'bg-white border-gray-200'}`}
-                                                        >
-                                                            <View>
-                                                                <Text className={`font-bold text-sm ${isSelected ? 'text-white' : 'text-gray-800'}`}>
-                                                                    {groupLabel(key)}
-                                                                </Text>
-                                                                {isSelected ? (
-                                                                    <Text className="text-blue-100 text-xs mt-0.5">
-                                                                        Slot assigned: {to12h(nearestSlot)}
+                                                        <View key={section.key} className="mb-4">
+                                                            <View className={`flex-row items-center justify-between mb-2 rounded-2xl px-3 py-2 border border-gray-100 ${section.headerBg}`}>
+                                                                <View>
+                                                                    <Text className={`text-sm font-bold ${section.headerText}`}>{section.title}</Text>
+                                                                    <Text className="text-[11px] text-gray-500">{section.subtitle}</Text>
+                                                                </View>
+                                                                <View className={`rounded-full px-2.5 py-1 ${section.pillBg}`}>
+                                                                    <Text className={`text-[11px] font-semibold ${section.pillText}`}>
+                                                                        {sectionSlots.length} slot{sectionSlots.length !== 1 ? 's' : ''}
                                                                     </Text>
-                                                                ) : (
-                                                                    <Text className="text-gray-400 text-xs mt-0.5">
-                                                                        Tap to book nearest slot
-                                                                    </Text>
-                                                                )}
+                                                                </View>
                                                             </View>
-                                                            <View className={`rounded-full px-2.5 py-1 ${isSelected ? 'bg-blue-500' : 'bg-gray-100'}`}>
-                                                                <Text className={`text-xs font-semibold ${isSelected ? 'text-white' : 'text-gray-500'}`}>
-                                                                    {groupSlots.length} slot{groupSlots.length > 1 ? 's' : ''}
-                                                                </Text>
-                                                            </View>
-                                                        </TouchableOpacity>
+
+                                                            {sectionSlots.length === 0 ? (
+                                                                <Text className="text-xs text-gray-400">No slots available</Text>
+                                                            ) : (
+                                                                <View className="flex-row flex-wrap">
+                                                                    {sectionSlots.map((s) => {
+                                                                        const isSelected = form.time === s;
+                                                                        return (
+                                                                            <TouchableOpacity
+                                                                                key={`${section.key}-${s}`}
+                                                                                onPress={() => setForm(p => ({ ...p, time: s }))}
+                                                                                className={`mr-2 mb-2 rounded-full border px-3 py-2
+                                                                                    ${isSelected ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-200'}`}
+                                                                            >
+                                                                                <Text className={`text-xs font-semibold ${isSelected ? 'text-white' : 'text-gray-700'}`}>
+                                                                                    {to12h(s)}
+                                                                                </Text>
+                                                                            </TouchableOpacity>
+                                                                        );
+                                                                    })}
+                                                                </View>
+                                                            )}
+                                                        </View>
                                                     );
                                                 })}
                                             </View>
@@ -721,7 +754,14 @@ export default function PatientAppointmentsScreen() {
                                             <User size={18} color="#1d4ed8" />
                                         </View>
                                         <View className="flex-1">
-                                            <Text className="text-gray-800 font-semibold text-base">{item.doctor_name}</Text>
+                                            <Text className="text-gray-800 font-semibold text-base">
+                                                {formatDoctorName(item.doctor_name)}
+                                            </Text>
+                                            <View className="mt-1 self-start bg-emerald-100 rounded-full px-2 py-0.5">
+                                                <Text className="text-[10px] text-emerald-700 font-semibold">
+                                                    {item.specialization || 'General'}
+                                                </Text>
+                                            </View>
                                         </View>
                                     </TouchableOpacity>
                                 ))
