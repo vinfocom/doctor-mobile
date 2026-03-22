@@ -117,6 +117,7 @@ export default function PatientAppointmentsScreen() {
     const [searchQuery, setSearchQuery] = useState('');
     const [availableDates, setAvailableDates] = useState<Set<string>>(new Set());
     const [loadingDates, setLoadingDates] = useState(false);
+    const [activeTab, setActiveTab] = useState<'UPCOMING' | 'PAST'>('UPCOMING');
     const todayIST = (() => {
         const n = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
         return `${n.getUTCFullYear()}-${String(n.getUTCMonth() + 1).padStart(2, '0')}-${String(n.getUTCDate()).padStart(2, '0')}`;
@@ -211,8 +212,18 @@ export default function PatientAppointmentsScreen() {
         return { ...a, ts };
     };
 
-    const upcoming = useMemo(() => items.map(withTs).filter((a: any) => a.ts >= now).sort((a: any, b: any) => a.ts - b.ts), [items, now]);
-    const past = useMemo(() => items.map(withTs).filter((a: any) => a.ts < now).sort((a: any, b: any) => b.ts - a.ts), [items, now]);
+    const upcoming = useMemo(() => {
+        return items
+            .map(withTs)
+            .filter((a: any) => a.ts >= now)
+            .sort((a: any, b: any) => a.ts - b.ts);
+    }, [items, now]);
+    const past = useMemo(() => {
+        return items
+            .map(withTs)
+            .filter((a: any) => a.ts < now)
+            .sort((a: any, b: any) => b.ts - a.ts);
+    }, [items, now]);
 
     const onRefresh = async () => {
         setRefreshing(true);
@@ -431,13 +442,30 @@ export default function PatientAppointmentsScreen() {
                 </View>
 
                 <FlashList
-                    data={[...upcoming, ...past]}
+                    data={activeTab === 'UPCOMING' ? upcoming : past}
                     keyExtractor={(item) => String(item.appointment_id)}
                     refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
                     contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
                     ListHeaderComponent={
                         <View className="mb-3">
-                            <Text className="text-gray-700 font-bold">Upcoming: {upcoming.length} • Past: {past.length}</Text>
+                            <View className="flex-row bg-white rounded-2xl p-1 border border-gray-200">
+                                <TouchableOpacity
+                                    onPress={() => setActiveTab('UPCOMING')}
+                                    className={`flex-1 py-2 rounded-2xl items-center ${activeTab === 'UPCOMING' ? 'bg-blue-600' : 'bg-transparent'}`}
+                                >
+                                    <Text className={`${activeTab === 'UPCOMING' ? 'text-white' : 'text-gray-600'} font-semibold`}>
+                                        Upcoming ({upcoming.length})
+                                    </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={() => setActiveTab('PAST')}
+                                    className={`flex-1 py-2 rounded-2xl items-center ${activeTab === 'PAST' ? 'bg-blue-600' : 'bg-transparent'}`}
+                                >
+                                    <Text className={`${activeTab === 'PAST' ? 'text-white' : 'text-gray-600'} font-semibold`}>
+                                        Past ({past.length})
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
                         </View>
                     }
                     renderItem={({ item }) => {
@@ -519,7 +547,9 @@ export default function PatientAppointmentsScreen() {
                     }}
                     ListEmptyComponent={
                         <View className="items-center mt-16">
-                            <Text className="text-gray-500">No appointments yet</Text>
+                            <Text className="text-gray-500">
+                                {activeTab === 'UPCOMING' ? 'No upcoming appointments' : 'No past appointments'}
+                            </Text>
                         </View>
                     }
                 />
