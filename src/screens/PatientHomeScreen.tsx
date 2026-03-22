@@ -96,6 +96,13 @@ const formatTimeOnly = (time?: string) => {
     return to12h(hm);
 };
 
+const formatDoctorName = (name?: string | null) => {
+    const trimmed = String(name || '').trim();
+    if (!trimmed) return 'Doctor';
+    if (/^dr\./i.test(trimmed)) return trimmed;
+    return `Dr. ${trimmed}`;
+};
+
 const getAppointmentNo = (item?: AppointmentItem | null) => {
     if (!item) return null;
     return item.patient?.booking_id ?? item.booking_id ?? item.appointment_id ?? null;
@@ -313,13 +320,14 @@ export default function PatientHomeScreen() {
         }
     }, []);
 
-    const handleOpenDoctorChat = React.useCallback((doctorId: number, doctorName: string) => {
+    const handleOpenDoctorChat = React.useCallback((doctorId: number, doctorName: string, profilePicUrl?: string | null) => {
         if (!patient?.patient_id) return;
         clearMessageIndicators();
         navigation.navigate('Chat', {
             patientId: patient.patient_id,
             doctorId,
             patientName: doctorName || 'Doctor',
+            profilePicUrl: profilePicUrl || null,
             viewer: 'PATIENT',
         });
     }, [clearMessageIndicators, navigation, patient?.patient_id]);
@@ -382,7 +390,7 @@ export default function PatientHomeScreen() {
                     contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
                     refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
                     ListHeaderComponent={
-                        <View className="mb-4">
+                        <View className="mb-2">
                             {(notifCount > 0 || announcementCount > 0) && (
                                 <View className="mb-3 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
                                     <Text className="text-amber-700 text-xs font-semibold">
@@ -393,12 +401,11 @@ export default function PatientHomeScreen() {
                                 </View>
                             )}
                             <Text className="text-gray-700 font-bold text-base">My Doctors</Text>
-                            <Text className="text-gray-400 text-sm mt-1">Open chat with your doctor</Text>
                         </View>
                     }
                     renderItem={({ item }) => (
                         <TouchableOpacity
-                            className="bg-white rounded-2xl p-4 mb-3 flex-row items-center"
+                            className="bg-white rounded-2xl p-4 mb-2 flex-row items-center"
                             style={{ shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 2 }}
                             disabled={!patient?.patient_id}
                             onPress={() => handleOpenDoctorHistory(item)}
@@ -449,12 +456,12 @@ export default function PatientHomeScreen() {
                                 <Text className="text-[10px] text-gray-400 mt-1">Tap to view appointment history</Text>
                             </View>
                             <TouchableOpacity
-                                onPress={(e) => {
-                                    e?.stopPropagation?.();
-                                    handleOpenDoctorChat(item.doctor_id, item.doctor_name || 'Doctor');
-                                }}
-                                className="w-9 h-9 rounded-full bg-blue-50 items-center justify-center"
-                            >
+                            onPress={(e) => {
+                                e?.stopPropagation?.();
+                                handleOpenDoctorChat(item.doctor_id, item.doctor_name || 'Doctor', item.profile_pic_url);
+                            }}
+                            className="w-9 h-9 rounded-full bg-blue-50 items-center justify-center"
+                        >
                                 <MessageCircle size={18} color="#1d4ed8" />
                             </TouchableOpacity>
                         </TouchableOpacity>
@@ -491,38 +498,55 @@ export default function PatientHomeScreen() {
                     <View className="flex-1 justify-end bg-black/40">
                         <View className="bg-white rounded-t-3xl p-5 max-h-[80%]">
                             <View className="flex-row items-center justify-between mb-4">
-                                <View>
-                                    <Text className="text-xs text-gray-400">Appointment History</Text>
-                                    <Text className="text-lg font-bold text-gray-800">
-                                        {historyDoctor?.doctor_name || 'Doctor'}
-                                    </Text>
-                                </View>
-                                <TouchableOpacity
-                                    onPress={() => setHistoryVisible(false)}
-                                    className="bg-gray-100 rounded-full px-3 py-2"
-                                >
-                                    <Text className="text-gray-600 text-xs font-semibold">Close</Text>
-                                </TouchableOpacity>
+                            <View>
+                                <Text className="text-xs text-gray-400">Appointment History</Text>
+                                <Text className="text-lg font-bold text-gray-800">
+                                    {formatDoctorName(historyDoctor?.doctor_name)}
+                                </Text>
                             </View>
+                            <TouchableOpacity
+                                onPress={() => setHistoryVisible(false)}
+                                className="bg-gray-100 rounded-full px-3 py-2"
+                            >
+                                <Text className="text-gray-600 text-xs font-semibold">Close</Text>
+                            </TouchableOpacity>
+                        </View>
 
-                            <ScrollView>
-                                {(() => {
-                                    const items = historyDoctor
-                                        ? (appointmentsByDoctor.get(historyDoctor.doctor_id) || [])
-                                        : [];
-                                    if (items.length === 0) {
-                                        return (
-                                            <View className="items-center py-8">
-                                                <Text className="text-gray-400">No appointments found</Text>
-                                            </View>
-                                        );
-                                    }
-                                    return items.map((apt, index) => {
+                        <ScrollView className="max-h-[300px]" showsVerticalScrollIndicator>
+                            {(() => {
+                                const items = historyDoctor
+                                    ? (appointmentsByDoctor.get(historyDoctor.doctor_id) || [])
+                                    : [];
+                                const sortedItems = [...items].sort((a, b) => {
+                                    const aYmd = toYMD(a.appointment_date);
+                                    const aHm = toHM(a.start_time);
+                                    const aTs = aYmd && aHm ? new Date(`${aYmd}T${aHm}:00`).getTime() : 0;
+                                    const bYmd = toYMD(b.appointment_date);
+                                    const bHm = toHM(b.start_time);
+                                    const bTs = bYmd && bHm ? new Date(`${bYmd}T${bHm}:00`).getTime() : 0;
+                                    return bTs - aTs;
+                                });
+                                if (sortedItems.length === 0) {
+                                    return (
+                                        <View className="items-center py-8">
+                                            <Text className="text-gray-400">No appointments found</Text>
+                                        </View>
+                                    );
+                                }
+                                const counts = sortedItems.reduce((acc, apt) => {
+                                    const key = String(apt.status || 'BOOKED').toUpperCase();
+                                    acc.total += 1;
+                                    acc[key] = (acc[key] || 0) + 1;
+                                    return acc;
+                                }, { total: 0 } as Record<string, number>);
+                                return sortedItems.map((apt, index) => {
                                         const status = String(apt.status || '').toUpperCase();
                                         const statusLabel =
-                                            status === 'CANCELLED' && apt.cancelled_by
-                                                ? `Cancelled`
-                                                : status || 'N/A';
+                                            status === 'PENDING'
+                                                ? 'Not Visited'
+                                                : status === 'CANCELLED' && apt.cancelled_by
+                                                    ? 'Cancelled'
+                                                    : status || 'N/A';
                                         const statusClass =
                                             status === 'COMPLETED'
                                                 ? 'bg-emerald-50 text-emerald-700'
@@ -563,6 +587,36 @@ export default function PatientHomeScreen() {
                                     });
                                 })()}
                             </ScrollView>
+                            {(() => {
+                                const items = historyDoctor
+                                    ? (appointmentsByDoctor.get(historyDoctor.doctor_id) || [])
+                                    : [];
+                                if (items.length === 0) return null;
+                                const counts = items.reduce((acc, apt) => {
+                                    const key = String(apt.status || 'BOOKED').toUpperCase();
+                                    acc.total += 1;
+                                    acc[key] = (acc[key] || 0) + 1;
+                                    return acc;
+                                }, { total: 0 } as Record<string, number>);
+                                const chips = [
+                                    { key: 'total', label: 'Total', value: counts.total, tone: 'bg-slate-100 text-slate-700' },
+                                    { key: 'BOOKED', label: 'Booked', value: counts.BOOKED || 0, tone: 'bg-blue-50 text-blue-700' },
+                                    { key: 'PENDING', label: 'Not Visited', value: counts.PENDING || 0, tone: 'bg-amber-50 text-amber-700' },
+                                    { key: 'COMPLETED', label: 'Completed', value: counts.COMPLETED || 0, tone: 'bg-emerald-50 text-emerald-700' },
+                                    { key: 'CANCELLED', label: 'Cancelled', value: counts.CANCELLED || 0, tone: 'bg-rose-50 text-rose-700' },
+                                ];
+                                return (
+                                    <View className="mt-3 flex-row flex-wrap">
+                                        {chips.map((chip) => (
+                                            <View key={chip.key} className={`mr-2 mb-2 px-3 py-1 rounded-full ${chip.tone}`}>
+                                                <Text className="text-[10px] font-semibold">
+                                                    {chip.label} {chip.value}
+                                                </Text>
+                                            </View>
+                                        ))}
+                                    </View>
+                                );
+                            })()}
                         </View>
                     </View>
                 </Modal>

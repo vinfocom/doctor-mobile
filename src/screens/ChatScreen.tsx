@@ -14,7 +14,7 @@ import * as DocumentPicker from 'expo-document-picker';
 type Props = NativeStackScreenProps<RootStackParamList, 'Chat'>;
 
 export default function ChatScreen({ route, navigation }: Props) {
-    const { patientId, doctorId, patientName, viewer = 'DOCTOR' } = route.params;
+    const { patientId, doctorId, patientName, profilePicUrl, viewer = 'DOCTOR' } = route.params;
     const [messages, setMessages] = useState<any[]>([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
@@ -299,11 +299,17 @@ export default function ChatScreen({ route, navigation }: Props) {
                 <TouchableOpacity onPress={() => navigation.goBack()} className="mr-3 p-2 bg-gray-50 rounded-full">
                     <ChevronLeft size={24} color="#1f2937" />
                 </TouchableOpacity>
-                <View className="w-10 h-10 bg-blue-100 rounded-full items-center justify-center mr-3">
-                    <User size={20} color="#2563eb" />
+                <View className="w-10 h-10 bg-blue-100 rounded-full items-center justify-center mr-3 overflow-hidden">
+                    {viewer === 'PATIENT' && profilePicUrl ? (
+                        <Image source={{ uri: profilePicUrl }} className="w-10 h-10" resizeMode="cover" />
+                    ) : (
+                        <User size={20} color="#2563eb" />
+                    )}
                 </View>
                 <View className="flex-1">
-                    <Text className="text-gray-900 font-bold text-lg">{patientName}</Text>
+                    <Text className="text-gray-900 font-bold text-lg">
+                        {viewer === 'PATIENT' ? (patientName ? `Dr. ${patientName}` : 'Doctor') : patientName}
+                    </Text>
                     <Text className="text-gray-500 text-sm">{viewer === 'PATIENT' ? 'Doctor Chat' : 'Patient Chat'}</Text>
                 </View>
                 {viewer === 'DOCTOR' ? (

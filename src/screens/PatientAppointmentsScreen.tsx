@@ -10,6 +10,7 @@ import {
     TextInput,
     Alert,
     StatusBar,
+    Image,
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -27,7 +28,7 @@ type AppointmentItem = {
     appointment_date: string;
     start_time: string;
     status: string;
-    doctor?: { doctor_id: number; doctor_name?: string | null };
+    doctor?: { doctor_id: number; doctor_name?: string | null; profile_pic_url?: string | null };
     clinic?: { clinic_id: number; clinic_name?: string | null };
     patient?: {
         booking_id?: number | null;
@@ -104,7 +105,7 @@ export default function PatientAppointmentsScreen() {
     const [refreshing, setRefreshing] = useState(false);
     const [items, setItems] = useState<AppointmentItem[]>([]);
     const [patientName, setPatientName] = useState('');
-    const [doctors, setDoctors] = useState<Array<{ doctor_id: number; doctor_name: string; specialization?: string | null }>>([]);
+    const [doctors, setDoctors] = useState<Array<{ doctor_id: number; doctor_name: string; specialization?: string | null; profile_pic_url?: string | null }>>([]);
     const [allClinics, setAllClinics] = useState<any[]>([]);
     const [clinics, setClinics] = useState<any[]>([]);
     const [slots, setSlots] = useState<string[]>([]);
@@ -153,6 +154,7 @@ export default function PatientAppointmentsScreen() {
                 doctor_id: d.doctor_id,
                 doctor_name: d.doctor_name || 'Doctor',
                 specialization: d?.specialization ?? null,
+                profile_pic_url: d?.profile_pic_url ?? null,
             }));
         setDoctors(ds);
 
@@ -475,12 +477,20 @@ export default function PatientAppointmentsScreen() {
                         return (
                             <View className={`rounded-2xl mb-3 px-3.5 py-3 ${isPast ? 'bg-gray-50 border border-gray-200' : 'bg-white border border-blue-100'}`}>
                                 <View className="flex-row items-start">
-                                    <View className="bg-blue-100 w-10 h-10 rounded-xl items-center justify-center mr-3">
-                                        <User size={16} color="#1d4ed8" />
+                                    <View className="bg-blue-100 w-10 h-10 rounded-xl items-center justify-center mr-3 overflow-hidden">
+                                        {item.doctor?.profile_pic_url ? (
+                                            <Image
+                                                source={{ uri: item.doctor.profile_pic_url }}
+                                                className="w-10 h-10"
+                                                resizeMode="cover"
+                                            />
+                                        ) : (
+                                            <User size={16} color="#1d4ed8" />
+                                        )}
                                     </View>
                                     <View className="flex-1">
                                         <Text className="text-gray-900 font-bold text-sm" numberOfLines={1}>
-                                            {item.doctor?.doctor_name || 'Unknown Doctor'}
+                                            {formatDoctorName(item.doctor?.doctor_name)}
                                         </Text>
                                         <Text className="text-gray-500 text-xs mt-0.5" numberOfLines={1}>
                                             {item.clinic?.clinic_name || 'Clinic'}
@@ -780,8 +790,16 @@ export default function PatientAppointmentsScreen() {
                                         }}
                                         className="py-4 border-b border-gray-100 flex-row items-center"
                                     >
-                                        <View className="bg-blue-50 w-10 h-10 rounded-full items-center justify-center mr-3">
-                                            <User size={18} color="#1d4ed8" />
+                                        <View className="bg-blue-50 w-10 h-10 rounded-full items-center justify-center mr-3 overflow-hidden">
+                                            {item.profile_pic_url ? (
+                                                <Image
+                                                    source={{ uri: item.profile_pic_url }}
+                                                    className="w-10 h-10"
+                                                    resizeMode="cover"
+                                                />
+                                            ) : (
+                                                <User size={18} color="#1d4ed8" />
+                                            )}
                                         </View>
                                         <View className="flex-1">
                                             <Text className="text-gray-800 font-semibold text-base">

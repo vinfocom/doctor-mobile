@@ -23,7 +23,7 @@ export type RootStackParamList = {
   Login: undefined;
   DoctorMain: NavigatorScreenParams<MainTabParamList> | undefined;
   PatientMain: undefined;
-  Chat: { patientId: number; doctorId: number; patientName: string; viewer?: 'DOCTOR' | 'PATIENT' };
+  Chat: { patientId: number; doctorId: number; patientName: string; viewer?: 'DOCTOR' | 'PATIENT'; profilePicUrl?: string | null };
   Profile: undefined;
   StaffList: undefined;
   StaffForm: {
