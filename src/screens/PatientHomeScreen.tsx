@@ -7,6 +7,9 @@ import {
     Alert,
     RefreshControl,
     StatusBar,
+    Modal,
+    ScrollView,
+    Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { User, MessageCircle, LogOut, Settings } from 'lucide-react-native';
@@ -32,6 +35,7 @@ interface DoctorItem {
     doctor_name: string | null;
     specialization: string | null;
     phone: string | null;
+    profile_pic_url?: string | null;
 }
 
 type AppointmentItem = {
@@ -39,7 +43,10 @@ type AppointmentItem = {
     booking_id?: number;
     appointment_date?: string;
     start_time?: string;
+    status?: string;
+    cancelled_by?: string | null;
     doctor?: { doctor_id: number };
+    clinic?: { clinic_id: number; clinic_name?: string | null };
     patient?: { booking_id?: number | null };
 };
 
@@ -60,6 +67,35 @@ const toHM = (value?: string) => {
     return `${hh}:${mm}`;
 };
 
+const to12h = (time?: string) => {
+    if (!time) return '';
+    if (/AM|PM/i.test(time)) return time;
+    const match = time.match(/(\d{1,2}):(\d{2})/);
+    if (!match) return time;
+    let hour = parseInt(match[1], 10);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    hour = hour % 12 || 12;
+    return `${hour}:${match[2]} ${ampm}`;
+};
+
+const formatDateOnly = (date?: string) => {
+    if (!date) return 'N/A';
+    const ymd = toYMD(date);
+    if (!ymd) return 'N/A';
+    return new Date(ymd).toLocaleDateString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        timeZone: 'Asia/Kolkata',
+    });
+};
+
+const formatTimeOnly = (time?: string) => {
+    const hm = toHM(time);
+    if (!hm) return 'N/A';
+    return to12h(hm);
+};
+
 const getAppointmentNo = (item?: AppointmentItem | null) => {
     if (!item) return null;
     return item.patient?.booking_id ?? item.booking_id ?? item.appointment_id ?? null;
@@ -74,6 +110,9 @@ export default function PatientHomeScreen() {
     const [announcementCount, setAnnouncementCount] = useState(0);
     const [incomingMessage, setIncomingMessage] = useState<IncomingNotificationMessage | null>(null);
     const [latestAppointmentByDoctor, setLatestAppointmentByDoctor] = useState<Map<number, AppointmentItem>>(new Map());
+    const [appointmentsByDoctor, setAppointmentsByDoctor] = useState<Map<number, AppointmentItem[]>>(new Map());
+    const [historyDoctor, setHistoryDoctor] = useState<DoctorItem | null>(null);
+    const [historyVisible, setHistoryVisible] = useState(false);
     const lastNotifCheckAtRef = useRef<string>(new Date(Date.now() - 2 * 60 * 1000).toISOString());
     const bubbleHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const socketRef = useRef<Socket | null>(null);
@@ -97,9 +136,13 @@ export default function PatientHomeScreen() {
             const res = await getPatientAppointments();
             const list = (res?.appointments || []) as AppointmentItem[];
             const next = new Map<number, AppointmentItem>();
+            const byDoctor = new Map<number, AppointmentItem[]>();
             list.forEach((item) => {
                 const doctorId = item?.doctor?.doctor_id;
                 if (!doctorId) return;
+                const items = byDoctor.get(doctorId) || [];
+                items.push(item);
+                byDoctor.set(doctorId, items);
                 const ymd = toYMD(item.appointment_date);
                 const hm = toHM(item.start_time);
                 const ts = ymd && hm ? new Date(`${ymd}T${hm}:00`).getTime() : 0;
@@ -115,7 +158,20 @@ export default function PatientHomeScreen() {
                     next.set(doctorId, item);
                 }
             });
+            byDoctor.forEach((items, doctorId) => {
+                const sorted = [...items].sort((a, b) => {
+                    const aYmd = toYMD(a.appointment_date);
+                    const aHm = toHM(a.start_time);
+                    const aTs = aYmd && aHm ? new Date(`${aYmd}T${aHm}:00`).getTime() : 0;
+                    const bYmd = toYMD(b.appointment_date);
+                    const bHm = toHM(b.start_time);
+                    const bTs = bYmd && bHm ? new Date(`${bYmd}T${bHm}:00`).getTime() : 0;
+                    return bTs - aTs;
+                });
+                byDoctor.set(doctorId, sorted);
+            });
             setLatestAppointmentByDoctor(next);
+            setAppointmentsByDoctor(byDoctor);
         } catch {
             // ignore appointment load errors on dashboard
         }
@@ -268,6 +324,14 @@ export default function PatientHomeScreen() {
         });
     }, [clearMessageIndicators, navigation, patient?.patient_id]);
 
+    const handleOpenDoctorHistory = React.useCallback(async (doctor: DoctorItem) => {
+        setHistoryDoctor(doctor);
+        setHistoryVisible(true);
+        if (appointmentsByDoctor.size === 0) {
+            await loadLatestAppointments();
+        }
+    }, [appointmentsByDoctor.size, loadLatestAppointments]);
+
     const onRefresh = async () => {
         setRefreshing(true);
         await Promise.all([
@@ -337,10 +401,18 @@ export default function PatientHomeScreen() {
                             className="bg-white rounded-2xl p-4 mb-3 flex-row items-center"
                             style={{ shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 2 }}
                             disabled={!patient?.patient_id}
-                            onPress={() => handleOpenDoctorChat(item.doctor_id, item.doctor_name || 'Doctor')}
+                            onPress={() => handleOpenDoctorHistory(item)}
                         >
-                            <View className="w-11 h-11 bg-blue-100 rounded-full items-center justify-center mr-3 relative">
-                                <User size={20} color="#1d4ed8" />
+                            <View className="w-11 h-11 rounded-full items-center justify-center mr-3 relative overflow-hidden bg-blue-100">
+                                {item.profile_pic_url ? (
+                                    <Image
+                                        source={{ uri: item.profile_pic_url }}
+                                        className="w-11 h-11"
+                                        resizeMode="cover"
+                                    />
+                                ) : (
+                                    <User size={20} color="#1d4ed8" />
+                                )}
                                 {incomingMessage && !incomingMessage.isAnnouncement && incomingMessage.doctorId === item.doctor_id ? (
                                     <View className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 items-center justify-center border border-white">
                                         <Text className="text-white text-[10px] font-bold">1</Text>
@@ -348,8 +420,22 @@ export default function PatientHomeScreen() {
                                 ) : null}
                             </View>
                             <View className="flex-1">
-                                <Text className="text-gray-800 font-bold">{item.doctor_name || "Doctor"}</Text>
-                                <Text className="text-gray-500 text-xs mt-0.5">{item.specialization || "General"}</Text>
+                                <Text className="text-gray-800 font-bold">
+                                    {item.doctor_name ? `Dr. ${item.doctor_name}` : "Doctor"}
+                                </Text>
+                                {item.specialization ? (
+                                    <View className="self-start mt-1 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+                                        <Text className="text-[10px] font-semibold text-emerald-700">
+                                            {item.specialization}
+                                        </Text>
+                                    </View>
+                                ) : (
+                                    <View className="self-start mt-1 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+                                        <Text className="text-[10px] font-semibold text-emerald-700">
+                                            General
+                                        </Text>
+                                    </View>
+                                )}
                                 {(() => {
                                     const appt = latestAppointmentByDoctor.get(item.doctor_id);
                                     const apptNo = getAppointmentNo(appt);
@@ -360,8 +446,17 @@ export default function PatientHomeScreen() {
                                         </Text>
                                     );
                                 })()}
+                                <Text className="text-[10px] text-gray-400 mt-1">Tap to view appointment history</Text>
                             </View>
-                            <MessageCircle size={18} color="#1d4ed8" />
+                            <TouchableOpacity
+                                onPress={(e) => {
+                                    e?.stopPropagation?.();
+                                    handleOpenDoctorChat(item.doctor_id, item.doctor_name || 'Doctor');
+                                }}
+                                className="w-9 h-9 rounded-full bg-blue-50 items-center justify-center"
+                            >
+                                <MessageCircle size={18} color="#1d4ed8" />
+                            </TouchableOpacity>
                         </TouchableOpacity>
                     )}
                     ListEmptyComponent={
@@ -391,6 +486,86 @@ export default function PatientHomeScreen() {
                         handleOpenDoctorChat(message.doctorId, message.senderName);
                     }}
                 />
+
+                <Modal visible={historyVisible} transparent animationType="slide" onRequestClose={() => setHistoryVisible(false)}>
+                    <View className="flex-1 justify-end bg-black/40">
+                        <View className="bg-white rounded-t-3xl p-5 max-h-[80%]">
+                            <View className="flex-row items-center justify-between mb-4">
+                                <View>
+                                    <Text className="text-xs text-gray-400">Appointment History</Text>
+                                    <Text className="text-lg font-bold text-gray-800">
+                                        {historyDoctor?.doctor_name || 'Doctor'}
+                                    </Text>
+                                </View>
+                                <TouchableOpacity
+                                    onPress={() => setHistoryVisible(false)}
+                                    className="bg-gray-100 rounded-full px-3 py-2"
+                                >
+                                    <Text className="text-gray-600 text-xs font-semibold">Close</Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            <ScrollView>
+                                {(() => {
+                                    const items = historyDoctor
+                                        ? (appointmentsByDoctor.get(historyDoctor.doctor_id) || [])
+                                        : [];
+                                    if (items.length === 0) {
+                                        return (
+                                            <View className="items-center py-8">
+                                                <Text className="text-gray-400">No appointments found</Text>
+                                            </View>
+                                        );
+                                    }
+                                    return items.map((apt, index) => {
+                                        const status = String(apt.status || '').toUpperCase();
+                                        const statusLabel =
+                                            status === 'CANCELLED' && apt.cancelled_by
+                                                ? `Cancelled`
+                                                : status || 'N/A';
+                                        const statusClass =
+                                            status === 'COMPLETED'
+                                                ? 'bg-emerald-50 text-emerald-700'
+                                                : status === 'CANCELLED'
+                                                    ? 'bg-rose-50 text-rose-700'
+                                                    : status === 'PENDING'
+                                                        ? 'bg-amber-50 text-amber-700'
+                                                        : 'bg-blue-50 text-blue-700';
+                                        return (
+                                            <View
+                                                key={`${apt.appointment_id}:${index}`}
+                                                className="border border-gray-100 rounded-2xl p-4 mb-3"
+                                            >
+                                                <View className="flex-row items-center justify-between">
+                                                    <Text className="text-gray-800 font-semibold text-sm">
+                                                        {apt.clinic?.clinic_name || 'Clinic'}
+                                                    </Text>
+                                                    <View className={`px-2 py-0.5 rounded-full ${statusClass}`}>
+                                                        <Text className="text-[10px] font-semibold">{statusLabel}</Text>
+                                                    </View>
+                                                </View>
+                                                <View className="flex-row mt-2">
+                                                    <View className="flex-1">
+                                                        <Text className="text-[10px] uppercase text-gray-400">Date</Text>
+                                                        <Text className="text-xs text-gray-700 font-semibold">
+                                                            {formatDateOnly(apt.appointment_date)}
+                                                        </Text>
+                                                    </View>
+                                                    <View className="flex-1">
+                                                        <Text className="text-[10px] uppercase text-gray-400">Time</Text>
+                                                        <Text className="text-xs text-gray-700 font-semibold">
+                                                            {formatTimeOnly(apt.start_time)}
+                                                        </Text>
+                                                    </View>
+                                                </View>
+                                            </View>
+                                        );
+                                    });
+                                })()}
+                            </ScrollView>
+                        </View>
+                    </View>
+                </Modal>
             </View>
         </SafeAreaView>
     );
