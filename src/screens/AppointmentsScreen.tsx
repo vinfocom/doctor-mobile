@@ -34,7 +34,7 @@ import { getAppointments, createAppointment, updateAppointment, deleteAppointmen
 import { getClinics } from '../api/clinics';
 import { getAvailableDates, getSlots } from '../api/slots';
 import client from '../api/client';
-import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
 import { FlashList } from '@shopify/flash-list';
 import { getChatNotifications, type IncomingNotificationMessage } from '../api/notifications';
 import IncomingMessageBubble from '../components/IncomingMessageBubble';
@@ -96,6 +96,15 @@ const parseDateOnly = (value?: string) => {
 
 const istTimeToDisplay = (value: any): string => {
     if (!value) return 'N/A';
+    const raw = String(value).trim();
+    const plainTimeMatch = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (plainTimeMatch) {
+        const hours = Number(plainTimeMatch[1]);
+        const minutes = Number(plainTimeMatch[2]);
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        const hours12 = hours % 12 || 12;
+        return `${hours12}:${String(minutes).padStart(2, '0')} ${ampm}`;
+    }
     const t = new Date(value);
     if (Number.isNaN(t.getTime())) return 'N/A';
     const hours = t.getUTCHours();
@@ -121,10 +130,19 @@ const parseAppointmentStart = (appointment: any): Date | null => {
     // take the first 10 chars; otherwise use as-is.
     const datePart = String(dateStr).slice(0, 10); // "2026-02-26"
 
-    const timeDate = new Date(timeRaw);
-    if (Number.isNaN(timeDate.getTime())) return null;
-    const hh = String(timeDate.getUTCHours()).padStart(2, '0');
-    const mm = String(timeDate.getUTCMinutes()).padStart(2, '0');
+    const rawTime = String(timeRaw).trim();
+    const plainTimeMatch = rawTime.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    let hh = '';
+    let mm = '';
+    if (plainTimeMatch) {
+        hh = String(Number(plainTimeMatch[1])).padStart(2, '0');
+        mm = String(Number(plainTimeMatch[2])).padStart(2, '0');
+    } else {
+        const timeDate = new Date(timeRaw);
+        if (Number.isNaN(timeDate.getTime())) return null;
+        hh = String(timeDate.getUTCHours()).padStart(2, '0');
+        mm = String(timeDate.getUTCMinutes()).padStart(2, '0');
+    }
     const timeStr = `${hh}:${mm}`;
     const result = new Date(`${datePart}T${timeStr}:00+05:30`);
     return Number.isNaN(result.getTime()) ? null : result;
@@ -349,6 +367,7 @@ const CalendarPicker = ({ selectedDate, onSelect, minDate, enabledDates, loading
 const AppointmentsScreen = () => {
     const navigation = useNavigation<any>();
     const route = useRoute<any>();
+    const isFocused = useIsFocused();
     const { role, staff_role, staff_doctor_id } = useAuthSession();
     const isClinicStaff = role === 'CLINIC_STAFF';
     const isViewerStaff = isClinicStaff && String(staff_role || '').toUpperCase() === 'VIEWER';
@@ -429,6 +448,14 @@ const AppointmentsScreen = () => {
         fetchAppointments();
         fetchClinicsData();
     }, []);
+
+    useEffect(() => {
+        if (!isFocused) return;
+        const interval = setInterval(() => {
+            fetchAppointments();
+        }, 15000);
+        return () => clearInterval(interval);
+    }, [isFocused]);
 
     useEffect(() => {
         const params = route?.params || {};
