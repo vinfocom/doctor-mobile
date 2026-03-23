@@ -1019,7 +1019,7 @@ const AppointmentsScreen = () => {
 
             const patientName = String(a?.patient?.full_name || '').toLowerCase();
             const phone = String(a?.patient?.phone || '').toLowerCase();
-            const bookingId = String(a?.patient?.booking_id || '');
+            const bookingId = String(a?.booking_id || '');
             const clinic = String(a?.clinic?.clinic_name || '').toLowerCase();
             const matchesSearch = !query || patientName.includes(query) || phone.includes(query) || bookingId.includes(query) || clinic.includes(query);
             if (!matchesSearch) return false;
@@ -1065,7 +1065,7 @@ const AppointmentsScreen = () => {
                                 {item.clinic?.clinic_name || 'N/A'}
                             </Text>
                             <View className="mt-1.5 self-start px-2 py-1 rounded-md bg-gray-100">
-                                <Text className="text-xs font-semibold text-gray-600">Appointment No. {item.patient?.booking_id ?? item.appointment_id}</Text>
+                                <Text className="text-xs font-semibold text-gray-600">Appointment No. {item.booking_id ?? item.appointment_id}</Text>
                             </View>
                             {canUseChat && isHighlighted && (
                                 <View className="mt-1.5 self-start px-2 py-1 rounded-md bg-blue-600">

@@ -496,7 +496,7 @@ export default function PatientAppointmentsScreen() {
                                             {item.clinic?.clinic_name || 'Clinic'}
                                         </Text>
                                         <View className="mt-1.5 self-start px-2 py-1 rounded-md bg-gray-100">
-                                            <Text className="text-[10px] font-semibold text-gray-600">Appointment No. {item.patient?.booking_id ?? item.booking_id ?? item.appointment_id}</Text>
+                                            <Text className="text-[10px] font-semibold text-gray-600">Appointment No. {item.booking_id ?? item.patient?.booking_id ?? item.appointment_id}</Text>
                                         </View>
                                     </View>
                                     <View className="items-end ml-2">

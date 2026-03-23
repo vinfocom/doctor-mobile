@@ -556,7 +556,7 @@ const ClinicsScreen = () => {
 
     const handleGenerateBarcode = async (item: any) => {
         try {
-            const url = `https://msgbot.duckdns.org/qr/checkin?doctor_id=${item.doctor_id || ''}&clinic_id=${item.clinic_id}`;
+            const url = `https://msgbot.duckdns.org/qr/generate/download?doctor_id=${item.doctor_id || ''}&clinic_id=${item.clinic_id}`;
             await updateClinic(item.clinic_id, { barcode_url: url });
             Linking.openURL(url);
             fetchClinics();
