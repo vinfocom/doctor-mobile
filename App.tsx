@@ -1,7 +1,7 @@
 import './src/global.css';
 import React, { useEffect, useState } from 'react';
 import { View, ActivityIndicator } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { getToken, getRole, type AppRole } from './src/api/token';
 import { AuthSessionProvider } from './src/context/AuthSessionContext';
 import AppNavigator from './src/navigation';
@@ -33,9 +33,12 @@ if (Notifications) {
   });
 }
 
+const navigationRef = createNavigationContainerRef<RootStackParamList>();
+
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [initialRouteName, setInitialRouteName] = useState<keyof RootStackParamList>('Login');
+  const [bootRole, setBootRole] = useState<AppRole | null>(null);
 
   useEffect(() => {
     const bootstrapAsync = async () => {
@@ -54,11 +57,49 @@ export default function App() {
       } else {
         setInitialRouteName('Login');
       }
+      setBootRole(role);
       setIsLoading(false);
     };
 
     bootstrapAsync();
   }, []);
+
+  useEffect(() => {
+    if (!Notifications || !bootRole) return;
+
+    const openFromNotification = (data?: Record<string, unknown>) => {
+      if (!data || !navigationRef.isReady()) return;
+      if (data.type !== 'chat') return;
+
+      const patientId = Number(data.patientId);
+      const doctorId = Number(data.doctorId);
+      if (!Number.isFinite(patientId) || !Number.isFinite(doctorId)) return;
+
+      const viewer: 'DOCTOR' | 'PATIENT' = bootRole === 'PATIENT' ? 'PATIENT' : 'DOCTOR';
+      const patientName = String(data.senderName || (viewer === 'PATIENT' ? 'Doctor' : 'Patient'));
+
+      navigationRef.navigate('Chat', {
+        patientId,
+        doctorId,
+        patientName,
+        viewer,
+      });
+    };
+
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        openFromNotification(response?.notification.request.content.data as Record<string, unknown> | undefined);
+      })
+      .catch(() => undefined);
+
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      openFromNotification(response.notification.request.content.data as Record<string, unknown> | undefined);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [bootRole]);
 
   if (isLoading) {
     return (
@@ -71,7 +112,7 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <AuthSessionProvider>
-        <NavigationContainer>
+        <NavigationContainer ref={navigationRef}>
           <AppNavigator initialRouteName={initialRouteName} />
         </NavigationContainer>
       </AuthSessionProvider>

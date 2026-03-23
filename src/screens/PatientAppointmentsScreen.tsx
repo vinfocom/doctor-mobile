@@ -415,7 +415,11 @@ export default function PatientAppointmentsScreen() {
     const filteredDoctors = useMemo(() => {
         if (!searchQuery.trim()) return doctors;
         const q = searchQuery.toLowerCase();
-        return doctors.filter(d => d.doctor_name.toLowerCase().includes(q));
+        return doctors.filter((d) => {
+            const doctorName = String(d.doctor_name || '').toLowerCase();
+            const specialization = String(d.specialization || '').toLowerCase();
+            return doctorName.includes(q) || specialization.includes(q);
+        });
     }, [doctors, searchQuery]);
 
 
@@ -763,7 +767,7 @@ export default function PatientAppointmentsScreen() {
                             <Search size={18} color="#9ca3af" />
                             <TextInput
                                 className="flex-1 ml-2 text-gray-800 h-10"
-                                placeholder="Search doctor name..."
+                                placeholder="Search doctor or specialization..."
                                 value={searchQuery}
                                 onChangeText={setSearchQuery}
                                 autoCapitalize="none"

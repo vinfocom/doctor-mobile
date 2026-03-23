@@ -43,7 +43,8 @@
       "bundler": "metro"
     },
     "plugins": [
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-notifications"
     ],
     "extra": {
       "apiUrl": "http://103.205.140.228/api",

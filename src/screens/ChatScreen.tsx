@@ -8,6 +8,7 @@ import { getChatMessages, sendChatMessage, uploadChatAttachment } from '../api/c
 import { io, type Socket } from 'socket.io-client';
 import { SOCKET_URL } from '../config/env';
 import { useNotificationSound } from '../hooks/useNotificationSound';
+import { markPatientDoctorChatRead } from '../lib/mobileNotificationState';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 
@@ -45,6 +46,9 @@ export default function ChatScreen({ route, navigation }: Props) {
         try {
             const data = await getChatMessages(patientId, doctorId);
             setMessages((prev) => mergeMessages(prev, data.messages || []));
+            if (viewer === 'PATIENT') {
+                markPatientDoctorChatRead(doctorId);
+            }
         } catch (e) {
             console.error('Failed to fetch messages:', e);
         } finally {
@@ -53,10 +57,13 @@ export default function ChatScreen({ route, navigation }: Props) {
     };
 
     useEffect(() => {
+        if (viewer === 'PATIENT') {
+            markPatientDoctorChatRead(doctorId);
+        }
         fetchMessages();
         const interval = setInterval(fetchMessages, 3000);
         return () => clearInterval(interval);
-    }, [patientId, doctorId]);
+    }, [patientId, doctorId, viewer]);
 
 
     useEffect(() => {
@@ -77,6 +84,9 @@ export default function ChatScreen({ route, navigation }: Props) {
             if (data?.content && typeof data.content === 'string' && data.content.startsWith('Announcement:')) return;
             const isOurMessage = viewer === 'PATIENT' ? data.sender === 'PATIENT' : data.sender === 'DOCTOR';
             if (!isOurMessage) playSound();
+            if (viewer === 'PATIENT' && data.sender === 'DOCTOR') {
+                markPatientDoctorChatRead(doctorId);
+            }
             setMessages((prev) => mergeMessages(prev, [data]));
         });
         if (socket.connected) join();

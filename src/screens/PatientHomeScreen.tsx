@@ -26,7 +26,7 @@ import IncomingMessageBubble from '../components/IncomingMessageBubble';
 import { io, type Socket } from 'socket.io-client';
 import { SOCKET_URL } from '../config/env';
 import { useAuthSession } from '../context/AuthSessionContext';
-import { getPatientAnnouncementsReadAt, markPatientAnnouncementsRead } from '../lib/mobileNotificationState';
+import { consumePatientReadDoctorChatEvents, getPatientAnnouncementsReadAt, markPatientAnnouncementsRead } from '../lib/mobileNotificationState';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -113,9 +113,9 @@ export default function PatientHomeScreen() {
     const isFocused = useIsFocused();
     const { clearSession } = useAuthSession();
     const [refreshing, setRefreshing] = useState(false);
-    const [notifCount, setNotifCount] = useState(0);
     const [announcementCount, setAnnouncementCount] = useState(0);
     const [incomingMessage, setIncomingMessage] = useState<IncomingNotificationMessage | null>(null);
+    const [unreadChatCountsByDoctor, setUnreadChatCountsByDoctor] = useState<Map<number, number>>(new Map());
     const [latestAppointmentByDoctor, setLatestAppointmentByDoctor] = useState<Map<number, AppointmentItem>>(new Map());
     const [appointmentsByDoctor, setAppointmentsByDoctor] = useState<Map<number, AppointmentItem[]>>(new Map());
     const [historyDoctor, setHistoryDoctor] = useState<DoctorItem | null>(null);
@@ -125,6 +125,7 @@ export default function PatientHomeScreen() {
     const socketRef = useRef<Socket | null>(null);
     const socketEnabled = React.useMemo(() => !SOCKET_URL.includes('vercel.app'), []);
     const lastHandledAnnouncementsReadAtRef = useRef<number>(0);
+    const patientReadDoctorAtRef = useRef<Map<number, number>>(new Map());
 
     const { data, isLoading: loading, revalidate } = useSWRLite('patient:home', getPatientProfile);
     const patient = data?.patient || null;
@@ -137,6 +138,38 @@ export default function PatientHomeScreen() {
         });
         return Array.from(byId.values());
     }, [doctors]);
+    const notifCount = useMemo(
+        () => Array.from(unreadChatCountsByDoctor.values()).reduce((sum, count) => sum + count, 0),
+        [unreadChatCountsByDoctor]
+    );
+
+    const incrementUnreadDoctorCount = React.useCallback((doctorId: number, amount: number = 1, createdAt?: string) => {
+        if (!doctorId || amount <= 0) return;
+        const messageTs = createdAt ? new Date(createdAt).getTime() : Date.now();
+        const lastReadAt = patientReadDoctorAtRef.current.get(doctorId) || 0;
+        if (messageTs <= lastReadAt) return;
+        setUnreadChatCountsByDoctor((prev) => {
+            const next = new Map(prev);
+            next.set(doctorId, (next.get(doctorId) || 0) + amount);
+            return next;
+        });
+    }, []);
+
+    const clearDoctorUnreadCount = React.useCallback((doctorId?: number | null) => {
+        if (!doctorId) return;
+        patientReadDoctorAtRef.current.set(doctorId, Date.now());
+        setUnreadChatCountsByDoctor((prev) => {
+            if (!prev.has(doctorId)) return prev;
+            const next = new Map(prev);
+            next.delete(doctorId);
+            return next;
+        });
+        setIncomingMessage((prev) => (prev && !prev.isAnnouncement && prev.doctorId === doctorId ? null : prev));
+        if (bubbleHideTimerRef.current) {
+            clearTimeout(bubbleHideTimerRef.current);
+            bubbleHideTimerRef.current = null;
+        }
+    }, []);
 
     const loadLatestAppointments = React.useCallback(async () => {
         try {
@@ -144,15 +177,19 @@ export default function PatientHomeScreen() {
             const list = (res?.appointments || []) as AppointmentItem[];
             const next = new Map<number, AppointmentItem>();
             const byDoctor = new Map<number, AppointmentItem[]>();
+            const now = Date.now();
             list.forEach((item) => {
                 const doctorId = item?.doctor?.doctor_id;
                 if (!doctorId) return;
                 const items = byDoctor.get(doctorId) || [];
                 items.push(item);
                 byDoctor.set(doctorId, items);
+                const status = String(item.status || '').toUpperCase();
+                if (status === 'CANCELLED' || status === 'COMPLETED') return;
                 const ymd = toYMD(item.appointment_date);
                 const hm = toHM(item.start_time);
                 const ts = ymd && hm ? new Date(`${ymd}T${hm}:00`).getTime() : 0;
+                if (!ts || ts < now) return;
                 const prev = next.get(doctorId);
                 if (!prev) {
                     next.set(doctorId, item);
@@ -161,7 +198,7 @@ export default function PatientHomeScreen() {
                 const prevYmd = toYMD(prev.appointment_date);
                 const prevHm = toHM(prev.start_time);
                 const prevTs = prevYmd && prevHm ? new Date(`${prevYmd}T${prevHm}:00`).getTime() : 0;
-                if (ts >= prevTs) {
+                if (!prevTs || ts < prevTs) {
                     next.set(doctorId, item);
                 }
             });
@@ -189,8 +226,17 @@ export default function PatientHomeScreen() {
         try {
             const result = await getChatNotifications(lastNotifCheckAtRef.current);
             lastNotifCheckAtRef.current = new Date().toISOString();
-            setNotifCount(result?.count || 0);
-            setAnnouncementCount(result?.announcementCount || 0);
+            if (result?.announcementCount) {
+                setAnnouncementCount((prev) => prev + result.announcementCount);
+            }
+            if (result?.uniqueSenders?.length) {
+                result.uniqueSenders.forEach((sender: any) => {
+                    const doctorId = Number(sender?.doctorId);
+                    incrementUnreadDoctorCount(doctorId, 1);
+                });
+            } else if (result?.latestMessage && !result.latestMessage.isAnnouncement) {
+                incrementUnreadDoctorCount(result.latestMessage.doctorId, Math.max(1, result.count || 1), result.latestMessage.createdAt);
+            }
             if (result?.latestMessage) {
                 setIncomingMessage({
                     ...result.latestMessage,
@@ -208,7 +254,7 @@ export default function PatientHomeScreen() {
         } catch {
             // ignore
         }
-    }, [isFocused]);
+    }, [incrementUnreadDoctorCount, isFocused]);
 
     useEffect(() => {
         if (!isFocused) {
@@ -232,6 +278,17 @@ export default function PatientHomeScreen() {
 
     useFocusEffect(
         React.useCallback(() => {
+            const patientReadEvents = consumePatientReadDoctorChatEvents();
+            if (patientReadEvents.length > 0) {
+                patientReadEvents.forEach(({ doctorId, readAt }) => {
+                    patientReadDoctorAtRef.current.set(doctorId, readAt || Date.now());
+                });
+                setUnreadChatCountsByDoctor((prev) => {
+                    const next = new Map(prev);
+                    patientReadEvents.forEach(({ doctorId }) => next.delete(doctorId));
+                    return next;
+                });
+            }
             if (!isFocused) return;
             const latestAnnouncementReadAt = getPatientAnnouncementsReadAt();
             if (latestAnnouncementReadAt > lastHandledAnnouncementsReadAtRef.current) {
@@ -271,7 +328,7 @@ export default function PatientHomeScreen() {
             if (isAnnouncement) {
                 setAnnouncementCount((prev) => prev + 1);
             } else {
-                setNotifCount((prev) => prev + 1);
+                incrementUnreadDoctorCount(msg.doctor_id, 1, msg.created_at);
             }
             setIncomingMessage({
                 senderName,
@@ -296,12 +353,10 @@ export default function PatientHomeScreen() {
             socket.disconnect();
             socketRef.current = null;
         };
-    }, [isFocused, uniqueDoctors, patient?.patient_id, socketEnabled]);
+    }, [incrementUnreadDoctorCount, isFocused, uniqueDoctors, patient?.patient_id, socketEnabled]);
 
-    const clearMessageIndicators = React.useCallback(() => {
+    const dismissIncomingMessage = React.useCallback(() => {
         setIncomingMessage(null);
-        setNotifCount(0);
-        lastNotifCheckAtRef.current = new Date().toISOString();
         if (bubbleHideTimerRef.current) {
             clearTimeout(bubbleHideTimerRef.current);
             bubbleHideTimerRef.current = null;
@@ -322,7 +377,8 @@ export default function PatientHomeScreen() {
 
     const handleOpenDoctorChat = React.useCallback((doctorId: number, doctorName: string, profilePicUrl?: string | null) => {
         if (!patient?.patient_id) return;
-        clearMessageIndicators();
+        clearDoctorUnreadCount(doctorId);
+        dismissIncomingMessage();
         navigation.navigate('Chat', {
             patientId: patient.patient_id,
             doctorId,
@@ -330,7 +386,7 @@ export default function PatientHomeScreen() {
             profilePicUrl: profilePicUrl || null,
             viewer: 'PATIENT',
         });
-    }, [clearMessageIndicators, navigation, patient?.patient_id]);
+    }, [clearDoctorUnreadCount, dismissIncomingMessage, navigation, patient?.patient_id]);
 
     const handleOpenDoctorHistory = React.useCallback(async (doctor: DoctorItem) => {
         setHistoryDoctor(doctor);
@@ -403,25 +459,29 @@ export default function PatientHomeScreen() {
                             <Text className="text-gray-700 font-bold text-base">My Doctors</Text>
                         </View>
                     }
-                    renderItem={({ item }) => (
+                    renderItem={({ item }) => {
+                        const unreadCount = unreadChatCountsByDoctor.get(item.doctor_id) || 0;
+                        return (
                         <TouchableOpacity
                             className="bg-white rounded-2xl p-4 mb-2 flex-row items-center"
                             style={{ shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 2 }}
                             disabled={!patient?.patient_id}
                             onPress={() => handleOpenDoctorHistory(item)}
                         >
-                            <View className="w-11 h-11 rounded-full items-center justify-center mr-3 relative overflow-hidden bg-blue-100">
-                                {item.profile_pic_url ? (
-                                    <Image
-                                        source={{ uri: item.profile_pic_url }}
-                                        className="w-11 h-11"
-                                        resizeMode="cover"
-                                    />
-                                ) : (
-                                    <User size={20} color="#1d4ed8" />
-                                )}
+                            <View className="mr-3 relative">
+                                <View className="w-11 h-11 rounded-full items-center justify-center overflow-hidden bg-blue-100">
+                                    {item.profile_pic_url ? (
+                                        <Image
+                                            source={{ uri: item.profile_pic_url }}
+                                            className="w-11 h-11"
+                                            resizeMode="cover"
+                                        />
+                                    ) : (
+                                        <User size={20} color="#1d4ed8" />
+                                    )}
+                                </View>
                                 {incomingMessage && !incomingMessage.isAnnouncement && incomingMessage.doctorId === item.doctor_id ? (
-                                    <View className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 items-center justify-center border border-white">
+                                    <View className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 items-center justify-center border border-white">
                                         <Text className="text-white text-[10px] font-bold">1</Text>
                                     </View>
                                 ) : null}
@@ -460,12 +520,19 @@ export default function PatientHomeScreen() {
                                 e?.stopPropagation?.();
                                 handleOpenDoctorChat(item.doctor_id, item.doctor_name || 'Doctor', item.profile_pic_url);
                             }}
-                            className="w-9 h-9 rounded-full bg-blue-50 items-center justify-center"
+                            className="w-9 h-9 rounded-full bg-blue-50 items-center justify-center relative"
                         >
                                 <MessageCircle size={18} color="#1d4ed8" />
+                                {unreadCount > 0 ? (
+                                    <View className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 items-center justify-center border border-white">
+                                        <Text className="text-white text-[10px] font-bold">
+                                            {unreadCount > 99 ? '99+' : unreadCount}
+                                        </Text>
+                                    </View>
+                                ) : null}
                             </TouchableOpacity>
                         </TouchableOpacity>
-                    )}
+                    )}}
                     ListEmptyComponent={
                         <View className="items-center mt-14">
                             <Text className="text-gray-500">No assigned doctors yet</Text>
@@ -489,7 +556,6 @@ export default function PatientHomeScreen() {
                             navigation.navigate('PatientAnnouncements' as never);
                             return;
                         }
-                        clearMessageIndicators();
                         handleOpenDoctorChat(message.doctorId, message.senderName);
                     }}
                 />
