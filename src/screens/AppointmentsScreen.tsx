@@ -1701,15 +1701,17 @@ const AppointmentsScreen = () => {
             <Modal
                 animationType="slide"
                 transparent
+                hardwareAccelerated
+                statusBarTranslucent
                 visible={isModalVisible}
                 onRequestClose={() => { setModalVisible(false); resetForm(); }}
             >
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
-                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 72}
-                    className="flex-1"
-                >
-                    <View className="flex-1 justify-end bg-black/50">
+                <View className="flex-1 bg-black/50">
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+                        className="flex-1 justify-end"
+                    >
                         <View className="bg-white rounded-t-3xl p-6 h-[92%]">
 
                             {/* Modal header */}
@@ -2013,8 +2015,8 @@ const AppointmentsScreen = () => {
                                 </View>
                             </ScrollView>
                         </View>
-                    </View>
-                </KeyboardAvoidingView>
+                    </KeyboardAvoidingView>
+                </View>
             </Modal>
 
             <Modal
