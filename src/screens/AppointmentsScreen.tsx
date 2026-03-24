@@ -406,6 +406,7 @@ const AppointmentsScreen = () => {
     const [rescheduleDate, setRescheduleDate] = useState('');
     const [rescheduleStart, setRescheduleStart] = useState('');
     const [rescheduleEnd, setRescheduleEnd] = useState('');
+    const [rescheduleBookingFor, setRescheduleBookingFor] = useState<BookingFor>('SELF');
     const [rescheduleClinicId, setRescheduleClinicId] = useState('');
     const [rescheduleDoctorId, setRescheduleDoctorId] = useState<number>(0);
     const [rescheduleAvailableDates, setRescheduleAvailableDates] = useState<Set<string>>(new Set());
@@ -983,8 +984,10 @@ const AppointmentsScreen = () => {
         setRescheduleEnd(toTimeInput(item.end_time));
         const clinicId = item?.clinic_id || item?.clinic?.clinic_id || '';
         const doctorId = item?.doctor_id || item?.doctor?.doctor_id || staff_doctor_id || 0;
+        const nextBookingFor = String(item?.booked_for || item?.booking_for || 'SELF').toUpperCase() === 'OTHER' ? 'OTHER' : 'SELF';
         setRescheduleClinicId(clinicId ? String(clinicId) : '');
         setRescheduleDoctorId(Number(doctorId) || 0);
+        setRescheduleBookingFor(nextBookingFor);
         setShowRescheduleCalendar(false);
         setRescheduleModalVisible(true);
     };
@@ -1014,12 +1017,13 @@ const AppointmentsScreen = () => {
                             appointment_date: rescheduleDate,
                             start_time: rescheduleStart,
                             end_time: endTime,
+                            booking_for: rescheduleBookingFor,
                             status: 'BOOKED',
                         });
                         setAppointments((prev) =>
                             prev.map((a) =>
                                 a.appointment_id === editingAppointmentId
-                                    ? { ...a, appointment_date: rescheduleDate, start_time: rescheduleStart, end_time: endTime, status: 'BOOKED' }
+                                    ? { ...a, appointment_date: rescheduleDate, start_time: rescheduleStart, end_time: endTime, status: 'BOOKED', booked_for: rescheduleBookingFor }
                                     : a
                             )
                         );
