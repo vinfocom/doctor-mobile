@@ -14,7 +14,9 @@ import {
     ScrollView,
     Linking,
     RefreshControl,
+    Image,
 } from 'react-native';
+import { Buffer } from 'buffer';
 import {
     Building2,
     Phone,
@@ -37,11 +39,13 @@ import {
     Image as ImageIcon,
     QrCode,
 } from 'lucide-react-native';
+import { SvgUri, SvgXml } from 'react-native-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getClinics, createClinic, updateClinic, deleteClinic } from '../api/clinics';
 import { getSchedule, createSchedule, updateSchedule, deleteSchedule } from '../api/schedule';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadClinicBarcode } from '../api/uploads';
+import { API_URL } from '../config/env';
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -89,6 +93,21 @@ const to24Hour = (hour12: number, minute: string, period: 'AM' | 'PM') => {
     return `${String(h).padStart(2, '0')}:${minute}`;
 };
 const normalizeClinicName = (name?: string) => String(name || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+const decodeSvgDataUrl = (value?: string | null) => {
+    if (!value || !value.startsWith('data:image/svg+xml')) return null;
+    const [, payload = ''] = value.split(',', 2);
+    if (!payload) return null;
+
+    try {
+        if (value.includes(';base64,')) {
+            return Buffer.from(payload, 'base64').toString('utf-8');
+        }
+        return decodeURIComponent(payload);
+    } catch {
+        return null;
+    }
+};
 
 // ─── Schedule types ───────────────────────────────────────────────────────────
 
@@ -294,7 +313,7 @@ const StatusBadge = ({ status }: { status: string }) => {
     );
 };
 
-const ClinicsTab = ({ onAdd, clinics, filteredClinics, searchTerm, setSearchTerm, filterStatus, setFilterStatus, handleOpenEdit, handleDeleteClinic, handleGenerateBarcode, loading, refreshing, onRefresh }: any) => {
+const ClinicsTab = ({ onAdd, clinics, filteredClinics, searchTerm, setSearchTerm, filterStatus, setFilterStatus, handleOpenEdit, handleDeleteClinic, handleGenerateBarcode, handleViewBarcode, loading, refreshing, onRefresh }: any) => {
     const renderItem = ({ item, index }: { item: any; index: number }) => (
         <AnimListItem index={index}>
             <TouchableOpacity activeOpacity={0.7} className="bg-white rounded-2xl mb-4 overflow-hidden" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4 }}>
@@ -322,6 +341,14 @@ const ClinicsTab = ({ onAdd, clinics, filteredClinics, searchTerm, setSearchTerm
                     >
                         <QrCode size={16} color="#4338ca" />
                         <Text className="ml-2 text-indigo-700 font-semibold text-sm">Generate Bar Code</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        onPress={() => handleViewBarcode(item)}
+                        disabled={!item.qr_storage_url}
+                        className={`mt-2 rounded-xl py-2.5 flex-row items-center justify-center border ${item.qr_storage_url ? 'border-emerald-200 bg-emerald-50' : 'border-gray-200 bg-gray-100'}`}
+                    >
+                        <QrCode size={16} color={item.qr_storage_url ? '#047857' : '#9ca3af'} />
+                        <Text className={`ml-2 font-semibold text-sm ${item.qr_storage_url ? 'text-emerald-700' : 'text-gray-400'}`}>View Bar Code</Text>
                     </TouchableOpacity>
                     <View className="mt-3 flex-row">
                         <TouchableOpacity onPress={() => handleOpenEdit(item)} className="flex-1 mr-2 rounded-xl border border-cyan-200 bg-cyan-50 py-2.5 flex-row items-center justify-center">
@@ -516,6 +543,14 @@ const ClinicsScreen = () => {
     const [barcodeUploading, setBarcodeUploading] = useState(false);
     const [barcodeError, setBarcodeError] = useState<string | null>(null);
     const [clinicsRefreshing, setClinicsRefreshing] = useState(false);
+    const [qrPreviewVisible, setQrPreviewVisible] = useState(false);
+    const [qrPreviewLoading, setQrPreviewLoading] = useState(false);
+    const [qrPreviewError, setQrPreviewError] = useState<string | null>(null);
+    const [qrPreviewImage, setQrPreviewImage] = useState<string | null>(null);
+    const [qrPreviewSvg, setQrPreviewSvg] = useState<string | null>(null);
+    const [qrPreviewSvgUri, setQrPreviewSvgUri] = useState<string | null>(null);
+    const [qrPreviewClinic, setQrPreviewClinic] = useState<any | null>(null);
+    const [qrPreviewMode, setQrPreviewMode] = useState<'generate' | 'view'>('generate');
 
     // ── Schedule state
     const [schedule, setSchedule] = useState<ScheduleItem[]>([]);
@@ -555,14 +590,57 @@ const ClinicsScreen = () => {
     };
 
     const handleGenerateBarcode = async (item: any) => {
+        setQrPreviewMode('generate');
+        setQrPreviewClinic(item);
+        setQrPreviewVisible(true);
+        setQrPreviewLoading(true);
+        setQrPreviewError(null);
+        setQrPreviewImage(null);
+        setQrPreviewSvg(null);
+        setQrPreviewSvgUri(null);
+
         try {
+            const previewRes = await fetch(`${API_URL}/qr/generate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    doctor_id: Number(item.doctor_id),
+                    clinic_id: Number(item.clinic_id),
+                }),
+            });
+
+            const previewData = await previewRes.json();
+            if (!previewRes.ok) {
+                throw new Error(previewData.error || 'Failed to load QR preview');
+            }
+
+            const dataUrl = previewData.dataUrl || null;
+            setQrPreviewImage(dataUrl);
+            setQrPreviewSvg(decodeSvgDataUrl(dataUrl));
+            setQrPreviewSvgUri(null);
             const url = `https://msgbot.duckdns.org/qr/generate/download?doctor_id=${item.doctor_id || ''}&clinic_id=${item.clinic_id}`;
-            await updateClinic(item.clinic_id, { barcode_url: url });
-            Linking.openURL(url);
+            await updateClinic(item.clinic_id, {
+                barcode_url: url,
+                qr_storage_url: previewData.qrStorageUrl || null,
+            });
             fetchClinics();
         } catch (e: any) {
-            Alert.alert('Error', e?.response?.data?.error || e?.message || 'Failed to generate barcode');
+            setQrPreviewError(e?.response?.data?.error || e?.message || 'Failed to load QR preview');
+        } finally {
+            setQrPreviewLoading(false);
         }
+    };
+
+    const handleViewBarcode = (item: any) => {
+        setQrPreviewMode('view');
+        const storageUrl = String(item?.qr_storage_url || '').trim();
+        setQrPreviewClinic(item);
+        setQrPreviewVisible(true);
+        setQrPreviewLoading(false);
+        setQrPreviewError(storageUrl ? null : 'Stored barcode not found');
+        setQrPreviewSvg(null);
+        setQrPreviewImage(storageUrl || null);
+        setQrPreviewSvgUri(storageUrl && /\.svg(\?|$)/i.test(storageUrl) ? storageUrl : null);
     };
 
     const handleCreateOrUpdateClinic = async () => {
@@ -796,12 +874,99 @@ const ClinicsScreen = () => {
 
                 {/* ── Content ── */}
                 {activeTab === 'clinics'
-                    ? <ClinicsTab clinics={clinics} filteredClinics={filteredClinics} loading={clinicsLoading} refreshing={clinicsRefreshing} onRefresh={handleClinicsRefresh} searchTerm={searchTerm} setSearchTerm={setSearchTerm} filterStatus={filterStatus} setFilterStatus={setFilterStatus} handleOpenEdit={handleOpenEdit} handleDeleteClinic={handleDeleteClinic} handleGenerateBarcode={handleGenerateBarcode} onAdd={addHandler} />
+                    ? <ClinicsTab clinics={clinics} filteredClinics={filteredClinics} loading={clinicsLoading} refreshing={clinicsRefreshing} onRefresh={handleClinicsRefresh} searchTerm={searchTerm} setSearchTerm={setSearchTerm} filterStatus={filterStatus} setFilterStatus={setFilterStatus} handleOpenEdit={handleOpenEdit} handleDeleteClinic={handleDeleteClinic} handleGenerateBarcode={handleGenerateBarcode} handleViewBarcode={handleViewBarcode} onAdd={addHandler} />
                     : <ScheduleTab clinics={clinics} grouped={grouped} schedule={schedule} loading={scheduleLoading} refreshing={scheduleRefreshing} onRefresh={handleScheduleRefresh} handleEditSlot={handleEditSlot} handleDeleteSlot={handleDeleteSlot} onAdd={addHandler} />
                 }
             </View>
 
             {/* ── Clinic Modal ── */}
+            <Modal
+                visible={qrPreviewVisible}
+                animationType="fade"
+                transparent
+                onRequestClose={() => {
+                    setQrPreviewVisible(false);
+                    setQrPreviewClinic(null);
+                    setQrPreviewImage(null);
+                    setQrPreviewSvg(null);
+                    setQrPreviewSvgUri(null);
+                    setQrPreviewError(null);
+                }}
+            >
+                <View className="flex-1 items-center justify-center bg-black/45 px-5">
+                    <View className="w-full max-w-sm rounded-3xl bg-white p-5">
+                        <View className="mb-4 flex-row items-start justify-between">
+                            <View className="flex-1 pr-3">
+                                <Text className="text-lg font-bold text-gray-900">QR Preview</Text>
+                                <Text className="mt-1 text-sm text-gray-500" numberOfLines={2}>
+                                    {qrPreviewClinic?.clinic_name || 'Clinic QR code'}
+                                </Text>
+                            </View>
+                            <TouchableOpacity
+                                onPress={() => {
+                                    setQrPreviewVisible(false);
+                                    setQrPreviewClinic(null);
+                                    setQrPreviewImage(null);
+                                    setQrPreviewSvg(null);
+                                    setQrPreviewSvgUri(null);
+                                    setQrPreviewError(null);
+                                }}
+                                className="h-9 w-9 items-center justify-center rounded-full bg-gray-100"
+                            >
+                                <X size={18} color="#6b7280" />
+                            </TouchableOpacity>
+                        </View>
+
+                        <View className="min-h-[280px] items-center justify-center rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-5">
+                            {qrPreviewLoading ? (
+                                <View className="items-center">
+                                    <ActivityIndicator size="large" color="#4f46e5" />
+                                    <Text className="mt-3 text-sm text-gray-500">Loading preview...</Text>
+                                </View>
+                            ) : qrPreviewError ? (
+                                <Text className="text-center text-sm font-medium text-red-500">{qrPreviewError}</Text>
+                            ) : qrPreviewSvg ? (
+                                <SvgXml xml={qrPreviewSvg} width="100%" height={240} />
+                            ) : qrPreviewSvgUri ? (
+                                <SvgUri uri={qrPreviewSvgUri} width="100%" height={240} />
+                            ) : qrPreviewImage ? (
+                                <Image source={{ uri: qrPreviewImage }} resizeMode="contain" style={{ width: '100%', height: 240 }} />
+                            ) : (
+                                <Text className="text-sm text-gray-500">Preview unavailable.</Text>
+                            )}
+                        </View>
+
+                        <View className="mt-5 flex-row justify-end">
+                            <TouchableOpacity
+                                onPress={() => {
+                                    setQrPreviewVisible(false);
+                                    setQrPreviewClinic(null);
+                                    setQrPreviewImage(null);
+                                    setQrPreviewSvg(null);
+                                    setQrPreviewSvgUri(null);
+                                    setQrPreviewError(null);
+                                }}
+                                className="mr-3 rounded-xl border border-gray-200 px-4 py-2.5"
+                            >
+                                <Text className="font-semibold text-gray-600">Close</Text>
+                            </TouchableOpacity>
+                            {qrPreviewMode === 'generate' && (
+                                <TouchableOpacity
+                                    disabled={!qrPreviewClinic?.doctor_id || !qrPreviewClinic?.clinic_id}
+                                    onPress={() => {
+                                        if (!qrPreviewClinic?.doctor_id || !qrPreviewClinic?.clinic_id) return;
+                                        Linking.openURL(`${API_URL}/qr/generate/download?doctor_id=${qrPreviewClinic.doctor_id}&clinic_id=${qrPreviewClinic.clinic_id}`);
+                                    }}
+                                    className={`rounded-xl px-4 py-2.5 ${qrPreviewClinic?.doctor_id && qrPreviewClinic?.clinic_id ? 'bg-indigo-600' : 'bg-indigo-300'}`}
+                                >
+                                    <Text className="font-semibold text-white">Download</Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
             <Modal animationType="slide" transparent visible={isClinicModalVisible} onRequestClose={() => { setClinicModalVisible(false); setEditingClinicId(null); }}>
                 <View className="flex-1 justify-end bg-black/50">
                     <View className="bg-white rounded-t-3xl p-6" style={{ maxHeight: '85%' }}>

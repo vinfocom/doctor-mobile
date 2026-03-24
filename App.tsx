@@ -2,11 +2,12 @@ import './src/global.css';
 import React, { useEffect, useState } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
-import { getToken, getRole, type AppRole } from './src/api/token';
+import { getToken, getRole, removeToken, type AppRole } from './src/api/token';
 import { AuthSessionProvider } from './src/context/AuthSessionContext';
 import AppNavigator from './src/navigation';
 import type { RootStackParamList } from './src/navigation/types';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { getMe } from './src/api/auth';
 // import { Alert } from 'react-native';
 
 import type * as NotificationsType from 'expo-notifications';
@@ -47,8 +48,22 @@ export default function App() {
       try {
         token = await getToken();
         role = await getRole();
+
+        if (token && (role === 'DOCTOR' || role === 'CLINIC_STAFF')) {
+          const response = await getMe();
+          const liveRole = response?.user?.role as AppRole | undefined;
+          if (liveRole === 'DOCTOR' || liveRole === 'CLINIC_STAFF') {
+            role = liveRole;
+          } else {
+            token = null;
+            role = null;
+            await removeToken();
+          }
+        }
       } catch (e) {
-        // Restoring token failed
+        token = null;
+        role = null;
+        await removeToken();
       }
       if (token && role === 'PATIENT') {
         setInitialRouteName('PatientMain');

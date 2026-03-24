@@ -1,6 +1,6 @@
 import React from 'react';
 import { getMe, type AuthMeUser } from '../api/auth';
-import { getRole, getToken, type AppRole } from '../api/token';
+import { getRole, getToken, removeToken, type AppRole } from '../api/token';
 import { updateProfile, updatePatientProfile } from '../api/auth';
 import { registerForPushNotificationsAsync } from '../hooks/usePushNotifications';
 
@@ -94,6 +94,7 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
                 }).catch(() => undefined);
             }
         } catch {
+            await removeToken();
             clearSession();
         } finally {
             setIsLoading(false);
