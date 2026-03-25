@@ -10,6 +10,7 @@ export const createPatientAppointment = async (data: {
     clinic_id: number;
     appointment_date: string;
     start_time: string;
+    booking_for?: 'SELF' | 'OTHER';
     patient_name?: string;
 }) => {
     const response = await client.post('/patient/appointments', data);

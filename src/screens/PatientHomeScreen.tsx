@@ -36,6 +36,7 @@ interface DoctorItem {
     specialization: string | null;
     phone: string | null;
     profile_pic_url?: string | null;
+    relation_type?: 'SELF' | 'OTHER';
 }
 
 type AppointmentItem = {
@@ -45,9 +46,11 @@ type AppointmentItem = {
     start_time?: string;
     status?: string;
     cancelled_by?: string | null;
+    relation_type?: 'SELF' | 'OTHER';
+    relation_label?: string;
     doctor?: { doctor_id: number };
     clinic?: { clinic_id: number; clinic_name?: string | null };
-    patient?: { booking_id?: number | null };
+    patient?: { booking_id?: number | null; full_name?: string | null };
 };
 
 const toYMD = (value?: string) => {
@@ -108,6 +111,16 @@ const getAppointmentNo = (item?: AppointmentItem | null) => {
     return item.booking_id ?? item.patient?.booking_id ?? item.appointment_id ?? null;
 };
 
+const getRelationBadgeText = (item?: AppointmentItem | null) => {
+    if (!item) return '';
+    if (item.relation_label) return item.relation_label;
+    if (item.relation_type === 'OTHER') {
+        const otherName = String(item.patient?.full_name || '').trim() || 'Patient';
+        return `Other: ${otherName}`;
+    }
+    return 'Self';
+};
+
 export default function PatientHomeScreen() {
     const navigation = useNavigation<Nav>();
     const isFocused = useIsFocused();
@@ -129,6 +142,10 @@ export default function PatientHomeScreen() {
 
     const { data, isLoading: loading, revalidate } = useSWRLite('patient:home', getPatientProfile);
     const patient = data?.patient || null;
+    const hasOtherContext = useMemo(
+        () => ((data?.linked_profiles || []) as Array<{ profile_type?: string | null }>).some((item) => String(item?.profile_type || '').toUpperCase() === 'OTHER'),
+        [data?.linked_profiles]
+    );
     const doctors = (data?.doctors || []) as DoctorItem[];
     const uniqueDoctors = useMemo(() => {
         const byId = new Map<number, DoctorItem>();
@@ -177,30 +194,12 @@ export default function PatientHomeScreen() {
             const list = (res?.appointments || []) as AppointmentItem[];
             const next = new Map<number, AppointmentItem>();
             const byDoctor = new Map<number, AppointmentItem[]>();
-            const now = Date.now();
             list.forEach((item) => {
                 const doctorId = item?.doctor?.doctor_id;
                 if (!doctorId) return;
                 const items = byDoctor.get(doctorId) || [];
                 items.push(item);
                 byDoctor.set(doctorId, items);
-                const status = String(item.status || '').toUpperCase();
-                if (status === 'CANCELLED' || status === 'COMPLETED') return;
-                const ymd = toYMD(item.appointment_date);
-                const hm = toHM(item.start_time);
-                const ts = ymd && hm ? new Date(`${ymd}T${hm}:00`).getTime() : 0;
-                if (!ts || ts < now) return;
-                const prev = next.get(doctorId);
-                if (!prev) {
-                    next.set(doctorId, item);
-                    return;
-                }
-                const prevYmd = toYMD(prev.appointment_date);
-                const prevHm = toHM(prev.start_time);
-                const prevTs = prevYmd && prevHm ? new Date(`${prevYmd}T${prevHm}:00`).getTime() : 0;
-                if (!prevTs || ts < prevTs) {
-                    next.set(doctorId, item);
-                }
             });
             byDoctor.forEach((items, doctorId) => {
                 const sorted = [...items].sort((a, b) => {
@@ -213,6 +212,9 @@ export default function PatientHomeScreen() {
                     return bTs - aTs;
                 });
                 byDoctor.set(doctorId, sorted);
+                if (sorted[0]) {
+                    next.set(doctorId, sorted[0]);
+                }
             });
             setLatestAppointmentByDoctor(next);
             setAppointmentsByDoctor(byDoctor);
@@ -506,11 +508,23 @@ export default function PatientHomeScreen() {
                                 {(() => {
                                     const appt = latestAppointmentByDoctor.get(item.doctor_id);
                                     const apptNo = getAppointmentNo(appt);
-                                    if (!apptNo) return null;
+                                    const badgeText = hasOtherContext ? getRelationBadgeText(appt) : '';
+                                    if (!apptNo && !badgeText) return null;
                                     return (
-                                        <Text className="text-[10px] font-semibold text-gray-500 mt-1">
-                                            Appointment No. {apptNo}
-                                        </Text>
+                                        <View className="mt-1">
+                                            {badgeText ? (
+                                                <View className={`self-start px-2.5 py-1 rounded-full ${appt?.relation_type === 'OTHER' ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'}`}>
+                                                    <Text className={`text-[10px] font-semibold ${appt?.relation_type === 'OTHER' ? 'text-amber-700' : 'text-sky-700'}`}>
+                                                        {badgeText}
+                                                    </Text>
+                                                </View>
+                                            ) : null}
+                                            {apptNo ? (
+                                                <Text className="text-[10px] font-semibold text-gray-500 mt-1">
+                                                    Appointment No. {apptNo}
+                                                </Text>
+                                            ) : null}
+                                        </View>
                                     );
                                 })()}
                                 <Text className="text-[10px] text-gray-400 mt-1">Tap to view appointment history</Text>
@@ -648,6 +662,13 @@ export default function PatientHomeScreen() {
                                                         </Text>
                                                     </View>
                                                 </View>
+                                                {hasOtherContext ? (
+                                                    <View className={`mt-3 self-start px-2.5 py-1 rounded-full ${apt.relation_type === 'OTHER' ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'}`}>
+                                                        <Text className={`text-[10px] font-semibold ${apt.relation_type === 'OTHER' ? 'text-amber-700' : 'text-sky-700'}`}>
+                                                            {getRelationBadgeText(apt)}
+                                                        </Text>
+                                                    </View>
+                                                ) : null}
                                             </View>
                                         );
                                     });

@@ -197,6 +197,7 @@ type BookingFor = 'SELF' | 'OTHER';
 interface MatchedPatient {
     patient_id: number;
     full_name: string | null;
+    profile_type?: BookingFor | null;
 }
 
 const ClinicDropdown = ({ clinics, selectedId, onSelect }: ClinicDropdownProps) => {
@@ -444,6 +445,7 @@ const AppointmentsScreen = () => {
     const handledPrefillKeyRef = useRef<string>('');
     const [lookupLoading, setLookupLoading] = useState(false);
     const [matchedPatients, setMatchedPatients] = useState<MatchedPatient[]>([]);
+    const [lockedPatientProfile, setLockedPatientProfile] = useState<MatchedPatient | null>(null);
 
     useEffect(() => {
         fetchAppointments();
@@ -661,6 +663,7 @@ const AppointmentsScreen = () => {
     useEffect(() => {
         if (!isModalVisible) {
             setMatchedPatients([]);
+            setLockedPatientProfile(null);
             setLookupLoading(false);
             return;
         }
@@ -668,6 +671,7 @@ const AppointmentsScreen = () => {
         const phone = String(formData.patient_phone || '').trim();
         if (phone.length < 8) {
             setMatchedPatients([]);
+            setLockedPatientProfile(null);
             setLookupLoading(false);
             return;
         }
@@ -675,17 +679,33 @@ const AppointmentsScreen = () => {
         const timer = setTimeout(async () => {
             setLookupLoading(true);
             try {
-                const response = await client.get(`/patients/lookup?phone=${encodeURIComponent(phone)}`);
-                setMatchedPatients(response.data?.patients || []);
+                const response = await client.get(
+                    `/patients/lookup?phone=${encodeURIComponent(phone)}&booking_for=${encodeURIComponent(formData.booking_for)}`
+                );
+                const nextPatients = response.data?.patients || [];
+                const lockedPatient = response.data?.is_locked ? (response.data?.patient || null) : null;
+                setMatchedPatients(nextPatients);
+                setLockedPatientProfile(lockedPatient);
+                setFormData((prev) => {
+                    if (prev.patient_phone.trim() !== phone || prev.booking_for !== formData.booking_for) return prev;
+                    if (lockedPatient?.full_name) {
+                        return { ...prev, patient_name: lockedPatient.full_name };
+                    }
+                    if (prev.patient_name && prev.patient_name.trim()) {
+                        return prev;
+                    }
+                    return { ...prev, patient_name: '' };
+                });
             } catch (error) {
                 setMatchedPatients([]);
+                setLockedPatientProfile(null);
             } finally {
                 setLookupLoading(false);
             }
         }, 250);
 
         return () => clearTimeout(timer);
-    }, [formData.patient_phone, isModalVisible]);
+    }, [formData.booking_for, formData.patient_phone, isModalVisible]);
 
     useEffect(() => {
         if (!showSearch) return;
@@ -843,6 +863,7 @@ const AppointmentsScreen = () => {
         setAvailableDates(new Set());
         setShowCalendar(false);
         setMatchedPatients([]);
+        setLockedPatientProfile(null);
         setLookupLoading(false);
     };
 
@@ -1784,7 +1805,11 @@ const AppointmentsScreen = () => {
                                                 return (
                                                     <TouchableOpacity
                                                         key={value}
-                                                        onPress={() => setFormData({ ...formData, booking_for: value })}
+                                                        onPress={() => setFormData((prev) => ({
+                                                            ...prev,
+                                                            booking_for: value,
+                                                            patient_name: prev.booking_for === value ? prev.patient_name : '',
+                                                        }))}
                                                         className={`flex-1 rounded-xl border px-4 py-3 items-center ${active ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200'}`}
                                                     >
                                                         <Text className={`font-semibold text-sm ${active ? 'text-blue-700' : 'text-gray-600'}`}>
@@ -1803,13 +1828,28 @@ const AppointmentsScreen = () => {
                                         </Text>
                                         <TextInput
                                             className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-800 text-base"
-                                            placeholder="Enter full name"
+                                            placeholder={lockedPatientProfile ? `${formData.booking_for === 'SELF' ? 'Self' : 'Other'} patient linked to this phone` : 'Enter full name'}
                                             value={formData.patient_name}
                                             onChangeText={t => setFormData({ ...formData, patient_name: t })}
+                                            editable={!lockedPatientProfile}
                                         />
-                                        {matchedPatients.length > 0 && (
+                                        {lockedPatientProfile?.full_name ? (
+                                            <View className="mt-3 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-3">
+                                                <Text className="text-xs font-bold text-emerald-700">
+                                                    Linked {formData.booking_for === 'SELF' ? 'self' : 'other'} profile
+                                                </Text>
+                                                <Text className="text-sm font-semibold text-emerald-800 mt-1">
+                                                    {lockedPatientProfile.full_name}
+                                                </Text>
+                                                <Text className="text-[11px] text-emerald-700 mt-2">
+                                                    Name is auto-filled from the existing profile for this phone.
+                                                </Text>
+                                            </View>
+                                        ) : matchedPatients.length > 0 && (
                                             <View className="mt-3 bg-amber-50 border border-amber-100 rounded-xl px-3 py-3">
-                                                <Text className="text-xs font-bold text-amber-700">Existing names on this phone</Text>
+                                                <Text className="text-xs font-bold text-amber-700">
+                                                    Existing {formData.booking_for === 'SELF' ? 'self' : 'other'} profile names on this phone
+                                                </Text>
                                                 <View className="flex-row flex-wrap mt-2">
                                                     {matchedPatients.map((patient) => (
                                                         <TouchableOpacity
@@ -1817,7 +1857,6 @@ const AppointmentsScreen = () => {
                                                             onPress={() => setFormData({
                                                                 ...formData,
                                                                 patient_name: patient.full_name || '',
-                                                                booking_for: 'SELF',
                                                             })}
                                                             className="px-3 py-1.5 rounded-full bg-white border border-amber-200 mr-2 mb-2"
                                                         >
@@ -1828,7 +1867,7 @@ const AppointmentsScreen = () => {
                                                     ))}
                                                 </View>
                                                 <Text className="text-[11px] text-amber-700">
-                                                    Same name reuses the same patient. Different name books for Other on the same phone.
+                                                    Existing profile found for this booking type. Selecting it reuses the same patient.
                                                 </Text>
                                             </View>
                                         )}

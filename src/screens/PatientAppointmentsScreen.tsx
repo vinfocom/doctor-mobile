@@ -28,10 +28,14 @@ type AppointmentItem = {
     appointment_date: string;
     start_time: string;
     status: string;
+    relation_type?: 'SELF' | 'OTHER';
+    relation_label?: string;
     doctor?: { doctor_id: number; doctor_name?: string | null; profile_pic_url?: string | null };
     clinic?: { clinic_id: number; clinic_name?: string | null };
     patient?: {
+        patient_id?: number;
         booking_id?: number | null;
+        full_name?: string | null;
     };
 };
 
@@ -100,11 +104,24 @@ const formatDoctorName = (name?: string | null) => {
     return `Dr. ${trimmed}`;
 };
 
+const getRelationBadgeText = (item?: AppointmentItem | null) => {
+    if (!item) return '';
+    if (item.relation_label) return item.relation_label;
+    if (item.relation_type === 'OTHER') {
+        const otherName = String(item.patient?.full_name || '').trim() || 'Patient';
+        return `Other: ${otherName}`;
+    }
+    return 'Self';
+};
+
 export default function PatientAppointmentsScreen() {
+    type BookingFor = 'SELF' | 'OTHER';
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [items, setItems] = useState<AppointmentItem[]>([]);
     const [patientName, setPatientName] = useState('');
+    const [otherPatientName, setOtherPatientName] = useState('');
+    const [hasOtherContext, setHasOtherContext] = useState(false);
     const [doctors, setDoctors] = useState<Array<{ doctor_id: number; doctor_name: string; specialization?: string | null; profile_pic_url?: string | null }>>([]);
     const [allClinics, setAllClinics] = useState<any[]>([]);
     const [clinics, setClinics] = useState<any[]>([]);
@@ -133,6 +150,8 @@ export default function PatientAppointmentsScreen() {
         clinic_id: '',
         date: '',
         time: '',
+        booking_for: 'SELF' as BookingFor,
+        patient_name: '',
     });
 
     const loadAll = async () => {
@@ -146,7 +165,17 @@ export default function PatientAppointmentsScreen() {
         const appts = (apptsRes?.appointments || []) as AppointmentItem[];
         console.log("Fetched appointments in App:", JSON.stringify(appts.slice(0, 2), null, 2));
         setItems(appts);
-        setPatientName(profileRes?.patient?.full_name || '');
+        const selfProfile = (profileRes?.linked_profiles || []).find((item: any) => String(item?.profile_type || '').toUpperCase() === 'SELF');
+        const otherProfile = (profileRes?.linked_profiles || []).find((item: any) => String(item?.profile_type || '').toUpperCase() === 'OTHER');
+        const nextSelfName = selfProfile?.full_name || profileRes?.patient?.full_name || '';
+        const nextOtherName = otherProfile?.full_name || '';
+        setHasOtherContext(Boolean(otherProfile));
+        setPatientName(nextSelfName);
+        setOtherPatientName(nextOtherName);
+        setForm((prev) => ({
+            ...prev,
+            patient_name: prev.booking_for === 'OTHER' ? nextOtherName : nextSelfName,
+        }));
 
         const ds = ((doctorsRes?.doctors || []) as any[])
             .filter((d) => d?.doctor_id)
@@ -238,6 +267,10 @@ export default function PatientAppointmentsScreen() {
             Alert.alert('Error', 'Please choose doctor, clinic, date and time');
             return;
         }
+        if (!selectedAppointment && !form.patient_name.trim()) {
+            Alert.alert('Error', form.booking_for === 'OTHER' ? 'Please enter other patient name' : 'Self profile name is missing');
+            return;
+        }
         setBooking(true);
         try {
             if (selectedAppointment) {
@@ -254,12 +287,13 @@ export default function PatientAppointmentsScreen() {
                     clinic_id: Number(form.clinic_id),
                     appointment_date: form.date,
                     start_time: form.time,
-                    patient_name: patientName,
+                    booking_for: form.booking_for,
+                    patient_name: form.patient_name,
                 });
                 Alert.alert('Success', 'Appointment booked');
             }
             setOpen(false);
-            setForm({ doctor_id: '', clinic_id: '', date: '', time: '' });
+            setForm({ doctor_id: '', clinic_id: '', date: '', time: '', booking_for: 'SELF', patient_name: patientName });
             setSelectedAppointment(null);
             await loadAll();
         } catch (error: any) {
@@ -301,6 +335,8 @@ export default function PatientAppointmentsScreen() {
             clinic_id: String(item.clinic?.clinic_id || ''),
             date: toYMD(item.appointment_date),
             time: toHM(item.start_time),
+            booking_for: item.relation_type === 'OTHER' ? 'OTHER' : 'SELF',
+            patient_name: item.patient?.full_name || (item.relation_type === 'OTHER' ? otherPatientName : patientName),
         });
         setOpen(true);
     };
@@ -308,7 +344,7 @@ export default function PatientAppointmentsScreen() {
     const handleCloseModal = () => {
         setOpen(false);
         setSelectedAppointment(null);
-        setForm({ doctor_id: '', clinic_id: '', date: '', time: '' });
+        setForm({ doctor_id: '', clinic_id: '', date: '', time: '', booking_for: 'SELF', patient_name: patientName });
         setShowDoctorSearch(false);
         setSearchQuery('');
         setAvailableDates(new Set());
@@ -441,7 +477,7 @@ export default function PatientAppointmentsScreen() {
                             <Text className="text-blue-100 text-sm">Patient Portal</Text>
                             <Text className="text-white text-2xl font-bold mt-1">My Appointments</Text>
                         </View>
-                        <TouchableOpacity onPress={() => { setSelectedAppointment(null); setForm({ doctor_id: '', clinic_id: '', date: '', time: '' }); setOpen(true); }} className="bg-white rounded-full p-3">
+                        <TouchableOpacity onPress={() => { setSelectedAppointment(null); setForm({ doctor_id: '', clinic_id: '', date: '', time: '', booking_for: 'SELF', patient_name: patientName }); setOpen(true); }} className="bg-white rounded-full p-3">
                             <CalendarPlus size={20} color="#1d4ed8" />
                         </TouchableOpacity>
                     </View>
@@ -499,6 +535,13 @@ export default function PatientAppointmentsScreen() {
                                         <Text className="text-gray-500 text-xs mt-0.5" numberOfLines={1}>
                                             {item.clinic?.clinic_name || 'Clinic'}
                                         </Text>
+                                        {hasOtherContext ? (
+                                            <View className={`mt-1.5 self-start px-2.5 py-1 rounded-full ${item.relation_type === 'OTHER' ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'}`}>
+                                                <Text className={`text-[10px] font-semibold ${item.relation_type === 'OTHER' ? 'text-amber-700' : 'text-sky-700'}`}>
+                                                    {getRelationBadgeText(item)}
+                                                </Text>
+                                            </View>
+                                        ) : null}
                                         <View className="mt-1.5 self-start px-2 py-1 rounded-md bg-gray-100">
                                             <Text className="text-[10px] font-semibold text-gray-600">Appointment No. {item.booking_id ?? item.patient?.booking_id ?? item.appointment_id}</Text>
                                         </View>
@@ -577,6 +620,56 @@ export default function PatientAppointmentsScreen() {
                         </Text>
                         <ScrollView>
                             <View className="space-y-4">
+                                {!selectedAppointment && (
+                                    <View>
+                                        <Text className="text-sm font-bold text-gray-700 mb-2">Booking For</Text>
+                                        <View className="flex-row gap-2">
+                                            {(['SELF', 'OTHER'] as BookingFor[]).map((value) => {
+                                                const active = form.booking_for === value;
+                                                const hasExistingProfile = value === 'SELF' ? Boolean(patientName.trim()) : Boolean(otherPatientName.trim());
+                                                return (
+                                                    <TouchableOpacity
+                                                        key={value}
+                                                        onPress={() => setForm((prev) => ({
+                                                            ...prev,
+                                                            booking_for: value,
+                                                            patient_name: value === 'OTHER' ? otherPatientName : patientName,
+                                                        }))}
+                                                        className={`flex-1 rounded-xl border px-4 py-3 items-center ${active ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200'}`}
+                                                    >
+                                                        <Text className={`font-semibold text-sm ${active ? 'text-blue-700' : 'text-gray-600'}`}>
+                                                            {value === 'SELF' ? 'Self' : 'Other'}
+                                                        </Text>
+                                                        <Text className="text-[10px] text-gray-400 mt-1">
+                                                            {hasExistingProfile ? 'Existing profile' : 'Create on first booking'}
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                );
+                                            })}
+                                        </View>
+                                    </View>
+                                )}
+
+                                <View>
+                                    <Text className="text-sm font-bold text-gray-700 mb-2">Patient Name</Text>
+                                    <TextInput
+                                        className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-800 text-base"
+                                        placeholder={form.booking_for === 'OTHER' ? 'Enter other patient name' : 'Self profile name'}
+                                        value={form.patient_name}
+                                        onChangeText={(text) => setForm((prev) => ({ ...prev, patient_name: text }))}
+                                        editable={selectedAppointment ? false : (form.booking_for === 'OTHER' ? !Boolean(otherPatientName.trim()) : false)}
+                                    />
+                                    {selectedAppointment ? (
+                                        <Text className="text-xs text-gray-400 mt-2">Relation is fixed for existing appointments.</Text>
+                                    ) : form.booking_for === 'SELF' ? (
+                                        <Text className="text-xs text-gray-400 mt-2">Self name comes from your profile settings.</Text>
+                                    ) : otherPatientName.trim() ? (
+                                        <Text className="text-xs text-gray-400 mt-2">Other profile already exists for this number, so the name is locked.</Text>
+                                    ) : (
+                                        <Text className="text-xs text-gray-400 mt-2">Enter the other patient name once. Next time it will auto-fill here.</Text>
+                                    )}
+                                </View>
+
                                 <View>
                                     <Text className="text-sm font-bold text-gray-700 mb-2">Doctor</Text>
                                     <TouchableOpacity
