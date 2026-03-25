@@ -426,8 +426,8 @@ const AppointmentsScreen = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const searchInputRef = useRef<TextInput>(null);
     const [filterModalVisible, setFilterModalVisible] = useState(false);
-    const [dateFrom, setDateFrom] = useState('');
-    const [dateTo, setDateTo] = useState('');
+    const [dateFrom, setDateFrom] = useState(() => getISTTodayYMD());
+    const [dateTo, setDateTo] = useState(() => getISTTodayYMD());
     const [filterCalendarMode, setFilterCalendarMode] = useState<'FROM' | 'TO' | null>(null);
     const [showQuickDatePicker, setShowQuickDatePicker] = useState(false);
     const [statusFilter, setStatusFilter] = useState<'ALL' | 'BOOKED' | 'PENDING' | 'COMPLETED' | 'CANCELLED'>('ALL');
@@ -1082,6 +1082,19 @@ const AppointmentsScreen = () => {
             if (from && date < from) return false;
             if (to && date > to) return false;
             return true;
+        }).sort((a, b) => {
+            const aStart = parseAppointmentStart(a);
+            const bStart = parseAppointmentStart(b);
+            const aTs = aStart ? aStart.getTime() : Number.MAX_SAFE_INTEGER;
+            const bTs = bStart ? bStart.getTime() : Number.MAX_SAFE_INTEGER;
+
+            if (aTs !== bTs) return aTs - bTs;
+
+            const aBooking = Number(a?.booking_id ?? a?.appointment_id ?? Number.MAX_SAFE_INTEGER);
+            const bBooking = Number(b?.booking_id ?? b?.appointment_id ?? Number.MAX_SAFE_INTEGER);
+            if (aBooking !== bBooking) return aBooking - bBooking;
+
+            return Number(a?.appointment_id ?? 0) - Number(b?.appointment_id ?? 0);
         });
     }, [appointments, dateFrom, dateTo, searchQuery, statusFilter]);
 
@@ -1117,7 +1130,7 @@ const AppointmentsScreen = () => {
                                 {item.clinic?.clinic_name || 'N/A'}
                             </Text>
                             <View className="mt-1.5 self-start px-2 py-1 rounded-md bg-gray-100">
-                                <Text className="text-xs font-semibold text-gray-600">Appointment No. {item.booking_id ?? item.appointment_id}</Text>
+                                <Text className="text-xs font-bold text-gray-700">Appointment No. {item.booking_id ?? item.appointment_id}</Text>
                             </View>
                             {canUseChat && isHighlighted && (
                                 <View className="mt-1.5 self-start px-2 py-1 rounded-md bg-blue-600">
@@ -1351,7 +1364,7 @@ const AppointmentsScreen = () => {
                                                 {isCustom ? `${dateFrom || '…'} → ${dateTo || '…'}` : 'Pick Date'}
                                             </Text>
                                         </TouchableOpacity>
-                                        {(dateFrom || dateTo) && (
+                                        {false && (
                                             <TouchableOpacity
                                                 style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 20, backgroundColor: 'rgba(255,100,100,0.25)', borderWidth: 1, borderColor: 'rgba(255,150,150,0.5)' }}
                                                 onPress={() => { setDateFrom(''); setDateTo(''); setShowQuickDatePicker(false); }}
@@ -1440,11 +1453,6 @@ const AppointmentsScreen = () => {
                                 autoFocus
                             />
                         </View>
-                    )}
-                    {(dateFrom || dateTo) && (
-                        <Text className="text-blue-100 text-xs mt-2">
-                            Date filter: {dateFrom || 'Any'} to {dateTo || 'Any'}
-                        </Text>
                     )}
                     <View className="mt-3">
                         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
