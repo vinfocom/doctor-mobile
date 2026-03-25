@@ -8,7 +8,7 @@ import { getPatientAnnouncements } from '../api/announcements';
 import { getPatientProfile } from '../api/auth';
 import { io, type Socket } from 'socket.io-client';
 import { SOCKET_URL } from '../config/env';
-import { markPatientAnnouncementsRead } from '../lib/mobileNotificationState';
+import { ensurePatientAnnouncementsStateHydrated, markPatientAnnouncementsRead } from '../lib/mobileNotificationState';
 import { useNotificationSound } from '../hooks/useNotificationSound';
 
 interface PatientAnnouncement {
@@ -30,6 +30,7 @@ export default function PatientAnnouncementsScreen() {
 
     useFocusEffect(
         React.useCallback(() => {
+            void ensurePatientAnnouncementsStateHydrated();
             markPatientAnnouncementsRead();
         }, [])
     );

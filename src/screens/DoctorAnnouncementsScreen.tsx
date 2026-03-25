@@ -56,7 +56,8 @@ type AvailableDateCalendarProps = {
 
 const AvailableDateCalendar = ({ selectedDate, availableDates, onSelect }: AvailableDateCalendarProps) => {
     const today = new Date();
-    const fallbackDate = availableDates[0] ? new Date(`${availableDates[0]}T00:00:00`) : today;
+    const fallbackDateString = availableDates[0] || '';
+    const fallbackDate = fallbackDateString ? new Date(`${fallbackDateString}T00:00:00`) : today;
     const initialDate = selectedDate ? new Date(`${selectedDate}T00:00:00`) : fallbackDate;
     const [viewYear, setViewYear] = useState(initialDate.getFullYear());
     const [viewMonth, setViewMonth] = useState(initialDate.getMonth());
@@ -65,7 +66,7 @@ const AvailableDateCalendar = ({ selectedDate, availableDates, onSelect }: Avail
         const next = selectedDate ? new Date(`${selectedDate}T00:00:00`) : fallbackDate;
         setViewYear(next.getFullYear());
         setViewMonth(next.getMonth());
-    }, [fallbackDate, selectedDate]);
+    }, [fallbackDateString, selectedDate]);
 
     const availableSet = new Set(availableDates);
     const firstDay = new Date(viewYear, viewMonth, 1).getDay();

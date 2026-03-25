@@ -535,15 +535,19 @@ export default function PatientAppointmentsScreen() {
                                         <Text className="text-gray-500 text-xs mt-0.5" numberOfLines={1}>
                                             {item.clinic?.clinic_name || 'Clinic'}
                                         </Text>
-                                        {hasOtherContext ? (
-                                            <View className={`mt-1.5 self-start px-2.5 py-1 rounded-full ${item.relation_type === 'OTHER' ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'}`}>
-                                                <Text className={`text-[10px] font-semibold ${item.relation_type === 'OTHER' ? 'text-amber-700' : 'text-sky-700'}`}>
-                                                    {getRelationBadgeText(item)}
+                                        <View className="mt-1.5 flex-row flex-wrap items-center gap-1.5">
+                                            <View className="self-start px-2 py-1 rounded-md bg-gray-100">
+                                                <Text className="text-[10px] text-gray-600">
+                                                    Appointment No. <Text className="font-bold text-gray-800">{item.booking_id ?? item.patient?.booking_id ?? item.appointment_id}</Text>
                                                 </Text>
                                             </View>
-                                        ) : null}
-                                        <View className="mt-1.5 self-start px-2 py-1 rounded-md bg-gray-100">
-                                            <Text className="text-[10px] font-semibold text-gray-600">Appointment No. {item.booking_id ?? item.patient?.booking_id ?? item.appointment_id}</Text>
+                                            {hasOtherContext ? (
+                                                <View className={`self-start px-2.5 py-1 rounded-full ${item.relation_type === 'OTHER' ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'}`}>
+                                                    <Text className={`text-[10px] font-semibold ${item.relation_type === 'OTHER' ? 'text-amber-700' : 'text-sky-700'}`}>
+                                                        {getRelationBadgeText(item)}
+                                                    </Text>
+                                                </View>
+                                            ) : null}
                                         </View>
                                     </View>
                                     <View className="items-end ml-2">

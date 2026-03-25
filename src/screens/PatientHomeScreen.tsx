@@ -26,7 +26,15 @@ import IncomingMessageBubble from '../components/IncomingMessageBubble';
 import { io, type Socket } from 'socket.io-client';
 import { SOCKET_URL } from '../config/env';
 import { useAuthSession } from '../context/AuthSessionContext';
-import { consumePatientReadDoctorChatEvents, getPatientAnnouncementsReadAt, markPatientAnnouncementsRead } from '../lib/mobileNotificationState';
+import {
+    consumePatientReadDoctorChatEvents,
+    ensurePatientAnnouncementsStateHydrated,
+    getPatientAnnouncementsReadAt,
+    getPatientAnnouncementsUnreadCount,
+    incrementPatientAnnouncementsUnread,
+    markPatientAnnouncementsRead,
+    subscribePatientAnnouncementsState,
+} from '../lib/mobileNotificationState';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -126,7 +134,7 @@ export default function PatientHomeScreen() {
     const isFocused = useIsFocused();
     const { clearSession } = useAuthSession();
     const [refreshing, setRefreshing] = useState(false);
-    const [announcementCount, setAnnouncementCount] = useState(0);
+    const [announcementCount, setAnnouncementCount] = useState(getPatientAnnouncementsUnreadCount());
     const [incomingMessage, setIncomingMessage] = useState<IncomingNotificationMessage | null>(null);
     const [unreadChatCountsByDoctor, setUnreadChatCountsByDoctor] = useState<Map<number, number>>(new Map());
     const [latestAppointmentByDoctor, setLatestAppointmentByDoctor] = useState<Map<number, AppointmentItem>>(new Map());
@@ -159,6 +167,16 @@ export default function PatientHomeScreen() {
         () => Array.from(unreadChatCountsByDoctor.values()).reduce((sum, count) => sum + count, 0),
         [unreadChatCountsByDoctor]
     );
+
+    useEffect(() => {
+        void ensurePatientAnnouncementsStateHydrated().then(() => {
+            setAnnouncementCount(getPatientAnnouncementsUnreadCount());
+        });
+        const unsubscribe = subscribePatientAnnouncementsState(() => {
+            setAnnouncementCount(getPatientAnnouncementsUnreadCount());
+        });
+        return unsubscribe;
+    }, []);
 
     const incrementUnreadDoctorCount = React.useCallback((doctorId: number, amount: number = 1, createdAt?: string) => {
         if (!doctorId || amount <= 0) return;
@@ -229,7 +247,7 @@ export default function PatientHomeScreen() {
             const result = await getChatNotifications(lastNotifCheckAtRef.current);
             lastNotifCheckAtRef.current = new Date().toISOString();
             if (result?.announcementCount) {
-                setAnnouncementCount((prev) => prev + result.announcementCount);
+                incrementPatientAnnouncementsUnread(result.announcementCount);
             }
             if (result?.uniqueSenders?.length) {
                 result.uniqueSenders.forEach((sender: any) => {
@@ -328,7 +346,7 @@ export default function PatientHomeScreen() {
             const isAnnouncement = String(msg.content || '').startsWith('Announcement:');
             const senderName = uniqueDoctors.find((d) => d.doctor_id === msg.doctor_id)?.doctor_name || 'Doctor';
             if (isAnnouncement) {
-                setAnnouncementCount((prev) => prev + 1);
+                incrementPatientAnnouncementsUnread(1);
             } else {
                 incrementUnreadDoctorCount(msg.doctor_id, 1, msg.created_at);
             }
@@ -492,39 +510,33 @@ export default function PatientHomeScreen() {
                                 <Text className="text-gray-800 font-bold">
                                     {item.doctor_name ? `Dr. ${item.doctor_name}` : "Doctor"}
                                 </Text>
-                                {item.specialization ? (
-                                    <View className="self-start mt-1 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+                                <View className="mt-1 flex-row flex-wrap items-center gap-1.5">
+                                    <View className="self-start bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
                                         <Text className="text-[10px] font-semibold text-emerald-700">
-                                            {item.specialization}
+                                            {item.specialization || 'General'}
                                         </Text>
                                     </View>
-                                ) : (
-                                    <View className="self-start mt-1 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
-                                        <Text className="text-[10px] font-semibold text-emerald-700">
-                                            General
-                                        </Text>
-                                    </View>
-                                )}
+                                    {(() => {
+                                        const appt = latestAppointmentByDoctor.get(item.doctor_id);
+                                        const badgeText = hasOtherContext ? getRelationBadgeText(appt) : '';
+                                        if (!badgeText) return null;
+                                        return (
+                                            <View className={`self-start px-2.5 py-1 rounded-full ${appt?.relation_type === 'OTHER' ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'}`}>
+                                                <Text className={`text-[10px] font-semibold ${appt?.relation_type === 'OTHER' ? 'text-amber-700' : 'text-sky-700'}`}>
+                                                    {badgeText}
+                                                </Text>
+                                            </View>
+                                        );
+                                    })()}
+                                </View>
                                 {(() => {
                                     const appt = latestAppointmentByDoctor.get(item.doctor_id);
                                     const apptNo = getAppointmentNo(appt);
-                                    const badgeText = hasOtherContext ? getRelationBadgeText(appt) : '';
-                                    if (!apptNo && !badgeText) return null;
+                                    if (!apptNo) return null;
                                     return (
-                                        <View className="mt-1">
-                                            {badgeText ? (
-                                                <View className={`self-start px-2.5 py-1 rounded-full ${appt?.relation_type === 'OTHER' ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'}`}>
-                                                    <Text className={`text-[10px] font-semibold ${appt?.relation_type === 'OTHER' ? 'text-amber-700' : 'text-sky-700'}`}>
-                                                        {badgeText}
-                                                    </Text>
-                                                </View>
-                                            ) : null}
-                                            {apptNo ? (
-                                                <Text className="text-[10px] font-semibold text-gray-500 mt-1">
-                                                    Appointment No. {apptNo}
-                                                </Text>
-                                            ) : null}
-                                        </View>
+                                        <Text className="text-[10px] font-semibold text-gray-500 mt-1">
+                                            Appointment No. {apptNo}
+                                        </Text>
                                     );
                                 })()}
                                 <Text className="text-[10px] text-gray-400 mt-1">Tap to view appointment history</Text>
