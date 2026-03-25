@@ -43,6 +43,7 @@ export const getPatientAnnouncements = async (limit: number = 30) => {
             doctor_name: string;
             content: string;
             created_at: string;
+            appointment_date: string | null;
         }>;
     };
 };

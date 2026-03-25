@@ -17,7 +17,22 @@ interface PatientAnnouncement {
     doctor_name: string;
     content: string;
     created_at: string;
+    appointment_date?: string | null;
 }
+
+const toISTYMD = (value?: string | null) => {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+};
+
+const isActiveAnnouncement = (item: PatientAnnouncement) => {
+    const appointmentDate = toISTYMD(item.appointment_date);
+    if (!appointmentDate) return true;
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    return appointmentDate >= today;
+};
 
 export default function PatientAnnouncementsScreen() {
     const [items, setItems] = useState<PatientAnnouncement[]>([]);
@@ -38,7 +53,7 @@ export default function PatientAnnouncementsScreen() {
     const fetchAnnouncements = useCallback(async () => {
         try {
             const data = await getPatientAnnouncements(50);
-            setItems(data?.announcements || []);
+            setItems((data?.announcements || []).filter(isActiveAnnouncement));
         } finally {
             setLoading(false);
         }
