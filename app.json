@@ -23,6 +23,7 @@
       }
     },
     "android": {
+      "googleServicesFile": "./google-services.json",
       "usesCleartextTraffic": true,
       "permissions": [
         "CAMERA",
