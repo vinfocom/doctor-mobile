@@ -76,32 +76,36 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
                     email: null,
                     user: null,
                 });
-                registerForPushNotificationsAsync().then(token => {
-                    if (token?.data) {
-                        console.log('[push] saving patient push token to backend:', token.data);
-                        updatePatientProfile({ push_token: token.data })
-                            .then(() => console.log('[push] patient push token saved successfully'))
-                            .catch((error) => console.log('[push] failed to save patient push token:', error));
+                try {
+                    const pushToken = await registerForPushNotificationsAsync();
+                    if (pushToken?.data) {
+                        console.log('[push] saving patient push token to backend:', pushToken.data);
+                        await updatePatientProfile({ push_token: pushToken.data });
+                        console.log('[push] patient push token saved successfully');
                     } else {
                         console.log('[push] patient push token missing, nothing to save');
                     }
-                }).catch((error) => console.log('[push] patient token registration failed:', error));
+                } catch (error) {
+                    console.log('[push] patient token registration/save failed:', error);
+                }
                 return;
             }
 
             const response = await getMe();
             setSession(mapUserToSession(response.user));
             if (response.user.role === 'DOCTOR') {
-                registerForPushNotificationsAsync().then(token => {
-                    if (token?.data) {
-                        console.log('[push] saving doctor push token to backend:', token.data);
-                        updateProfile({ push_token: token.data })
-                            .then(() => console.log('[push] doctor push token saved successfully'))
-                            .catch((error) => console.log('[push] failed to save doctor push token:', error));
+                try {
+                    const pushToken = await registerForPushNotificationsAsync();
+                    if (pushToken?.data) {
+                        console.log('[push] saving doctor push token to backend:', pushToken.data);
+                        await updateProfile({ push_token: pushToken.data });
+                        console.log('[push] doctor push token saved successfully');
                     } else {
                         console.log('[push] doctor push token missing, nothing to save');
                     }
-                }).catch((error) => console.log('[push] doctor token registration failed:', error));
+                } catch (error) {
+                    console.log('[push] doctor token registration/save failed:', error);
+                }
             }
         } catch {
             await removeToken();
