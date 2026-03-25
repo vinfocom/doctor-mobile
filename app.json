@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Dapto",
-    "slug": "Dapto",
+    "slug": "doctor-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/daptao.png",

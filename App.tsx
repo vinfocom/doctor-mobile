@@ -40,6 +40,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [initialRouteName, setInitialRouteName] = useState<keyof RootStackParamList>('Login');
   const [bootRole, setBootRole] = useState<AppRole | null>(null);
+  const [pendingNotificationData, setPendingNotificationData] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
     const bootstrapAsync = async () => {
@@ -83,7 +84,25 @@ export default function App() {
     if (!Notifications || !bootRole) return;
 
     const openFromNotification = (data?: Record<string, unknown>) => {
-      if (!data || !navigationRef.isReady()) return;
+      if (!data) return;
+
+      if (!navigationRef.isReady()) {
+        setPendingNotificationData(data);
+        return;
+      }
+
+      if (data.type === 'announcement') {
+        if (bootRole === 'PATIENT') {
+          navigationRef.navigate('PatientMain', {
+            screen: 'PatientAnnouncements',
+          });
+        } else {
+          navigationRef.navigate('DoctorAnnouncements');
+        }
+        setPendingNotificationData(null);
+        return;
+      }
+
       if (data.type !== 'chat') return;
 
       const patientId = Number(data.patientId);
@@ -99,6 +118,7 @@ export default function App() {
         patientName,
         viewer,
       });
+      setPendingNotificationData(null);
     };
 
     Notifications.getLastNotificationResponseAsync()
@@ -115,6 +135,41 @@ export default function App() {
       subscription.remove();
     };
   }, [bootRole]);
+
+  useEffect(() => {
+    if (!bootRole || !pendingNotificationData || !navigationRef.isReady()) return;
+
+    if (pendingNotificationData.type === 'announcement') {
+      if (bootRole === 'PATIENT') {
+        navigationRef.navigate('PatientMain', {
+          screen: 'PatientAnnouncements',
+        });
+      } else {
+        navigationRef.navigate('DoctorAnnouncements');
+      }
+      setPendingNotificationData(null);
+      return;
+    }
+
+    if (pendingNotificationData.type !== 'chat') return;
+
+    const patientId = Number(pendingNotificationData.patientId);
+    const doctorId = Number(pendingNotificationData.doctorId);
+    if (!Number.isFinite(patientId) || !Number.isFinite(doctorId)) return;
+
+    const viewer: 'DOCTOR' | 'PATIENT' = bootRole === 'PATIENT' ? 'PATIENT' : 'DOCTOR';
+    const patientName = String(
+      pendingNotificationData.senderName || (viewer === 'PATIENT' ? 'Doctor' : 'Patient')
+    );
+
+    navigationRef.navigate('Chat', {
+      patientId,
+      doctorId,
+      patientName,
+      viewer,
+    });
+    setPendingNotificationData(null);
+  }, [bootRole, pendingNotificationData]);
 
   if (isLoading) {
     return (
