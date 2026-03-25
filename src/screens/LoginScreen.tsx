@@ -18,13 +18,35 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import { login, patientLogin } from '../api/auth';
+import { updateProfile, updatePatientProfile } from '../api/auth';
 import { setAuthSession, type AppRole } from '../api/token';
 import { useAuthSession } from '../context/AuthSessionContext';
+import { registerForPushNotificationsAsync } from '../hooks/usePushNotifications';
 import { Stethoscope, Mail, Lock, Eye, EyeOff, ArrowRight, ShieldCheck } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { API_URL } from '../config/env';
 
 type LoginScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Login'>;
+
+async function registerPushTokenForRole(role: 'DOCTOR' | 'PATIENT') {
+    try {
+        const pushToken = await registerForPushNotificationsAsync();
+        if (!pushToken?.data) {
+            console.log(`[push] ${role.toLowerCase()} login flow: no push token generated`);
+            return;
+        }
+
+        console.log(`[push] ${role.toLowerCase()} login flow: saving push token`, pushToken.data);
+        if (role === 'PATIENT') {
+            await updatePatientProfile({ push_token: pushToken.data });
+        } else {
+            await updateProfile({ push_token: pushToken.data });
+        }
+        console.log(`[push] ${role.toLowerCase()} login flow: push token saved successfully`);
+    } catch (error) {
+        console.log(`[push] ${role.toLowerCase()} login flow: failed to register/save push token`, error);
+    }
+}
 
 const LoginScreen = () => {
     const navigation = useNavigation<LoginScreenNavigationProp>();
@@ -51,6 +73,9 @@ const LoginScreen = () => {
                 const userRole = response?.user?.role as AppRole | undefined;
                 if (response.token && (userRole === 'DOCTOR' || userRole === 'CLINIC_STAFF')) {
                     await setAuthSession(response.token, userRole);
+                    if (userRole === 'DOCTOR') {
+                        await registerPushTokenForRole('DOCTOR');
+                    }
                     await refreshSession();
                     navigation.replace('DoctorMain');
                 } else {
@@ -64,6 +89,7 @@ const LoginScreen = () => {
                 const response = await patientLogin(patientIdentifier.trim());
                 if (response.token) {
                     await setAuthSession(response.token, 'PATIENT');
+                    await registerPushTokenForRole('PATIENT');
                     await refreshSession();
                     navigation.replace('PatientMain');
                 } else {

@@ -618,7 +618,7 @@ const ClinicsScreen = () => {
             setQrPreviewImage(dataUrl);
             setQrPreviewSvg(decodeSvgDataUrl(dataUrl));
             setQrPreviewSvgUri(null);
-            const url = `https://msgbot.duckdns.org/qr/generate/download?doctor_id=${item.doctor_id || ''}&clinic_id=${item.clinic_id}`;
+            const url = `https://daptoservices.vinfocom.co.in/qr/generate/download?doctor_id=${item.doctor_id || ''}&clinic_id=${item.clinic_id}`;
             await updateClinic(item.clinic_id, {
                 barcode_url: url,
                 qr_storage_url: previewData.qrStorageUrl || null,
