@@ -24,7 +24,6 @@ export const usePushNotifications = (): PushNotificationState => {
     const responseListener = useRef<NotificationsType.EventSubscription | null>(null);
 
     useEffect(() => {
-        // expo-notifications is not loaded in Expo Go (module is null)
         if (!Notifications) return;
 
         registerForPushNotificationsAsync().then((token) => {
@@ -36,7 +35,7 @@ export const usePushNotifications = (): PushNotificationState => {
         });
 
         responseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
-            console.log('Notification response:', response);
+            console.log('[push] notification response received:', response.notification.request.content.data);
         });
 
         return () => {
@@ -49,12 +48,15 @@ export const usePushNotifications = (): PushNotificationState => {
 };
 
 export async function registerForPushNotificationsAsync() {
-    // expo-notifications is not loaded in Expo Go — bail out silently
-    if (!Notifications) return;
+    if (!Notifications) {
+        console.log('[push] expo-notifications unavailable; likely running in Expo Go');
+        return;
+    }
 
     let token;
 
     if (Platform.OS === 'android') {
+        console.log('[push] configuring Android notification channel');
         await Notifications.setNotificationChannelAsync('default', {
             name: 'default',
             importance: Notifications.AndroidImportance.MAX,
@@ -66,14 +68,16 @@ export async function registerForPushNotificationsAsync() {
     if (Device.isDevice) {
         const { status: existingStatus } = await Notifications.getPermissionsAsync();
         let finalStatus = existingStatus;
+        console.log('[push] existing notification permission status:', existingStatus);
 
         if (existingStatus !== 'granted') {
             const { status } = await Notifications.requestPermissionsAsync();
             finalStatus = status;
+            console.log('[push] requested notification permission, final status:', finalStatus);
         }
 
         if (finalStatus !== 'granted') {
-            console.log('Failed to get push token for push notification!');
+            console.log('[push] permission not granted; cannot generate push token');
             return;
         }
 
@@ -83,13 +87,14 @@ export async function registerForPushNotificationsAsync() {
                 Constants?.easConfig?.projectId ??
                 'f0d16ca1-38da-43a7-98f2-39a2dba468dc';
 
+            console.log('[push] generating Expo push token with projectId:', projectId);
             token = await Notifications.getExpoPushTokenAsync({ projectId });
-            console.log('Expo Push Token generated:', token);
+            console.log('[push] Expo Push Token generated:', token?.data ?? token);
         } catch (e) {
-            console.log('Error generating push token:', e);
+            console.log('[push] Error generating push token:', e);
         }
     } else {
-        console.log('Must use physical device for Push Notifications');
+        console.log('[push] Must use physical device for Push Notifications');
     }
 
     return token;

@@ -78,9 +78,14 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
                 });
                 registerForPushNotificationsAsync().then(token => {
                     if (token?.data) {
-                        updatePatientProfile({ push_token: token.data }).catch(() => undefined);
+                        console.log('[push] saving patient push token to backend:', token.data);
+                        updatePatientProfile({ push_token: token.data })
+                            .then(() => console.log('[push] patient push token saved successfully'))
+                            .catch((error) => console.log('[push] failed to save patient push token:', error));
+                    } else {
+                        console.log('[push] patient push token missing, nothing to save');
                     }
-                }).catch(() => undefined);
+                }).catch((error) => console.log('[push] patient token registration failed:', error));
                 return;
             }
 
@@ -89,9 +94,14 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
             if (response.user.role === 'DOCTOR') {
                 registerForPushNotificationsAsync().then(token => {
                     if (token?.data) {
-                        updateProfile({ push_token: token.data }).catch(() => undefined);
+                        console.log('[push] saving doctor push token to backend:', token.data);
+                        updateProfile({ push_token: token.data })
+                            .then(() => console.log('[push] doctor push token saved successfully'))
+                            .catch((error) => console.log('[push] failed to save doctor push token:', error));
+                    } else {
+                        console.log('[push] doctor push token missing, nothing to save');
                     }
-                }).catch(() => undefined);
+                }).catch((error) => console.log('[push] doctor token registration failed:', error));
             }
         } catch {
             await removeToken();
