@@ -246,9 +246,24 @@ export default function PatientHomeScreen() {
                 if (sorted[0]) {
                     next.set(doctorId, sorted[0]);
                 }
-                const latestBooked = sorted.find((appointment) => String(appointment.status || '').toUpperCase() === 'BOOKED');
-                if (latestBooked) {
-                    nextBooked.set(doctorId, latestBooked);
+                const upcomingBooked = sorted
+                    .filter((appointment) => {
+                        const appointmentYmd = toYMD(appointment.appointment_date);
+                        return Boolean(appointmentYmd) &&
+                            appointmentYmd >= todayIST &&
+                            String(appointment.status || '').toUpperCase() === 'BOOKED';
+                    })
+                    .sort((a, b) => {
+                        const aYmd = toYMD(a.appointment_date);
+                        const aHm = toHM(a.start_time);
+                        const aTs = aYmd && aHm ? new Date(`${aYmd}T${aHm}:00`).getTime() : Number.MAX_SAFE_INTEGER;
+                        const bYmd = toYMD(b.appointment_date);
+                        const bHm = toHM(b.start_time);
+                        const bTs = bYmd && bHm ? new Date(`${bYmd}T${bHm}:00`).getTime() : Number.MAX_SAFE_INTEGER;
+                        return aTs - bTs;
+                    })[0];
+                if (upcomingBooked) {
+                    nextBooked.set(doctorId, upcomingBooked);
                 }
             });
             setLatestAppointmentByDoctor(next);
@@ -257,7 +272,7 @@ export default function PatientHomeScreen() {
         } catch {
             // ignore appointment load errors on dashboard
         }
-    }, []);
+    }, [todayIST]);
 
     const checkIncomingNotifications = React.useCallback(async () => {
         if (!isFocused) return;
