@@ -7,7 +7,7 @@ import { AuthSessionProvider } from './src/context/AuthSessionContext';
 import AppNavigator from './src/navigation';
 import type { RootStackParamList } from './src/navigation/types';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { getMe } from './src/api/auth';
+import { getMe, getPatientProfile } from './src/api/auth';
 // import { Alert } from 'react-native';
 
 import type * as NotificationsType from 'expo-notifications';
@@ -50,7 +50,9 @@ export default function App() {
         token = await getToken();
         role = await getRole();
 
-        if (token && (role === 'DOCTOR' || role === 'CLINIC_STAFF')) {
+        if (token && role === 'PATIENT') {
+          await getPatientProfile();
+        } else if (token && (role === 'DOCTOR' || role === 'CLINIC_STAFF')) {
           const response = await getMe();
           const liveRole = response?.user?.role as AppRole | undefined;
           if (liveRole === 'DOCTOR' || liveRole === 'CLINIC_STAFF') {

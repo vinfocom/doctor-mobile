@@ -26,7 +26,7 @@ export const updatePatientAppointment = async (data: {
     rescheduled_by?: string;
     cancelled_by?: string;
 }) => {
-    const response = await client.patch('/appointments', data);
+    const response = await client.patch('/patient/appointments', data);
     return response.data;
 };
 

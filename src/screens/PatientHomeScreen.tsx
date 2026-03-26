@@ -130,6 +130,7 @@ const getRelationBadgeText = (item?: AppointmentItem | null) => {
 };
 
 export default function PatientHomeScreen() {
+    type HistoryFilter = 'TODAY' | 'TOMORROW' | 'UPCOMING';
     const navigation = useNavigation<Nav>();
     const isFocused = useIsFocused();
     const { clearSession } = useAuthSession();
@@ -138,9 +139,11 @@ export default function PatientHomeScreen() {
     const [incomingMessage, setIncomingMessage] = useState<IncomingNotificationMessage | null>(null);
     const [unreadChatCountsByDoctor, setUnreadChatCountsByDoctor] = useState<Map<number, number>>(new Map());
     const [latestAppointmentByDoctor, setLatestAppointmentByDoctor] = useState<Map<number, AppointmentItem>>(new Map());
+    const [latestBookedAppointmentByDoctor, setLatestBookedAppointmentByDoctor] = useState<Map<number, AppointmentItem>>(new Map());
     const [appointmentsByDoctor, setAppointmentsByDoctor] = useState<Map<number, AppointmentItem[]>>(new Map());
     const [historyDoctor, setHistoryDoctor] = useState<DoctorItem | null>(null);
     const [historyVisible, setHistoryVisible] = useState(false);
+    const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('TODAY');
     const lastNotifCheckAtRef = useRef<string>(new Date(Date.now() - 2 * 60 * 1000).toISOString());
     const bubbleHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const socketRef = useRef<Socket | null>(null);
@@ -155,6 +158,15 @@ export default function PatientHomeScreen() {
         [data?.linked_profiles]
     );
     const doctors = (data?.doctors || []) as DoctorItem[];
+    const todayIST = useMemo(() => {
+        const now = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+        return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
+    }, []);
+    const tomorrowIST = useMemo(() => {
+        const next = new Date(`${todayIST}T00:00:00Z`);
+        next.setUTCDate(next.getUTCDate() + 1);
+        return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(next.getUTCDate()).padStart(2, '0')}`;
+    }, [todayIST]);
     const uniqueDoctors = useMemo(() => {
         const byId = new Map<number, DoctorItem>();
         doctors.forEach((d) => {
@@ -211,6 +223,7 @@ export default function PatientHomeScreen() {
             const res = await getPatientAppointments();
             const list = (res?.appointments || []) as AppointmentItem[];
             const next = new Map<number, AppointmentItem>();
+            const nextBooked = new Map<number, AppointmentItem>();
             const byDoctor = new Map<number, AppointmentItem[]>();
             list.forEach((item) => {
                 const doctorId = item?.doctor?.doctor_id;
@@ -233,8 +246,13 @@ export default function PatientHomeScreen() {
                 if (sorted[0]) {
                     next.set(doctorId, sorted[0]);
                 }
+                const latestBooked = sorted.find((appointment) => String(appointment.status || '').toUpperCase() === 'BOOKED');
+                if (latestBooked) {
+                    nextBooked.set(doctorId, latestBooked);
+                }
             });
             setLatestAppointmentByDoctor(next);
+            setLatestBookedAppointmentByDoctor(nextBooked);
             setAppointmentsByDoctor(byDoctor);
         } catch {
             // ignore appointment load errors on dashboard
@@ -294,6 +312,14 @@ export default function PatientHomeScreen() {
     useEffect(() => {
         if (!isFocused) return;
         loadLatestAppointments();
+    }, [isFocused, loadLatestAppointments]);
+
+    useEffect(() => {
+        if (!isFocused) return;
+        const interval = setInterval(() => {
+            loadLatestAppointments().catch(() => undefined);
+        }, 12000);
+        return () => clearInterval(interval);
     }, [isFocused, loadLatestAppointments]);
 
     useFocusEffect(
@@ -410,6 +436,7 @@ export default function PatientHomeScreen() {
 
     const handleOpenDoctorHistory = React.useCallback(async (doctor: DoctorItem) => {
         setHistoryDoctor(doctor);
+        setHistoryFilter('TODAY');
         setHistoryVisible(true);
         if (appointmentsByDoctor.size === 0) {
             await loadLatestAppointments();
@@ -530,7 +557,7 @@ export default function PatientHomeScreen() {
                                     })()}
                                 </View>
                                 {(() => {
-                                    const appt = latestAppointmentByDoctor.get(item.doctor_id);
+                                    const appt = latestBookedAppointmentByDoctor.get(item.doctor_id);
                                     const apptNo = getAppointmentNo(appt);
                                     if (!apptNo) return null;
                                     return (
@@ -604,34 +631,63 @@ export default function PatientHomeScreen() {
                             </TouchableOpacity>
                         </View>
 
-                        <ScrollView className="max-h-[300px]" showsVerticalScrollIndicator>
-                            {(() => {
-                                const items = historyDoctor
-                                    ? (appointmentsByDoctor.get(historyDoctor.doctor_id) || [])
-                                    : [];
-                                const sortedItems = [...items].sort((a, b) => {
-                                    const aYmd = toYMD(a.appointment_date);
-                                    const aHm = toHM(a.start_time);
-                                    const aTs = aYmd && aHm ? new Date(`${aYmd}T${aHm}:00`).getTime() : 0;
-                                    const bYmd = toYMD(b.appointment_date);
-                                    const bHm = toHM(b.start_time);
-                                    const bTs = bYmd && bHm ? new Date(`${bYmd}T${bHm}:00`).getTime() : 0;
-                                    return bTs - aTs;
-                                });
-                                if (sortedItems.length === 0) {
-                                    return (
-                                        <View className="items-center py-8">
-                                            <Text className="text-gray-400">No appointments found</Text>
-                                        </View>
-                                    );
-                                }
-                                const counts = sortedItems.reduce((acc, apt) => {
-                                    const key = String(apt.status || 'BOOKED').toUpperCase();
-                                    acc.total += 1;
-                                    acc[key] = (acc[key] || 0) + 1;
-                                    return acc;
-                                }, { total: 0 } as Record<string, number>);
-                                return sortedItems.map((apt, index) => {
+                        <View className="flex-row flex-wrap mb-4">
+                            {([
+                                { key: 'TODAY', label: 'Today' },
+                                { key: 'TOMORROW', label: 'Tomorrow' },
+                                { key: 'UPCOMING', label: 'Upcoming' },
+                            ] as Array<{ key: HistoryFilter; label: string }>).map((filterItem) => {
+                                const active = historyFilter === filterItem.key;
+                                return (
+                                    <TouchableOpacity
+                                        key={filterItem.key}
+                                        onPress={() => setHistoryFilter(filterItem.key)}
+                                        className={`mr-2 mb-2 px-3 py-1.5 rounded-full border ${active ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-200'}`}
+                                    >
+                                        <Text className={`text-xs font-semibold ${active ? 'text-white' : 'text-gray-600'}`}>
+                                            {filterItem.label}
+                                        </Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+
+                        <View className="h-[238px]">
+                            <ScrollView className="h-full" contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator>
+                                {(() => {
+                                    const items = historyDoctor
+                                        ? (appointmentsByDoctor.get(historyDoctor.doctor_id) || [])
+                                        : [];
+                                    const filteredItems = items.filter((apt) => {
+                                        const ymd = toYMD(apt.appointment_date);
+                                        if (!ymd) return false;
+                                        if (historyFilter === 'TODAY') return ymd === todayIST;
+                                        if (historyFilter === 'TOMORROW') return ymd === tomorrowIST;
+                                        return ymd > tomorrowIST;
+                                    });
+                                    const sortedItems = [...filteredItems].sort((a, b) => {
+                                        const aYmd = toYMD(a.appointment_date);
+                                        const aHm = toHM(a.start_time);
+                                        const aTs = aYmd && aHm ? new Date(`${aYmd}T${aHm}:00`).getTime() : 0;
+                                        const bYmd = toYMD(b.appointment_date);
+                                        const bHm = toHM(b.start_time);
+                                        const bTs = bYmd && bHm ? new Date(`${bYmd}T${bHm}:00`).getTime() : 0;
+                                        return aTs - bTs;
+                                    });
+                                    if (sortedItems.length === 0) {
+                                        return (
+                                            <View className="h-[238px] items-center justify-center px-4">
+                                                <Text className="text-gray-400">
+                                                    {historyFilter === 'TODAY'
+                                                        ? 'No appointments for today'
+                                                        : historyFilter === 'TOMORROW'
+                                                            ? 'No appointments for tomorrow'
+                                                            : 'No upcoming appointments found'}
+                                                </Text>
+                                            </View>
+                                        );
+                                    }
+                                    return sortedItems.map((apt, index) => {
                                         const status = String(apt.status || '').toUpperCase();
                                         const statusLabel =
                                             status === 'PENDING'
@@ -686,12 +742,23 @@ export default function PatientHomeScreen() {
                                     });
                                 })()}
                             </ScrollView>
+                        </View>
+                        <View className="h-[72px] mt-3 justify-start">
                             {(() => {
                                 const items = historyDoctor
                                     ? (appointmentsByDoctor.get(historyDoctor.doctor_id) || [])
                                     : [];
-                                if (items.length === 0) return null;
-                                const counts = items.reduce((acc, apt) => {
+                                const filteredItems = items.filter((apt) => {
+                                    const ymd = toYMD(apt.appointment_date);
+                                    if (!ymd) return false;
+                                    if (historyFilter === 'TODAY') return ymd === todayIST;
+                                    if (historyFilter === 'TOMORROW') return ymd === tomorrowIST;
+                                    return ymd > tomorrowIST;
+                                });
+                                if (filteredItems.length === 0) {
+                                    return <View />;
+                                }
+                                const counts = filteredItems.reduce((acc, apt) => {
                                     const key = String(apt.status || 'BOOKED').toUpperCase();
                                     acc.total += 1;
                                     acc[key] = (acc[key] || 0) + 1;
@@ -705,7 +772,7 @@ export default function PatientHomeScreen() {
                                     { key: 'CANCELLED', label: 'Cancelled', value: counts.CANCELLED || 0, tone: 'bg-rose-50 text-rose-700' },
                                 ];
                                 return (
-                                    <View className="mt-3 flex-row flex-wrap">
+                                    <View className="flex-row flex-wrap">
                                         {chips.map((chip) => (
                                             <View key={chip.key} className={`mr-2 mb-2 px-3 py-1 rounded-full ${chip.tone}`}>
                                                 <Text className="text-[10px] font-semibold">
@@ -717,6 +784,7 @@ export default function PatientHomeScreen() {
                                 );
                             })()}
                         </View>
+                    </View>
                     </View>
                 </Modal>
             </View>

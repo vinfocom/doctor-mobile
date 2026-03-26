@@ -1,5 +1,5 @@
 import React from 'react';
-import { getMe, type AuthMeUser } from '../api/auth';
+import { getMe, getPatientProfile, type AuthMeUser } from '../api/auth';
 import { getRole, getToken, removeToken, type AppRole } from '../api/token';
 import { updateProfile, updatePatientProfile } from '../api/auth';
 import { registerForPushNotificationsAsync } from '../hooks/usePushNotifications';
@@ -67,6 +67,7 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
             }
 
             if (storedRole === 'PATIENT') {
+                await getPatientProfile();
                 setSession({
                     role: storedRole,
                     staff_role: null,

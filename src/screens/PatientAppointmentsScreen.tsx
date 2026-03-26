@@ -321,6 +321,7 @@ export default function PatientAppointmentsScreen() {
                         await loadAll();
                     } catch (error: any) {
                         Alert.alert('Error', error?.response?.data?.error || 'Failed to cancel appointment');
+                    } finally {
                         setLoading(false);
                     }
                 },
