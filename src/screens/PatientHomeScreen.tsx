@@ -138,7 +138,6 @@ export default function PatientHomeScreen() {
     const [announcementCount, setAnnouncementCount] = useState(getPatientAnnouncementsUnreadCount());
     const [incomingMessage, setIncomingMessage] = useState<IncomingNotificationMessage | null>(null);
     const [unreadChatCountsByDoctor, setUnreadChatCountsByDoctor] = useState<Map<number, number>>(new Map());
-    const [latestAppointmentByDoctor, setLatestAppointmentByDoctor] = useState<Map<number, AppointmentItem>>(new Map());
     const [latestBookedAppointmentByDoctor, setLatestBookedAppointmentByDoctor] = useState<Map<number, AppointmentItem>>(new Map());
     const [appointmentsByDoctor, setAppointmentsByDoctor] = useState<Map<number, AppointmentItem[]>>(new Map());
     const [historyDoctor, setHistoryDoctor] = useState<DoctorItem | null>(null);
@@ -222,7 +221,6 @@ export default function PatientHomeScreen() {
         try {
             const res = await getPatientAppointments();
             const list = (res?.appointments || []) as AppointmentItem[];
-            const next = new Map<number, AppointmentItem>();
             const nextBooked = new Map<number, AppointmentItem>();
             const byDoctor = new Map<number, AppointmentItem[]>();
             list.forEach((item) => {
@@ -243,9 +241,6 @@ export default function PatientHomeScreen() {
                     return bTs - aTs;
                 });
                 byDoctor.set(doctorId, sorted);
-                if (sorted[0]) {
-                    next.set(doctorId, sorted[0]);
-                }
                 const upcomingBooked = sorted
                     .filter((appointment) => {
                         const appointmentYmd = toYMD(appointment.appointment_date);
@@ -266,7 +261,6 @@ export default function PatientHomeScreen() {
                     nextBooked.set(doctorId, upcomingBooked);
                 }
             });
-            setLatestAppointmentByDoctor(next);
             setLatestBookedAppointmentByDoctor(nextBooked);
             setAppointmentsByDoctor(byDoctor);
         } catch {
@@ -559,7 +553,7 @@ export default function PatientHomeScreen() {
                                         </Text>
                                     </View>
                                     {(() => {
-                                        const appt = latestAppointmentByDoctor.get(item.doctor_id);
+                                        const appt = latestBookedAppointmentByDoctor.get(item.doctor_id);
                                         const badgeText = hasOtherContext ? getRelationBadgeText(appt) : '';
                                         if (!badgeText) return null;
                                         return (

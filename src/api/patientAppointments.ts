@@ -18,7 +18,13 @@ export const createPatientAppointment = async (data: {
 };
 
 export const updatePatientAppointment = async (data: {
-    appointmentId: number;
+    appointmentId?: number;
+    appointment_id?: number;
+    booking_id?: number;
+    patient_id?: number;
+    doctor_id?: number;
+    clinic_id?: number;
+    booked_for?: 'SELF' | 'OTHER';
     status?: string;
     appointment_date?: string;
     start_time?: string;
@@ -26,7 +32,13 @@ export const updatePatientAppointment = async (data: {
     rescheduled_by?: string;
     cancelled_by?: string;
 }) => {
-    const response = await client.patch('/patient/appointments', data);
+    const response = await client.patch('/patient/appointments', data, {
+        params: {
+            appointmentId: data.appointmentId,
+            appointment_id: data.appointment_id,
+            booking_id: data.booking_id,
+        },
+    });
     return response.data;
 };
 

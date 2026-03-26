@@ -25,9 +25,13 @@ import { getAllDoctors } from '../api/doctors';
 type AppointmentItem = {
     appointment_id: number;
     booking_id?: number;
+    patient_id?: number;
+    doctor_id?: number;
+    clinic_id?: number;
     appointment_date: string;
     start_time: string;
     status: string;
+    booked_for?: 'SELF' | 'OTHER';
     relation_type?: 'SELF' | 'OTHER';
     relation_label?: string;
     doctor?: { doctor_id: number; doctor_name?: string | null; profile_pic_url?: string | null };
@@ -104,19 +108,23 @@ const formatDoctorName = (name?: string | null) => {
     return `Dr. ${trimmed}`;
 };
 
-const getRelationBadgeText = (item?: AppointmentItem | null) => {
+const getRelationBadgeText = (item?: AppointmentItem | null, relationTypeOverride?: 'SELF' | 'OTHER') => {
     if (!item) return '';
     if (item.relation_label) return item.relation_label;
-    if (item.relation_type === 'OTHER') {
+    const relationType = relationTypeOverride || item.relation_type;
+    if (relationType === 'OTHER') {
         const otherName = String(item.patient?.full_name || '').trim() || 'Patient';
         return `Other: ${otherName}`;
     }
     return 'Self';
 };
 
+const normalizeName = (value?: string | null) => String(value || '').trim().toLowerCase();
+
 export default function PatientAppointmentsScreen() {
     type BookingFor = 'SELF' | 'OTHER';
     const [loading, setLoading] = useState(true);
+    const [cancelling, setCancelling] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const [items, setItems] = useState<AppointmentItem[]>([]);
     const [patientName, setPatientName] = useState('');
@@ -274,8 +282,19 @@ export default function PatientAppointmentsScreen() {
         setBooking(true);
         try {
             if (selectedAppointment) {
+                const { appointmentId, appointment_id, booking_id } = getActionAppointmentIds(selectedAppointment);
+                if (!appointmentId) {
+                    Alert.alert('Error', 'Unable to reschedule this appointment.');
+                    return;
+                }
                 await updatePatientAppointment({
-                    appointmentId: selectedAppointment.appointment_id,
+                    appointmentId,
+                    appointment_id: appointment_id ?? undefined,
+                    booking_id: booking_id ?? undefined,
+                    patient_id: selectedAppointment.patient_id,
+                    doctor_id: selectedAppointment.doctor_id,
+                    clinic_id: selectedAppointment.clinic_id,
+                    booked_for: selectedAppointment.booked_for as 'SELF' | 'OTHER' | undefined,
                     appointment_date: form.date,
                     start_time: form.time,
                     rescheduled_by: 'PATIENT',
@@ -303,26 +322,66 @@ export default function PatientAppointmentsScreen() {
         }
     };
 
-    const cancelBooking = async (appointmentId: number) => {
+    const getActionAppointmentIds = (item?: AppointmentItem | null) => {
+        if (!item) return { appointmentId: null, appointment_id: null, booking_id: null };
+        const appointment_id = item.appointment_id ?? null;
+        const booking_id = item.booking_id ?? item.patient?.booking_id ?? null;
+        const appointmentId = appointment_id ?? booking_id ?? null;
+        return { appointmentId, appointment_id, booking_id };
+    };
+
+    const cancelBooking = async (item: AppointmentItem) => {
+        const { appointmentId, appointment_id, booking_id } = getActionAppointmentIds(item);
+        if (!appointmentId && !appointment_id && !booking_id) {
+            Alert.alert('Error', 'Unable to cancel this appointment.');
+            return;
+        }
         Alert.alert('Cancel Appointment', 'Are you sure you want to cancel this appointment?', [
             { text: 'No', style: 'cancel' },
             {
                 text: 'Yes, Cancel',
                 style: 'destructive',
                 onPress: async () => {
-                    setLoading(true);
+                    setCancelling(true);
                     try {
-                        await updatePatientAppointment({
-                            appointmentId,
-                            status: 'CANCELLED',
-                            cancelled_by: 'PATIENT',
-                        });
+                        const baseMeta = {
+                            patient_id: item.patient_id,
+                            doctor_id: item.doctor_id,
+                            clinic_id: item.clinic_id,
+                            booked_for: item.booked_for as 'SELF' | 'OTHER' | undefined,
+                        };
+                        const attempts = [
+                            { appointmentId: appointment_id ?? undefined, appointment_id: appointment_id ?? undefined, ...baseMeta },
+                            { appointmentId: booking_id ?? undefined, booking_id: booking_id ?? undefined, ...baseMeta },
+                            { appointmentId: appointment_id ?? undefined, booking_id: booking_id ?? undefined, ...baseMeta },
+                            { appointmentId: booking_id ?? undefined, appointment_id: appointment_id ?? undefined, ...baseMeta },
+                        ].filter((payload) => Object.values(payload).some(Boolean));
+
+                        let lastError: any = null;
+                        for (const payload of attempts) {
+                            try {
+                                await updatePatientAppointment({
+                                    ...payload,
+                                    status: 'CANCELLED',
+                                    cancelled_by: 'PATIENT',
+                                });
+                                lastError = null;
+                                break;
+                            } catch (error: any) {
+                                lastError = error;
+                                const status = error?.response?.status;
+                                if (status !== 404) {
+                                    throw error;
+                                }
+                            }
+                        }
+                        if (lastError) throw lastError;
                         Alert.alert('Success', 'Appointment cancelled');
                         await loadAll();
                     } catch (error: any) {
                         Alert.alert('Error', error?.response?.data?.error || 'Failed to cancel appointment');
                     } finally {
-                        setLoading(false);
+                        setCancelling(false);
                     }
                 },
             },
@@ -515,6 +574,18 @@ export default function PatientAppointmentsScreen() {
                         const isPast = item.ts < now;
                         const isMenuOpen = openCardMenuId === item.appointment_id;
                         const canCancel = !isPast && item.status !== 'CANCELLED' && item.status !== 'COMPLETED';
+                        const relationTypeFromName = (() => {
+                            const itemName = normalizeName(item.patient?.full_name);
+                            if (!itemName) return undefined;
+                            const otherName = normalizeName(otherPatientName);
+                            const selfName = normalizeName(patientName);
+                            if (otherName && itemName === otherName) return 'OTHER';
+                            if (selfName && itemName === selfName) return 'SELF';
+                            return undefined;
+                        })();
+                        const effectiveRelationType =
+                            relationTypeFromName ||
+                            (item.relation_type === 'OTHER' || item.relation_type === 'SELF' ? item.relation_type : undefined);
                         return (
                             <View className={`rounded-2xl mb-3 px-3.5 py-3 ${isPast ? 'bg-gray-50 border border-gray-200' : 'bg-white border border-blue-100'}`}>
                                 <View className="flex-row items-start">
@@ -543,9 +614,9 @@ export default function PatientAppointmentsScreen() {
                                                 </Text>
                                             </View>
                                             {hasOtherContext ? (
-                                                <View className={`self-start px-2.5 py-1 rounded-full ${item.relation_type === 'OTHER' ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'}`}>
-                                                    <Text className={`text-[10px] font-semibold ${item.relation_type === 'OTHER' ? 'text-amber-700' : 'text-sky-700'}`}>
-                                                        {getRelationBadgeText(item)}
+                                                <View className={`self-start px-2.5 py-1 rounded-full ${effectiveRelationType === 'OTHER' ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'}`}>
+                                                    <Text className={`text-[10px] font-semibold ${effectiveRelationType === 'OTHER' ? 'text-amber-700' : 'text-sky-700'}`}>
+                                                        {getRelationBadgeText(item, effectiveRelationType)}
                                                     </Text>
                                                 </View>
                                             ) : null}
@@ -590,10 +661,11 @@ export default function PatientAppointmentsScreen() {
                                         )}
                                         {canCancel && (
                                             <TouchableOpacity
-                                                onPress={() => { setOpenCardMenuId(null); cancelBooking(item.appointment_id); }}
+                                                disabled={cancelling}
+                                                onPress={() => { setOpenCardMenuId(null); cancelBooking(item); }}
                                                 className="px-4 py-3 border-b border-gray-100"
                                             >
-                                                <Text className="text-sm text-red-600 font-medium">Cancel Appointment</Text>
+                                                <Text className="text-sm text-red-600 font-medium">{cancelling ? 'Cancelling...' : 'Cancel Appointment'}</Text>
                                             </TouchableOpacity>
                                         )}
                                         <TouchableOpacity
