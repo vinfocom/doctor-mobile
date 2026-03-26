@@ -27,6 +27,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthSession } from '../context/AuthSessionContext';
+import { APP_VERSION } from '../config/env';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'PatientProfile'>;
 
@@ -304,6 +305,9 @@ export default function PatientProfileScreen() {
                             <LogOut size={20} color="#ef4444" style={{ marginRight: 8 }} />
                             <Text className="text-red-500 font-bold text-lg">Logout</Text>
                         </TouchableOpacity>
+                        <Text className="text-center text-xs text-gray-400 mt-4">
+                            Version {APP_VERSION}
+                        </Text>
                     </Animated.View>
                 </View>
             </ScrollView>

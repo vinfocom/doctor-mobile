@@ -6,7 +6,7 @@ const ensureHttpProtocol = (url: string) => {
     return /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
 };
 
-type PublicEnvName = 'EXPO_PUBLIC_API_URL' | 'EXPO_PUBLIC_SOCKET_URL';
+type PublicEnvName = 'EXPO_PUBLIC_API_URL' | 'EXPO_PUBLIC_SOCKET_URL' | 'EXPO_PUBLIC_APP_VERSION';
 
 type ExpoExtra = {
     apiUrl?: string;
@@ -32,6 +32,7 @@ const getEnvValue = (name: PublicEnvName) => {
     // Keep direct property access so Expo can inline EXPO_PUBLIC_* values in bundles.
     if (name === 'EXPO_PUBLIC_API_URL') return process.env.EXPO_PUBLIC_API_URL;
     if (name === 'EXPO_PUBLIC_SOCKET_URL') return process.env.EXPO_PUBLIC_SOCKET_URL;
+    if (name === 'EXPO_PUBLIC_APP_VERSION') return process.env.EXPO_PUBLIC_APP_VERSION;
     return undefined;
 };
 
@@ -54,7 +55,8 @@ const normalized = rawApiUrl.replace(/\/+$/, "");
 export const API_URL = normalized.endsWith("/api") ? normalized : `${normalized}/api`;
 const rawSocketUrl = readConfigValue('EXPO_PUBLIC_SOCKET_URL', 'socketUrl');
 export const SOCKET_URL = ensureHttpProtocol(rawSocketUrl).replace(/\/+$/, "");
+export const APP_VERSION = (getEnvValue('EXPO_PUBLIC_APP_VERSION') || '').trim() || '1.0.0';
 
 if (__DEV__) {
-    console.log(`[env] API_URL=${API_URL} SOCKET_URL=${SOCKET_URL}`);
+    console.log(`[env] API_URL=${API_URL} SOCKET_URL=${SOCKET_URL} APP_VERSION=${APP_VERSION}`);
 }
