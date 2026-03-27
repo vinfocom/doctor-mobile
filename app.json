@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.singhaditya1627.doctormobile",
+      "bundleIdentifier": "com.singhaditya1627.dapto",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Allow access to camera to send photos in chat.",
@@ -37,7 +37,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.singhaditya1627.doctormobile"
+      "package": "com.singhaditya1627.dapto"
     },
     "web": {
       "favicon": "./assets/favicon.png",
