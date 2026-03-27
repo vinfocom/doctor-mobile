@@ -148,6 +148,26 @@ const parseAppointmentStart = (appointment: any): Date | null => {
     return Number.isNaN(result.getTime()) ? null : result;
 };
 
+const formatPatientPhone = (value?: string | null) => {
+    const digits = String(value || '').replace(/\D/g, '');
+    if (!digits) return 'Not available';
+    if (digits.length === 10) return `${digits.slice(0, 5)} ${digits.slice(5)}`;
+    if (digits.length === 12 && digits.startsWith('91')) return `+91 ${digits.slice(2, 7)} ${digits.slice(7)}`;
+    return String(value || '').trim() || 'Not available';
+};
+
+const formatPatientAge = (value?: number | null) => {
+    const age = Number(value);
+    if (!Number.isFinite(age) || age <= 0) return 'Not available';
+    return `${age} years`;
+};
+
+const formatPatientGender = (value?: string | null) => {
+    const normalized = String(value || '').trim();
+    if (!normalized) return 'Not available';
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1).toLowerCase();
+};
+
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<string, { dot: string; badge: string; label: string; dotColor: string }> = {
@@ -198,6 +218,13 @@ interface MatchedPatient {
     patient_id: number;
     full_name: string | null;
     profile_type?: BookingFor | null;
+}
+
+interface AppointmentPatientDetails {
+    full_name?: string | null;
+    phone?: string | null;
+    age?: number | null;
+    gender?: string | null;
 }
 
 const ClinicDropdown = ({ clinics, selectedId, onSelect }: ClinicDropdownProps) => {
@@ -446,6 +473,8 @@ const AppointmentsScreen = () => {
     const [lookupLoading, setLookupLoading] = useState(false);
     const [matchedPatients, setMatchedPatients] = useState<MatchedPatient[]>([]);
     const [lockedPatientProfile, setLockedPatientProfile] = useState<MatchedPatient | null>(null);
+    const [patientDetailsVisible, setPatientDetailsVisible] = useState(false);
+    const [selectedPatientDetails, setSelectedPatientDetails] = useState<AppointmentPatientDetails | null>(null);
 
     useEffect(() => {
         fetchAppointments();
@@ -878,6 +907,12 @@ const AppointmentsScreen = () => {
         return error?.response?.data?.error || fallbackMessage;
     }, []);
 
+    const openPatientDetails = useCallback((patient?: AppointmentPatientDetails | null) => {
+        setOpenCardMenuId(null);
+        setSelectedPatientDetails(patient || null);
+        setPatientDetailsVisible(true);
+    }, []);
+
     const handleCreateAppointment = async () => {
         if (!canManageAppointments) {
             showPermissionDenied();
@@ -1114,14 +1149,18 @@ const AppointmentsScreen = () => {
                 style={isHighlighted ? { shadowColor: '#2563eb', shadowOpacity: 0.18, shadowRadius: 10, elevation: 4 } : undefined}
             >
                     <View className="flex-row items-start">
-                        <View className="bg-blue-100 w-10 h-10 rounded-xl items-center justify-center mr-3 relative">
+                        <TouchableOpacity
+                            onPress={() => openPatientDetails(item.patient)}
+                            activeOpacity={0.85}
+                            className="bg-blue-100 w-10 h-10 rounded-xl items-center justify-center mr-3 relative"
+                        >
                             <User size={16} color="#1d4ed8" />
                             {canUseChat && incomingMessage && !incomingMessage.isAnnouncement && incomingMessage.patientId === item.patient_id && incomingMessage.doctorId === item.doctor_id ? (
                                 <View className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 items-center justify-center border border-white">
                                     <Text className="text-white text-[10px] font-bold">1</Text>
                                 </View>
                             ) : null}
-                        </View>
+                        </TouchableOpacity>
                         <View className="flex-1">
                             <Text className="text-gray-900 font-bold text-sm" numberOfLines={1}>
                                 {item.patient?.full_name || 'Unknown Patient'}
@@ -1243,7 +1282,7 @@ const AppointmentsScreen = () => {
                 )}
             </View>
         );
-    }, [canManageAppointments, canUseChat, confirmStatusChange, handleDeleteAppointment, highlightedPairKey, navigation, openCardMenuId, openReschedule]);
+    }, [canManageAppointments, canUseChat, confirmStatusChange, handleDeleteAppointment, highlightedPairKey, incomingMessage, navigation, openCardMenuId, openPatientDetails, openReschedule]);
 
     if (loading) {
         return (
@@ -1538,6 +1577,45 @@ const AppointmentsScreen = () => {
                     />
                 )}
             </View>
+
+            <Modal
+                animationType="fade"
+                transparent
+                visible={patientDetailsVisible}
+                onRequestClose={() => setPatientDetailsVisible(false)}
+            >
+                <View className="flex-1 justify-end bg-black/45">
+                    <TouchableOpacity className="flex-1" activeOpacity={1} onPress={() => setPatientDetailsVisible(false)} />
+                    <View className="bg-white rounded-t-3xl px-6 pt-5 pb-8">
+                        <View className="flex-row items-start justify-between">
+                            <Text className="text-xl font-bold text-gray-900">Patient Details</Text>
+                            <TouchableOpacity
+                                onPress={() => setPatientDetailsVisible(false)}
+                                className="bg-gray-100 p-2 rounded-full"
+                            >
+                                <X size={18} color="#374151" />
+                            </TouchableOpacity>
+                        </View>
+
+                        <View className="mt-5 rounded-2xl border border-gray-100 bg-gray-50 overflow-hidden">
+                            {[
+                                { label: 'Name', value: selectedPatientDetails?.full_name || 'Unknown Patient' },
+                                { label: 'Phone', value: formatPatientPhone(selectedPatientDetails?.phone) },
+                                { label: 'Age', value: formatPatientAge(selectedPatientDetails?.age) },
+                                { label: 'Gender', value: formatPatientGender(selectedPatientDetails?.gender) },
+                            ].map((field, index, arr) => (
+                                <View
+                                    key={field.label}
+                                    className={`px-4 py-4 ${index < arr.length - 1 ? 'border-b border-gray-200' : ''}`}
+                                >
+                                    <Text className="text-xs uppercase tracking-wide text-gray-400 font-bold">{field.label}</Text>
+                                    <Text className="text-base font-semibold text-gray-900 mt-1.5">{field.value}</Text>
+                                </View>
+                            ))}
+                        </View>
+                    </View>
+                </View>
+            </Modal>
 
             {/* Export Modal */}
             <Modal
