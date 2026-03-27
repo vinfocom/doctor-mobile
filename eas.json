@@ -14,8 +14,8 @@
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://103.205.140.228/api",
-        "EXPO_PUBLIC_SOCKET_URL": "http://103.205.140.228"
+        "EXPO_PUBLIC_API_URL": "https://dapto.vinfocom.co.in/api",
+        "EXPO_PUBLIC_SOCKET_URL": "https://dapto.vinfocom.co.in"
       }
     }
   },

@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Dapto",
-    "slug": "doctor-mobile",
+    "slug": "Dapto",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/daptao.png",
@@ -24,7 +24,7 @@
     },
     "android": {
       "googleServicesFile": "./google-services.json",
-      "usesCleartextTraffic": true,
+      "usesCleartextTraffic": false,
       "permissions": [
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
@@ -48,8 +48,8 @@
       "expo-notifications"
     ],
     "extra": {
-      "apiUrl": "http://103.205.140.228/api",
-      "socketUrl": "http://103.205.140.228",
+      "apiUrl": "https://dapto.vinfocom.co.in/api",
+      "socketUrl": "https://dapto.vinfocom.co.in",
       "eas": {
         "projectId": "bc39d0b4-2a38-42dc-9400-21b7bbc216a1"
       }
