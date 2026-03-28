@@ -27,24 +27,29 @@ import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { API_URL } from '../config/env';
 
 type LoginScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Login'>;
+const pushDebug = (...args: unknown[]) => {
+    if (__DEV__) {
+        console.log(...args);
+    }
+};
 
 async function registerPushTokenForRole(role: 'DOCTOR' | 'PATIENT') {
     try {
         const pushToken = await registerForPushNotificationsAsync();
         if (!pushToken?.data) {
-            console.log(`[push] ${role.toLowerCase()} login flow: no push token generated`);
+            pushDebug(`[push] ${role.toLowerCase()} login flow: no push token generated`);
             return;
         }
 
-        console.log(`[push] ${role.toLowerCase()} login flow: saving push token`, pushToken.data);
+        pushDebug(`[push] ${role.toLowerCase()} login flow: saving push token`);
         if (role === 'PATIENT') {
             await updatePatientProfile({ push_token: pushToken.data });
         } else {
             await updateProfile({ push_token: pushToken.data });
         }
-        console.log(`[push] ${role.toLowerCase()} login flow: push token saved successfully`);
+        pushDebug(`[push] ${role.toLowerCase()} login flow: push token saved successfully`);
     } catch (error) {
-        console.log(`[push] ${role.toLowerCase()} login flow: failed to register/save push token`, error);
+        pushDebug(`[push] ${role.toLowerCase()} login flow: failed to register/save push token`, error);
     }
 }
 

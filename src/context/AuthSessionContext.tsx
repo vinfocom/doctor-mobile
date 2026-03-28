@@ -18,6 +18,11 @@ type SessionState = {
 };
 
 const AuthSessionContext = React.createContext<SessionState | undefined>(undefined);
+const pushDebug = (...args: unknown[]) => {
+    if (__DEV__) {
+        console.log(...args);
+    }
+};
 
 function mapUserToSession(user: AuthMeUser | null): Omit<SessionState, 'isLoading' | 'refreshSession' | 'clearSession'> {
     return {
@@ -80,14 +85,14 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
                 try {
                     const pushToken = await registerForPushNotificationsAsync();
                     if (pushToken?.data) {
-                        console.log('[push] saving patient push token to backend:', pushToken.data);
+                        pushDebug('[push] saving patient push token to backend');
                         await updatePatientProfile({ push_token: pushToken.data });
-                        console.log('[push] patient push token saved successfully');
+                        pushDebug('[push] patient push token saved successfully');
                     } else {
-                        console.log('[push] patient push token missing, nothing to save');
+                        pushDebug('[push] patient push token missing, nothing to save');
                     }
                 } catch (error) {
-                    console.log('[push] patient token registration/save failed:', error);
+                    pushDebug('[push] patient token registration/save failed:', error);
                 }
                 return;
             }
@@ -98,14 +103,14 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
                 try {
                     const pushToken = await registerForPushNotificationsAsync();
                     if (pushToken?.data) {
-                        console.log('[push] saving doctor push token to backend:', pushToken.data);
+                        pushDebug('[push] saving doctor push token to backend');
                         await updateProfile({ push_token: pushToken.data });
-                        console.log('[push] doctor push token saved successfully');
+                        pushDebug('[push] doctor push token saved successfully');
                     } else {
-                        console.log('[push] doctor push token missing, nothing to save');
+                        pushDebug('[push] doctor push token missing, nothing to save');
                     }
                 } catch (error) {
-                    console.log('[push] doctor token registration/save failed:', error);
+                    pushDebug('[push] doctor token registration/save failed:', error);
                 }
             }
         } catch {

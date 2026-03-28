@@ -11,6 +11,11 @@ const isExpoGo = Constants.appOwnership === 'expo';
 const Notifications: typeof NotificationsType | null = isExpoGo
     ? null
     : require('expo-notifications');
+const pushDebug = (...args: unknown[]) => {
+    if (__DEV__) {
+        console.log(...args);
+    }
+};
 
 export interface PushNotificationState {
     expoPushToken?: NotificationsType.ExpoPushToken;
@@ -35,7 +40,7 @@ export const usePushNotifications = (): PushNotificationState => {
         });
 
         responseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
-            console.log('[push] notification response received:', response.notification.request.content.data);
+            pushDebug('[push] notification response received:', response.notification.request.content.data);
         });
 
         return () => {
@@ -49,14 +54,14 @@ export const usePushNotifications = (): PushNotificationState => {
 
 export async function registerForPushNotificationsAsync() {
     if (!Notifications) {
-        console.log('[push] expo-notifications unavailable; likely running in Expo Go');
+        pushDebug('[push] expo-notifications unavailable; likely running in Expo Go');
         return;
     }
 
     let token;
 
     if (Platform.OS === 'android') {
-        console.log('[push] configuring Android notification channel');
+        pushDebug('[push] configuring Android notification channel');
         await Notifications.setNotificationChannelAsync('default', {
             name: 'default',
             importance: Notifications.AndroidImportance.MAX,
@@ -68,33 +73,36 @@ export async function registerForPushNotificationsAsync() {
     if (Device.isDevice) {
         const { status: existingStatus } = await Notifications.getPermissionsAsync();
         let finalStatus = existingStatus;
-        console.log('[push] existing notification permission status:', existingStatus);
+        pushDebug('[push] existing notification permission status:', existingStatus);
 
         if (existingStatus !== 'granted') {
             const { status } = await Notifications.requestPermissionsAsync();
             finalStatus = status;
-            console.log('[push] requested notification permission, final status:', finalStatus);
+            pushDebug('[push] requested notification permission, final status:', finalStatus);
         }
 
         if (finalStatus !== 'granted') {
-            console.log('[push] permission not granted; cannot generate push token');
+            pushDebug('[push] permission not granted; cannot generate push token');
             return;
         }
 
         try {
             const projectId =
                 Constants?.expoConfig?.extra?.eas?.projectId ??
-                Constants?.easConfig?.projectId ??
-                'f0d16ca1-38da-43a7-98f2-39a2dba468dc';
+                Constants?.easConfig?.projectId;
 
-            console.log('[push] generating Expo push token with projectId:', projectId);
+            if (!projectId) {
+                throw new Error('Missing EAS projectId for push token generation');
+            }
+
+            pushDebug('[push] generating Expo push token with projectId:', projectId);
             token = await Notifications.getExpoPushTokenAsync({ projectId });
-            console.log('[push] Expo Push Token generated:', token?.data ?? token);
+            pushDebug('[push] Expo Push Token generated successfully');
         } catch (e) {
-            console.log('[push] Error generating push token:', e);
+            pushDebug('[push] Error generating push token:', e);
         }
     } else {
-        console.log('[push] Must use physical device for Push Notifications');
+        pushDebug('[push] Must use physical device for Push Notifications');
     }
 
     return token;

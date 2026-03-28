@@ -171,7 +171,9 @@ export default function PatientAppointmentsScreen() {
         ]);
 
         const appts = (apptsRes?.appointments || []) as AppointmentItem[];
-        console.log("Fetched appointments in App:", JSON.stringify(appts.slice(0, 2), null, 2));
+        if (__DEV__) {
+            console.log(`[appointments] fetched ${appts.length} appointments`);
+        }
         setItems(appts);
         const selfProfile = (profileRes?.linked_profiles || []).find((item: any) => String(item?.profile_type || '').toUpperCase() === 'SELF');
         const otherProfile = (profileRes?.linked_profiles || []).find((item: any) => String(item?.profile_type || '').toUpperCase() === 'OTHER');
@@ -995,4 +997,3 @@ export default function PatientAppointmentsScreen() {
         </SafeAreaView>
     );
 }
-

@@ -27,8 +27,12 @@
       "usesCleartextTraffic": false,
       "permissions": [
         "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "READ_EXTERNAL_STORAGE"
+      ],
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
       ],
       "softwareKeyboardLayoutMode": "pan",
       "adaptiveIcon": {
@@ -51,9 +55,9 @@
       "apiUrl": "https://dapto.vinfocom.co.in/api",
       "socketUrl": "https://dapto.vinfocom.co.in",
       "eas": {
-        "projectId": "bc39d0b4-2a38-42dc-9400-21b7bbc216a1"
+        "projectId": "1db0ddb0-7155-4300-a308-38afad0ddf76"
       }
     },
-    "owner": "harshittripathi22"
+    "owner": "singhaditya1627"
   }
 }

@@ -25,6 +25,37 @@ export default function ChatScreen({ route, navigation }: Props) {
     const socketRef = useRef<Socket | null>(null);
     const playSound = useNotificationSound();
 
+    const openAttachmentUrl = React.useCallback(async (url: string) => {
+        const trimmed = String(url || '').trim();
+        if (!trimmed) {
+            Alert.alert('Unable to open', 'Attachment URL is missing.');
+            return;
+        }
+
+        let parsed: URL;
+        try {
+            parsed = new URL(trimmed);
+        } catch {
+            Alert.alert('Unable to open', 'Attachment URL is invalid.');
+            return;
+        }
+
+        const isHttps = parsed.protocol === 'https:';
+        const isDevHttp = __DEV__ && parsed.protocol === 'http:';
+        if (!isHttps && !isDevHttp) {
+            Alert.alert('Unable to open', 'Only secure attachment links are allowed.');
+            return;
+        }
+
+        const canOpen = await Linking.canOpenURL(trimmed);
+        if (!canOpen) {
+            Alert.alert('Unable to open', 'This attachment cannot be opened on your device.');
+            return;
+        }
+
+        await Linking.openURL(trimmed);
+    }, []);
+
     const scrollToLatest = React.useCallback((animated = true) => {
         requestAnimationFrame(() => {
             flatListRef.current?.scrollToEnd({ animated });
@@ -274,7 +305,7 @@ export default function ChatScreen({ route, navigation }: Props) {
         return (
             <View className={`mb-3 max-w-[80%] rounded-2xl px-4 py-3 ${mine ? 'bg-blue-600 self-end rounded-tr-sm' : 'bg-white border border-gray-100 self-start rounded-tl-sm shadow-sm'}`}>
                 {hasAttachment && isImageAttachment && (
-                    <TouchableOpacity onPress={() => Linking.openURL(item.attachment_url)}>
+                    <TouchableOpacity onPress={() => { void openAttachmentUrl(item.attachment_url); }}>
                         <Image
                             source={{ uri: item.attachment_url }}
                             style={{ width: 180, height: 180, borderRadius: 12, marginBottom: item.content ? 8 : 0 }}
@@ -283,7 +314,7 @@ export default function ChatScreen({ route, navigation }: Props) {
                 )}
                 {hasAttachment && !isImageAttachment && (
                     <TouchableOpacity
-                        onPress={() => Linking.openURL(item.attachment_url)}
+                        onPress={() => { void openAttachmentUrl(item.attachment_url); }}
                         className={`flex-row items-center px-3 py-2 rounded-xl mb-2 ${mine ? 'bg-blue-500' : 'bg-gray-100'}`}
                     >
                         <FileText size={16} color={mine ? '#dbeafe' : '#4b5563'} style={{ marginRight: 8 }} />

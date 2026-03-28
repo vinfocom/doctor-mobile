@@ -3,7 +3,15 @@ import Constants from 'expo-constants';
 const ensureHttpProtocol = (url: string) => {
     const trimmed = url.trim();
     if (!trimmed) return trimmed;
-    return /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+
+    if (/^https?:\/\//i.test(trimmed)) {
+        if (!__DEV__ && /^http:\/\//i.test(trimmed)) {
+            throw new Error('[env] In release builds, API and socket URLs must use HTTPS.');
+        }
+        return trimmed;
+    }
+
+    return __DEV__ ? `http://${trimmed}` : `https://${trimmed}`;
 };
 
 type PublicEnvName = 'EXPO_PUBLIC_API_URL' | 'EXPO_PUBLIC_SOCKET_URL' | 'EXPO_PUBLIC_APP_VERSION';
