@@ -102,6 +102,10 @@ function getErrorDetails(error: unknown) {
     };
 }
 
+function logPushFailure(role: 'DOCTOR' | 'PATIENT', message: string, details?: unknown) {
+    console.warn(`[push] ${role.toLowerCase()} ${message}`, details ?? '');
+}
+
 async function savePushTokenWithRetry(
     role: 'DOCTOR' | 'PATIENT',
     pushToken: string,
@@ -130,6 +134,7 @@ async function savePushTokenWithRetry(
             if (__DEV__) {
                 console.log(`[push] ${role.toLowerCase()} push token save attempt ${attempt} failed`, details);
             }
+            logPushFailure(role, `push token save attempt ${attempt} failed`, details);
 
             if (attempt === maxAttempts) {
                 throw error;

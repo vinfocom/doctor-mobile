@@ -16,6 +16,9 @@ const pushDebug = (...args: unknown[]) => {
         console.log(...args);
     }
 };
+const pushWarn = (...args: unknown[]) => {
+    console.warn(...args);
+};
 
 function getExpoProjectId() {
     const constantsAny = Constants as typeof Constants & {
@@ -72,6 +75,7 @@ export const usePushNotifications = (): PushNotificationState => {
 export async function registerForPushNotificationsAsync() {
     if (!Notifications) {
         pushDebug('[push] expo-notifications unavailable; likely running in Expo Go');
+        pushWarn('[push] expo-notifications unavailable; remote push requires a native build, not Expo Go');
         return;
     }
 
@@ -100,6 +104,7 @@ export async function registerForPushNotificationsAsync() {
 
         if (finalStatus !== 'granted') {
             pushDebug('[push] permission not granted; cannot generate push token');
+            pushWarn('[push] notification permission not granted; cannot generate push token');
             return;
         }
 
@@ -115,9 +120,11 @@ export async function registerForPushNotificationsAsync() {
             pushDebug('[push] Expo Push Token generated successfully');
         } catch (e) {
             pushDebug('[push] Error generating push token:', e);
+            pushWarn('[push] Error generating push token:', e);
         }
     } else {
         pushDebug('[push] Must use physical device for Push Notifications');
+        pushWarn('[push] Must use physical device for Push Notifications');
     }
 
     return token;

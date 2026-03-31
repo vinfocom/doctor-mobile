@@ -31,12 +31,16 @@ const pushDebug = (...args: unknown[]) => {
         console.log(...args);
     }
 };
+const pushWarn = (...args: unknown[]) => {
+    console.warn(...args);
+};
 
 async function registerPushTokenForRole(role: 'DOCTOR' | 'PATIENT', authToken?: string) {
     try {
         const pushToken = await registerForPushNotificationsAsync();
         if (!pushToken?.data) {
             pushDebug(`[push] ${role.toLowerCase()} login flow: no push token generated`);
+            pushWarn(`[push] ${role.toLowerCase()} login flow: no push token generated`);
             return;
         }
 
@@ -49,6 +53,7 @@ async function registerPushTokenForRole(role: 'DOCTOR' | 'PATIENT', authToken?: 
         pushDebug(`[push] ${role.toLowerCase()} login flow: push token saved successfully`);
     } catch (error) {
         pushDebug(`[push] ${role.toLowerCase()} login flow: failed to register/save push token`, error);
+        pushWarn(`[push] ${role.toLowerCase()} login flow: failed to register/save push token`, error);
     }
 }
 

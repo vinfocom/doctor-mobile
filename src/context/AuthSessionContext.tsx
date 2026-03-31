@@ -31,6 +31,9 @@ const pushDebug = (...args: unknown[]) => {
         console.log(...args);
     }
 };
+const pushWarn = (...args: unknown[]) => {
+    console.warn(...args);
+};
 
 function mapUserToSession(user: AuthMeUser | null): SessionUserState {
     return {
@@ -91,6 +94,7 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
                 setPushTokenSyncStatus('error');
                 setPushTokenSyncMessage('Push token was not generated on this device');
                 pushDebug('[push] token missing, cannot sync to backend');
+                pushWarn('[push] token missing, cannot sync to backend');
                 return { ok: false, message: 'Push token was not generated on this device' };
             }
 
@@ -112,6 +116,7 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
             return { ok: true, message: 'Push token synced successfully' };
         } catch (error) {
             pushDebug('[push] sync failed', error);
+            pushWarn('[push] sync failed', error);
             const maybeError = error as { response?: { status?: number; data?: { error?: string } }; message?: string };
             const detail =
                 maybeError?.response?.data?.error ||
