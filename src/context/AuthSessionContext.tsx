@@ -13,9 +13,17 @@ type SessionState = {
     email: string | null;
     user: AuthMeUser | null;
     isLoading: boolean;
+    pushTokenSyncStatus: 'idle' | 'syncing' | 'success' | 'error';
+    pushTokenSyncMessage: string | null;
     refreshSession: () => Promise<void>;
+    syncPushToken: () => Promise<{ ok: boolean; message: string }>;
     clearSession: () => void;
 };
+
+type SessionUserState = Pick<
+    SessionState,
+    'role' | 'staff_role' | 'staff_clinic_id' | 'staff_doctor_id' | 'name' | 'email' | 'user'
+>;
 
 const AuthSessionContext = React.createContext<SessionState | undefined>(undefined);
 const pushDebug = (...args: unknown[]) => {
@@ -24,7 +32,7 @@ const pushDebug = (...args: unknown[]) => {
     }
 };
 
-function mapUserToSession(user: AuthMeUser | null): Omit<SessionState, 'isLoading' | 'refreshSession' | 'clearSession'> {
+function mapUserToSession(user: AuthMeUser | null): SessionUserState {
     return {
         role: user?.role ?? null,
         staff_role: user?.staff_role ?? null,
@@ -37,7 +45,7 @@ function mapUserToSession(user: AuthMeUser | null): Omit<SessionState, 'isLoadin
 }
 
 export function AuthSessionProvider({ children }: { children: React.ReactNode }) {
-    const [session, setSession] = React.useState<Omit<SessionState, 'isLoading' | 'refreshSession' | 'clearSession'>>({
+    const [session, setSession] = React.useState<SessionUserState>({
         role: null,
         staff_role: null,
         staff_clinic_id: null,
@@ -47,6 +55,8 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
         user: null,
     });
     const [isLoading, setIsLoading] = React.useState(true);
+    const [pushTokenSyncStatus, setPushTokenSyncStatus] = React.useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
+    const [pushTokenSyncMessage, setPushTokenSyncMessage] = React.useState<string | null>(null);
 
     const clearSession = React.useCallback(() => {
         setSession({
@@ -58,6 +68,59 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
             email: null,
             user: null,
         });
+        setPushTokenSyncStatus('idle');
+        setPushTokenSyncMessage(null);
+    }, []);
+
+    const syncPushToken = React.useCallback(async () => {
+        const token = await getToken();
+        const storedRole = await getRole();
+
+        if (!token || !storedRole) {
+            setPushTokenSyncStatus('error');
+            setPushTokenSyncMessage('No active session found');
+            return { ok: false, message: 'No active session found' };
+        }
+
+        setPushTokenSyncStatus('syncing');
+        setPushTokenSyncMessage('Requesting notification permission');
+
+        try {
+            const pushToken = await registerForPushNotificationsAsync();
+            if (!pushToken?.data) {
+                setPushTokenSyncStatus('error');
+                setPushTokenSyncMessage('Push token was not generated on this device');
+                pushDebug('[push] token missing, cannot sync to backend');
+                return { ok: false, message: 'Push token was not generated on this device' };
+            }
+
+            setPushTokenSyncMessage('Saving token to backend');
+            pushDebug(`[push] syncing ${storedRole.toLowerCase()} push token to backend`);
+
+            if (storedRole === 'PATIENT') {
+                await savePatientPushToken(pushToken.data, token);
+            } else if (storedRole === 'DOCTOR') {
+                await saveDoctorPushToken(pushToken.data, token);
+            } else {
+                setPushTokenSyncStatus('idle');
+                setPushTokenSyncMessage('Clinic staff push sync is not used');
+                return { ok: true, message: 'Clinic staff push sync is not used' };
+            }
+
+            setPushTokenSyncStatus('success');
+            setPushTokenSyncMessage('Push token synced successfully');
+            return { ok: true, message: 'Push token synced successfully' };
+        } catch (error) {
+            pushDebug('[push] sync failed', error);
+            const maybeError = error as { response?: { status?: number; data?: { error?: string } }; message?: string };
+            const detail =
+                maybeError?.response?.data?.error ||
+                maybeError?.message ||
+                'Failed to sync push token';
+            setPushTokenSyncStatus('error');
+            setPushTokenSyncMessage(detail);
+            return { ok: false, message: detail };
+        }
     }, []);
 
     const refreshSession = React.useCallback(async () => {
@@ -82,34 +145,14 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
                     email: null,
                     user: null,
                 });
-                try {
-                    const pushToken = await registerForPushNotificationsAsync();
-                    if (pushToken?.data) {
-                        pushDebug('[push] saving patient push token to backend');
-                        await savePatientPushToken(pushToken.data, token);
-                    } else {
-                        pushDebug('[push] patient push token missing, nothing to save');
-                    }
-                } catch (error) {
-                    pushDebug('[push] patient token registration/save failed:', error);
-                }
+                await syncPushToken();
                 return;
             }
 
             const response = await getMe();
             setSession(mapUserToSession(response.user));
             if (response.user.role === 'DOCTOR') {
-                try {
-                    const pushToken = await registerForPushNotificationsAsync();
-                    if (pushToken?.data) {
-                        pushDebug('[push] saving doctor push token to backend');
-                        await saveDoctorPushToken(pushToken.data, token);
-                    } else {
-                        pushDebug('[push] doctor push token missing, nothing to save');
-                    }
-                } catch (error) {
-                    pushDebug('[push] doctor token registration/save failed:', error);
-                }
+                await syncPushToken();
             }
         } catch {
             await removeToken();
@@ -130,10 +173,13 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
         () => ({
             ...session,
             isLoading,
+            pushTokenSyncStatus,
+            pushTokenSyncMessage,
             refreshSession,
+            syncPushToken,
             clearSession,
         }),
-        [clearSession, isLoading, refreshSession, session]
+        [clearSession, isLoading, pushTokenSyncMessage, pushTokenSyncStatus, refreshSession, session, syncPushToken]
     );
 
     return <AuthSessionContext.Provider value={value}>{children}</AuthSessionContext.Provider>;

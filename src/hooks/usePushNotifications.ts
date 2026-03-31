@@ -17,6 +17,23 @@ const pushDebug = (...args: unknown[]) => {
     }
 };
 
+function getExpoProjectId() {
+    const constantsAny = Constants as typeof Constants & {
+        expoConfig?: { extra?: { eas?: { projectId?: string } } };
+        easConfig?: { projectId?: string };
+        manifest2?: { extra?: { eas?: { projectId?: string } } };
+        manifest?: { extra?: { eas?: { projectId?: string } } };
+    };
+
+    return (
+        constantsAny?.expoConfig?.extra?.eas?.projectId ??
+        constantsAny?.easConfig?.projectId ??
+        constantsAny?.manifest2?.extra?.eas?.projectId ??
+        constantsAny?.manifest?.extra?.eas?.projectId ??
+        null
+    );
+}
+
 export interface PushNotificationState {
     expoPushToken?: NotificationsType.ExpoPushToken;
     notification?: NotificationsType.Notification;
@@ -87,9 +104,7 @@ export async function registerForPushNotificationsAsync() {
         }
 
         try {
-            const projectId =
-                Constants?.expoConfig?.extra?.eas?.projectId ??
-                Constants?.easConfig?.projectId;
+            const projectId = getExpoProjectId();
 
             if (!projectId) {
                 throw new Error('Missing EAS projectId for push token generation');
