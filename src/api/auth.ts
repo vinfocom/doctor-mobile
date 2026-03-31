@@ -1,3 +1,4 @@
+import type { AxiosRequestConfig } from 'axios';
 import client from './client';
 import type { AppRole } from './token';
 
@@ -43,8 +44,15 @@ export const updateProfile = async (data: {
     document_url?: string;
     whatsapp_numbers?: { whatsapp_number: string; is_primary: boolean }[];
     push_token?: string;
-}) => {
-    const response = await client.patch('/doctors/me', data);
+}, authToken?: string) => {
+    const config: AxiosRequestConfig | undefined = authToken
+        ? {
+            headers: {
+                Authorization: `Bearer ${authToken}`,
+            },
+        }
+        : undefined;
+    const response = await client.patch('/doctors/me', data, config);
     return response.data;
 };
 
@@ -64,7 +72,78 @@ export const updatePatientProfile = async (data: {
     age?: number | string;
     gender?: string;
     push_token?: string;
-}) => {
-    const response = await client.patch('/patient/me', data);
+}, authToken?: string) => {
+    const config: AxiosRequestConfig | undefined = authToken
+        ? {
+            headers: {
+                Authorization: `Bearer ${authToken}`,
+            },
+        }
+        : undefined;
+    const response = await client.patch('/patient/me', data, config);
     return response.data;
+};
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function getErrorDetails(error: unknown) {
+    const maybeError = error as {
+        response?: {
+            status?: number;
+            data?: unknown;
+        };
+        message?: string;
+    };
+
+    return {
+        status: maybeError?.response?.status ?? null,
+        data: maybeError?.response?.data ?? null,
+        message: maybeError?.message ?? 'unknown error',
+    };
+}
+
+async function savePushTokenWithRetry(
+    role: 'DOCTOR' | 'PATIENT',
+    pushToken: string,
+    authToken?: string
+) {
+    const maxAttempts = 3;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+            if (__DEV__) {
+                console.log(`[push] ${role.toLowerCase()} push token save attempt ${attempt}/${maxAttempts}`);
+            }
+
+            if (role === 'PATIENT') {
+                await updatePatientProfile({ push_token: pushToken }, authToken);
+            } else {
+                await updateProfile({ push_token: pushToken }, authToken);
+            }
+
+            if (__DEV__) {
+                console.log(`[push] ${role.toLowerCase()} push token saved successfully`);
+            }
+            return;
+        } catch (error) {
+            const details = getErrorDetails(error);
+            if (__DEV__) {
+                console.log(`[push] ${role.toLowerCase()} push token save attempt ${attempt} failed`, details);
+            }
+
+            if (attempt === maxAttempts) {
+                throw error;
+            }
+
+            await sleep(attempt * 750);
+        }
+    }
+}
+
+export const saveDoctorPushToken = async (pushToken: string, authToken?: string) => {
+    await savePushTokenWithRetry('DOCTOR', pushToken, authToken);
+};
+
+export const savePatientPushToken = async (pushToken: string, authToken?: string) => {
+    await savePushTokenWithRetry('PATIENT', pushToken, authToken);
 };

@@ -1,7 +1,7 @@
 import React from 'react';
 import { getMe, getPatientProfile, type AuthMeUser } from '../api/auth';
 import { getRole, getToken, removeToken, type AppRole } from '../api/token';
-import { updateProfile, updatePatientProfile } from '../api/auth';
+import { saveDoctorPushToken, savePatientPushToken } from '../api/auth';
 import { registerForPushNotificationsAsync } from '../hooks/usePushNotifications';
 
 type SessionState = {
@@ -86,8 +86,7 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
                     const pushToken = await registerForPushNotificationsAsync();
                     if (pushToken?.data) {
                         pushDebug('[push] saving patient push token to backend');
-                        await updatePatientProfile({ push_token: pushToken.data });
-                        pushDebug('[push] patient push token saved successfully');
+                        await savePatientPushToken(pushToken.data, token);
                     } else {
                         pushDebug('[push] patient push token missing, nothing to save');
                     }
@@ -104,8 +103,7 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
                     const pushToken = await registerForPushNotificationsAsync();
                     if (pushToken?.data) {
                         pushDebug('[push] saving doctor push token to backend');
-                        await updateProfile({ push_token: pushToken.data });
-                        pushDebug('[push] doctor push token saved successfully');
+                        await saveDoctorPushToken(pushToken.data, token);
                     } else {
                         pushDebug('[push] doctor push token missing, nothing to save');
                     }
