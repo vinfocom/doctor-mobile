@@ -31,7 +31,6 @@ import {
     Camera,
     Upload,
     BadgeCheck,
-    Router,
 } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { getProfile, updateProfile } from '../api/auth';
@@ -48,7 +47,6 @@ import { useAuthSession } from '../context/AuthSessionContext';
 import { APP_VERSION } from '../config/env';
 
 type ProfileScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Profile'>;
-const PRIVACY_POLICY_URL = 'https://dapto.vinfocom.co.in/privacy-policy';
 
 // ─── Inline scroll-wheel date picker ──────────────────────────────────────────
 const ITEM_H = 44;
@@ -451,18 +449,6 @@ const ProfileScreen = () => {
             },
         ]);
     };
-    const handleOpenPrivacyPolicy = async () => {
-        try {
-            const canOpen = await Linking.canOpenURL(PRIVACY_POLICY_URL);
-            if (!canOpen) {
-                Alert.alert('Unable to open', 'Privacy policy link is unavailable right now.');
-                return;
-            }
-            await Linking.openURL(PRIVACY_POLICY_URL);
-        } catch {
-            Alert.alert('Unable to open', 'Something went wrong while opening the privacy policy.');
-        }
-    };
 
     const handleManageStaff = React.useCallback(() => {
         navigation.navigate('StaffList');
@@ -556,16 +542,6 @@ const ProfileScreen = () => {
                                     <Text className="text-base text-gray-800 font-medium">{staff_doctor_id ? String(staff_doctor_id) : 'N/A'}</Text>
                                 </View>
                             </View>
-                        </Animated.View>
-
-                        <Animated.View entering={FadeInUp.delay(390).duration(500)} className="mt-3">
-                            <TouchableOpacity
-                                onPress={handleOpenPrivacyPolicy}
-                                activeOpacity={0.7}
-                                className="border border-blue-200 bg-blue-50 rounded-2xl py-4 items-center"
-                            >
-                                <Text className="text-blue-700 font-bold text-base">Privacy Policy</Text>
-                            </TouchableOpacity>
                         </Animated.View>
 
                         <Animated.View entering={FadeInUp.delay(420).duration(500)} className="mt-4 mb-10">
@@ -964,15 +940,6 @@ const ProfileScreen = () => {
                             </View>
                         )}
                     </Animated.View>
-                    {/* <Animated.View entering={FadeInUp.delay(690).duration(500)} className="mt-4">
-                        <TouchableOpacity
-                            onPress={handleOpenPrivacyPolicy}
-                            activeOpacity={0.7}
-                            className="border border-blue-200 bg-blue-50 rounded-2xl py-4 items-center"
-                        >
-                            <Text className="text-blue-700 font-bold text-base">Privacy Policy</Text>
-                        </TouchableOpacity>
-                    </Animated.View> */}
 
                     {/* Logout */}
                     <Animated.View entering={FadeInUp.delay(700).duration(500)} className="mt-4 mb-10">
@@ -984,12 +951,9 @@ const ProfileScreen = () => {
                             <LogOut size={20} color="#ef4444" style={{ marginRight: 8 }} />
                             <Text className="text-red-500 font-bold text-lg">Logout</Text>
                         </TouchableOpacity>
-                       <View className="flex-row justify-center mt-4 gap-2">
-                         <Text className="text-center text-xs text-gray-400 mt-4">
-                            Version {APP_VERSION} 
+                        <Text className="text-center text-xs text-gray-400 mt-4">
+                            Version {APP_VERSION}
                         </Text>
-                        <Text className="text-center text-xs text-gray-400 mt-4" onPress={handleOpenPrivacyPolicy}> Privacy Policy</Text>
-                       </View>
                     </Animated.View>
                 </View>
             </ScrollView>
