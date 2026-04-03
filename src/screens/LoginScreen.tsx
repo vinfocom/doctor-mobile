@@ -29,7 +29,7 @@ import { setAuthSession, type AppRole } from '../api/token';
 import { useAuthSession } from '../context/AuthSessionContext';
 import { registerForPushNotificationsAsync } from '../hooks/usePushNotifications';
 import { Stethoscope, Mail, Lock, Eye, EyeOff, ArrowRight, ShieldCheck, RefreshCw, Calculator, Check } from 'lucide-react-native';
-import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
+import Animated, { FadeInDown, FadeInUp, ZoomIn } from 'react-native-reanimated';
 import { API_URL } from '../config/env';
 
 type LoginScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Login'>;
@@ -275,7 +275,7 @@ const LoginScreen = () => {
                         {/* ── Form Card ── */}
                         <Animated.View
                             entering={FadeInUp.delay(200).duration(500)}
-                            className="flex-1 bg-gray-50 px-7 pt-9 pb-10 -mt-7"
+                            className="flex-1 bg-gray-50 px-7 pt-8 pb-7 -mt-7"
                             style={{ borderTopLeftRadius: 36, borderTopRightRadius: 36 }}
                         >
                             {/* Greeting */}
@@ -306,7 +306,7 @@ const LoginScreen = () => {
                             {mode === 'DOCTOR' ? (
                                 <>
                                     {/* Email */}
-                                    <View className="mb-5">
+                                    <View className="mb-0.5">
                                         <Text className="text-base font-bold text-gray-700 mb-2 ml-1">
                                             Email Address
                                         </Text>
@@ -337,7 +337,7 @@ const LoginScreen = () => {
                                     </View>
 
                                     {/* Password */}
-                                    <View className="mb-3">
+                                    <View className="mb-0.5">
                                         <Text className="text-base font-bold text-gray-700 mb-2 ml-1">
                                             Password
                                         </Text>
@@ -375,7 +375,7 @@ const LoginScreen = () => {
                                         </View>
                                     </View>
 
-                                    <View className="mb-6">
+                                    <View className="mb-1">
                                         <View className="flex-row items-center justify-between mb-2">
                                             <Text className="text-base font-bold text-gray-700 ml-1">
                                                 Quick Verification
@@ -386,35 +386,34 @@ const LoginScreen = () => {
                                                 className="flex-row items-center"
                                             >
                                                 <RefreshCw size={14} color="#2563eb" />
-                                                <Text className="text-blue-600 font-semibold text-xs ml-1.5">Regenerate</Text>
                                             </TouchableOpacity>
                                         </View>
 
                                         <View className="bg-white border border-blue-100 rounded-2xl px-4 py-3 mb-3">
-                                            <View className="flex-row items-center pl-12">
-                                                <Calculator size={22} color="#2563eb" />
+                                            <View className="flex-row items-center pl-4">
+                                                <Calculator size={24} color="#2563eb" />
                                                 {challengeLoading ? (
-                                                    <Text className="text-slate-800 font-bold text-xl ml-3">
+                                                    <Text className="text-slate-800 font-bold text-2xl ml-3">
                                                         Loading calculation...
                                                     </Text>
                                                 ) : challengeQuestion ? (
                                                     <>
-                                                        <Text className="text-slate-800 font-bold text-xl ml-3">
+                                                        <Text className="text-slate-800 font-bold text-[28px] ml-4 mr-1">
                                                             {challengeQuestion.replace('?', '')}
                                                         </Text>
                                                         {challengeAnswer === '' && !answerInputActive && !challengeVerified ? (
                                                             <TouchableOpacity
                                                                 activeOpacity={0.9}
                                                                 onPress={() => setAnswerInputActive(true)}
-                                                                className="w-[88px] h-[46px] bg-white items-center justify-center ml-3 mr-1 px-2 rounded-xl border border-blue-200"
+                                                                className="w-[112px] h-[56px] bg-white items-center justify-center ml-5 mr-1 px-2 rounded-2xl border border-blue-200"
                                                             >
-                                                                <Text className="text-lg font-bold text-gray-400">Ans</Text>
+                                                                <Text className="text-[28px] font-bold text-gray-400">?</Text>
                                                             </TouchableOpacity>
                                                         ) : (
                                                             <TextInput
                                                                 autoFocus={answerInputActive && !challengeVerified}
-                                                                className="w-[88px] h-[46px] bg-white text-center text-lg font-bold text-slate-800 ml-3 mr-1 px-2 rounded-xl border border-blue-200"
-                                                                placeholder="Ans"
+                                                                className="w-[112px] h-[56px] bg-white text-center text-[28px] font-bold text-slate-800 ml-5 mr-1 px-2 rounded-2xl border border-blue-200"
+                                                                placeholder="?"
                                                                 placeholderTextColor="#9ca3af"
                                                                 value={challengeAnswer}
                                                                 onChangeText={(text) => {
@@ -431,12 +430,12 @@ const LoginScreen = () => {
                                                                 keyboardType="number-pad"
                                                                 maxLength={4}
                                                                 editable={!challengeLoading && !challengeVerified}
-                                                                style={{ textAlign: 'center' }}
+                                                                style={{ textAlign: 'center', lineHeight: 32 }}
                                                             />
                                                         )}
                                                     </>
                                                 ) : (
-                                                    <Text className="text-slate-800 font-bold text-xl ml-3">
+                                                    <Text className="text-slate-800 font-bold text-2xl ml-3">
                                                         Calculation unavailable
                                                     </Text>
                                                 )}
@@ -444,9 +443,12 @@ const LoginScreen = () => {
                                                     {verifyingChallenge ? (
                                                         <ActivityIndicator color="#2563eb" size="small" />
                                                     ) : challengeStatus === 'success' ? (
-                                                        <View className="w-9 h-9 rounded-xl bg-emerald-500 items-center justify-center">
+                                                        <Animated.View
+                                                            entering={ZoomIn.duration(220)}
+                                                            className="w-9 h-9 rounded-xl bg-emerald-500 items-center justify-center"
+                                                        >
                                                             <Check size={18} color="#fff" />
-                                                        </View>
+                                                        </Animated.View>
                                                     ) : null}
                                                 </View>
                                             </View>
@@ -472,7 +474,7 @@ const LoginScreen = () => {
                                         </View>
                                     </View>
 
-                                    <View className="mb-6">
+                                    <View className="mb-2">
                                         <View className="flex-row items-center justify-between mb-2">
                                             <Text className="text-base font-bold text-gray-700 ml-1">
                                                 Quick Verification
@@ -483,35 +485,34 @@ const LoginScreen = () => {
                                                 className="flex-row items-center"
                                             >
                                                 <RefreshCw size={14} color="#2563eb" />
-                                                <Text className="text-blue-600 font-semibold text-xs ml-1.5">Regenerate</Text>
                                             </TouchableOpacity>
                                         </View>
 
                                         <View className="bg-white border border-blue-100 rounded-2xl px-4 py-3 mb-3">
-                                            <View className="flex-row items-center pl-12">
-                                                <Calculator size={22} color="#2563eb" />
+                                            <View className="flex-row items-center pl-5">
+                                                <Calculator size={24} color="#2563eb" />
                                                 {challengeLoading ? (
-                                                    <Text className="text-slate-800 font-bold text-xl ml-3">
+                                                    <Text className="text-slate-800 font-bold text-2xl ml-3">
                                                         Loading calculation...
                                                     </Text>
                                                 ) : challengeQuestion ? (
                                                     <>
-                                                        <Text className="text-slate-800 font-bold text-xl ml-3">
+                                                        <Text className="text-slate-800 font-bold text-[28px] ml-4 mr-1">
                                                             {challengeQuestion.replace('?', '')}
                                                         </Text>
                                                         {challengeAnswer === '' && !answerInputActive && !challengeVerified ? (
                                                             <TouchableOpacity
                                                                 activeOpacity={0.9}
                                                                 onPress={() => setAnswerInputActive(true)}
-                                                                className="w-[88px] h-[46px] bg-white items-center justify-center ml-3 mr-1 px-2 rounded-xl border border-blue-200"
+                                                                className="w-[112px] h-[56px] bg-white items-center justify-center ml-5 mr-1 px-2 rounded-2xl border border-blue-200"
                                                             >
-                                                                <Text className="text-lg font-bold text-gray-400">Ans</Text>
+                                                                <Text className="text-[28px] font-bold text-gray-400">?</Text>
                                                             </TouchableOpacity>
                                                         ) : (
                                                             <TextInput
                                                                 autoFocus={answerInputActive && !challengeVerified}
-                                                                className="w-[88px] h-[46px] bg-white text-center text-lg font-bold text-slate-800 ml-3 mr-1 px-2 rounded-xl border border-blue-200"
-                                                                placeholder="Ans"
+                                                                className="w-[112px] h-[56px] bg-white text-center text-[28px] font-bold text-slate-800 ml-5 mr-1 px-2 rounded-2xl border border-blue-200"
+                                                                placeholder="?"
                                                                 placeholderTextColor="#9ca3af"
                                                                 value={challengeAnswer}
                                                                 onChangeText={(text) => {
@@ -528,12 +529,12 @@ const LoginScreen = () => {
                                                                 keyboardType="number-pad"
                                                                 maxLength={4}
                                                                 editable={!challengeLoading && !challengeVerified}
-                                                                style={{ textAlign: 'center' }}
+                                                                style={{ textAlign: 'center', lineHeight: 32 }}
                                                             />
                                                         )}
                                                     </>
                                                 ) : (
-                                                    <Text className="text-slate-800 font-bold text-xl ml-3">
+                                                    <Text className="text-slate-800 font-bold text-2xl ml-3">
                                                         Calculation unavailable
                                                     </Text>
                                                 )}
@@ -541,9 +542,12 @@ const LoginScreen = () => {
                                                     {verifyingChallenge ? (
                                                         <ActivityIndicator color="#2563eb" size="small" />
                                                     ) : challengeStatus === 'success' ? (
-                                                        <View className="w-9 h-9 rounded-xl bg-emerald-500 items-center justify-center">
+                                                        <Animated.View
+                                                            entering={ZoomIn.duration(220)}
+                                                            className="w-9 h-9 rounded-xl bg-emerald-500 items-center justify-center"
+                                                        >
                                                             <Check size={18} color="#fff" />
-                                                        </View>
+                                                        </Animated.View>
                                                     ) : null}
                                                 </View>
                                             </View>
@@ -585,7 +589,7 @@ const LoginScreen = () => {
                             </TouchableOpacity>
 
                             {/* Security Note */}
-                            <View className="flex-row items-center justify-center mt-8 px-4">
+                            <View className="flex-row items-center justify-center mt-6 px-4">
                                 <ShieldCheck size={14} color="#9ca3af" />
                                 <Text className="text-xs text-gray-400 text-center ml-2">
                                     Authorized medical personnel only.{'\n'}Your session is encrypted and secure.
