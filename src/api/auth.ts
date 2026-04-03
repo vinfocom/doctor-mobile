@@ -82,8 +82,16 @@ export const updateProfile = async (data: {
     return response.data;
 };
 
-export const patientLogin = async (identifier: string) => {
-    const response = await client.post('/patient-auth/login', { identifier });
+export const patientLogin = async (
+    identifier: string,
+    challengeId: string,
+    challengeVerificationToken: string
+) => {
+    const response = await client.post('/patient-auth/login', {
+        identifier,
+        challengeId,
+        challengeVerificationToken,
+    });
     return response.data;
 };
 
