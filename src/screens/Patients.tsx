@@ -222,25 +222,30 @@ const Patients = () => {
 
     const renderItem = ({ item, index }: { item: any; index: number }) => {
         const isNew = item.patient_type === 'NEW';
+        const patientId = Number(item.patient_id);
+        const hasUnread = unreadPatientIds.has(patientId);
 
         return (
             <AnimatedListItem index={index}>
-                <TouchableOpacity
-                    activeOpacity={0.7}
-                    onPress={() => handleOpenChat(item)}
+                <View
                     className="bg-white rounded-2xl mb-4 overflow-hidden"
                     style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4 }}
                 >
                     <View className="bg-emerald-900/90 px-3 py-2 border-b border-emerald-500">
                         <View className="flex-row items-center">
-                            <View className="bg-white w-8 h-8 rounded-full items-center justify-center mr-2.5 relative">
+                            <TouchableOpacity
+                                onPress={() => navigation.navigate('PatientDetails', { patientId: item.patient_id })}
+                                activeOpacity={0.8}
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                className="bg-white w-8 h-8 rounded-full items-center justify-center mr-2.5 relative"
+                            >
                                 <User size={16} color="#043f2cff" />
-                                {unreadPatientIds.has(Number(item.patient_id)) && (
+                                {hasUnread && (
                                     <View className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-red-500 items-center justify-center border border-white">
                                         <Text className="text-white text-[8px] font-bold">!</Text>
                                     </View>
                                 )}
-                            </View>
+                            </TouchableOpacity>
                             <View className="flex-1">
                                 <Text className="text-white font-bold text-sm" numberOfLines={1}>
                                     {item.full_name || 'Unknown Patient'}
@@ -249,10 +254,20 @@ const Patients = () => {
                                     {item.gender || 'N/A'} • {item.age ? `${item.age} yrs` : 'Age N/A'}
                                 </Text>
                             </View>
-                            <View className={`px-2 py-0.5 rounded-lg ${isNew ? 'bg-emerald-200' : 'bg-emerald-800'}`}>
-                                <Text className={`text-[10px] font-bold ${isNew ? 'text-emerald-800' : 'text-emerald-200'}`}>
-                                    {item.patient_type || 'STANDARD'}
-                                </Text>
+                            <View className="flex-row items-center">
+                                <TouchableOpacity
+                                    onPress={() => handleOpenChat(item)}
+                                    activeOpacity={0.85}
+                                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                    className="bg-emerald-600 w-8 h-8 rounded-full items-center justify-center mr-2"
+                                >
+                                    <MessageCircle size={15} color="#ffffff" />
+                                </TouchableOpacity>
+                                <View className={`px-2 py-0.5 rounded-lg ${isNew ? 'bg-emerald-200' : 'bg-emerald-800'}`}>
+                                    <Text className={`text-[10px] font-bold ${isNew ? 'text-emerald-800' : 'text-emerald-200'}`}>
+                                        {item.patient_type || 'STANDARD'}
+                                    </Text>
+                                </View>
                             </View>
                         </View>
                     </View>
@@ -269,24 +284,8 @@ const Patients = () => {
                                 <Text className="text-gray-500 text-xs flex-1 ml-1" numberOfLines={2}>{item.reason}</Text>
                             </View>
                         ) : null}
-
-                        <View className="flex-row mt-1">
-                            <TouchableOpacity
-                                onPress={() => handleOpenChat(item)}
-                                className="flex-1 rounded-lg bg-emerald-600 px-2 py-2 flex-row items-center justify-center mr-1"
-                            >
-                                <MessageCircle size={14} color="#ffffff" />
-                                <Text className="text-white font-semibold text-xs ml-1.5">Chat</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                onPress={() => navigation.navigate('PatientDetails', { patientId: item.patient_id })}
-                                className="flex-1 rounded-lg bg-white border border-emerald-300 px-2 py-2 items-center justify-center ml-1"
-                            >
-                                <Text className="text-emerald-700 font-semibold text-xs">Details</Text>
-                            </TouchableOpacity>
-                        </View>
                     </View>
-                </TouchableOpacity>
+                </View>
             </AnimatedListItem>
         );
     };
