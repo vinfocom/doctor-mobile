@@ -231,7 +231,7 @@ const Patients = () => {
                     className="bg-white rounded-2xl mb-4 overflow-hidden"
                     style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4 }}
                 >
-                    <View className="bg-emerald-900/90 px-3 py-2 border-b border-emerald-500">
+                    <View className="bg-emerald-900/90 px-3 py-2">
                         <View className="flex-row items-center">
                             <TouchableOpacity
                                 onPress={() => navigation.navigate('PatientDetails', { patientId: item.patient_id })}
@@ -247,12 +247,21 @@ const Patients = () => {
                                 )}
                             </TouchableOpacity>
                             <View className="flex-1">
-                                <Text className="text-white font-bold text-sm" numberOfLines={1}>
+                                <Text className="text-white font-bold text-base" numberOfLines={1}>
                                     {item.full_name || 'Unknown Patient'}
                                 </Text>
-                                <Text className="text-emerald-100 text-[11px] mt-0.5">
-                                    {item.gender || 'N/A'} • {item.age ? `${item.age} yrs` : 'Age N/A'}
-                                </Text>
+                                <View className="flex-row items-center mt-0.5">
+                                    <Text className="text-emerald-100 text-sm">
+                                        {item.gender || 'N/A'} {' • '} {item.age ? `${item.age} yrs` : 'Age N/A'}
+                                    </Text>
+                                    <View className="flex-row items-center ml-2 flex-1">
+                                        <Text className="text-emerald-100 text-sm mr-1">{'•'}</Text>
+                                        <Phone size={10} color="#d1fae5" />
+                                        <Text className="text-emerald-100 text-sm ml-1 flex-1" numberOfLines={1}>
+                                            {item.phone || 'No phone'}
+                                        </Text>
+                                    </View>
+                                </View>
                             </View>
                             <View className="flex-row items-center">
                                 <TouchableOpacity
@@ -263,8 +272,8 @@ const Patients = () => {
                                 >
                                     <MessageCircle size={15} color="#ffffff" />
                                 </TouchableOpacity>
-                                <View className={`px-2 py-0.5 rounded-lg ${isNew ? 'bg-emerald-200' : 'bg-emerald-800'}`}>
-                                    <Text className={`text-[10px] font-bold ${isNew ? 'text-emerald-800' : 'text-emerald-200'}`}>
+                                <View className={`w-[54px] py-0.5 rounded-lg items-center ${isNew ? 'bg-emerald-200' : 'bg-emerald-800'}`}>
+                                    <Text className={`text-[11px] font-bold text-center ${isNew ? 'text-emerald-800' : 'text-emerald-200'}`}>
                                         {item.patient_type || 'STANDARD'}
                                     </Text>
                                 </View>
@@ -272,19 +281,14 @@ const Patients = () => {
                         </View>
                     </View>
 
-                    <View className="px-3 py-2.5">
-                        <View className="flex-row items-center mb-1.5">
-                            <View className="w-6 items-center"><Phone size={13} color="#6b7280" /></View>
-                            <Text className="text-gray-600 text-xs font-medium ml-1">{item.phone || 'No phone number'}</Text>
-                        </View>
-
-                        {item.reason ? (
+                    {item.reason ? (
+                        <View className="px-3 py-2.5">
                             <View className="flex-row items-start mb-1.5">
                                 <View className="w-6 items-center mt-0.5"><Stethoscope size={13} color="#6b7280" /></View>
-                                <Text className="text-gray-500 text-xs flex-1 ml-1" numberOfLines={2}>{item.reason}</Text>
+                                <Text className="text-gray-500 text-sm flex-1 ml-1" numberOfLines={2}>{item.reason}</Text>
                             </View>
-                        ) : null}
-                    </View>
+                        </View>
+                    ) : null}
                 </View>
             </AnimatedListItem>
         );

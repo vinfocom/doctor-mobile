@@ -557,8 +557,8 @@ export default function PatientHomeScreen() {
                                         const badgeText = hasOtherContext ? getRelationBadgeText(appt) : '';
                                         if (!badgeText) return null;
                                         return (
-                                            <View className={`self-start px-2.5 py-1 rounded-full ${appt?.relation_type === 'OTHER' ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'}`}>
-                                                <Text className={`text-[10px] font-semibold ${appt?.relation_type === 'OTHER' ? 'text-amber-700' : 'text-sky-700'}`}>
+                                            <View className={`self-start w-[58px] items-center px-2.5 py-1 rounded-full ${appt?.relation_type === 'OTHER' ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'}`}>
+                                                <Text className={`text-[10px] font-semibold text-center ${appt?.relation_type === 'OTHER' ? 'text-amber-700' : 'text-sky-700'}`}>
                                                     {badgeText}
                                                 </Text>
                                             </View>
@@ -582,7 +582,7 @@ export default function PatientHomeScreen() {
                                 e?.stopPropagation?.();
                                 handleOpenDoctorChat(item.doctor_id, item.doctor_name || 'Doctor', item.profile_pic_url);
                             }}
-                            className="w-9 h-9 rounded-full bg-blue-50 items-center justify-center relative"
+                            className="w-9 h-9 rounded-full bg-blue-50 items-center justify-center relative ml-2"
                         >
                                 <MessageCircle size={18} color="#1d4ed8" />
                                 {unreadCount > 0 ? (
