@@ -610,11 +610,6 @@ export default function PatientAppointmentsScreen() {
                                             {item.clinic?.clinic_name || 'Clinic'}
                                         </Text>
                                         <View className="mt-1.5 flex-row flex-wrap items-center gap-1.5">
-                                            <View className="self-start px-2 py-1 rounded-md bg-gray-100">
-                                                <Text className="text-[10px] text-gray-600">
-                                                    Appointment No. <Text className="font-bold text-gray-800">{item.booking_id ?? item.patient?.booking_id ?? item.appointment_id}</Text>
-                                                </Text>
-                                            </View>
                                             {hasOtherContext ? (
                                                 <View className={`self-start px-2.5 py-1 rounded-full ${effectiveRelationType === 'OTHER' ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'}`}>
                                                     <Text className={`text-[10px] font-semibold ${effectiveRelationType === 'OTHER' ? 'text-amber-700' : 'text-sky-700'}`}>
@@ -624,27 +619,31 @@ export default function PatientAppointmentsScreen() {
                                             ) : null}
                                         </View>
                                     </View>
-                                    <View className="items-end ml-2">
+                                    <View className="ml-2 w-[142px] flex-row items-start justify-between">
                                         <View className={`px-2 py-1 rounded-md ${isPast ? 'bg-gray-200' : item.status === 'CANCELLED' ? 'bg-red-100' : item.status === 'COMPLETED' ? 'bg-green-100' : 'bg-blue-100'}`}>
                                             <Text className={`text-[10px] font-bold uppercase ${isPast ? 'text-gray-600' : item.status === 'CANCELLED' ? 'text-red-600' : item.status === 'COMPLETED' ? 'text-green-700' : 'text-blue-700'}`}>{item.status || 'BOOKED'}</Text>
                                         </View>
                                         <TouchableOpacity
                                             onPress={() => setOpenCardMenuId((prev) => (prev === item.appointment_id ? null : item.appointment_id))}
-                                            className="mt-2 p-1.5 rounded-lg bg-gray-100"
+                                            className="self-start ml-3 p-1.5 rounded-lg bg-gray-100"
                                         >
                                             {isMenuOpen ? <X size={14} color="#4b5563" /> : <MoreVertical size={14} color="#4b5563" />}
                                         </TouchableOpacity>
                                     </View>
                                 </View>
 
-                                <View className="mt-3 flex-row">
-                                    <View className="flex-1 bg-blue-50 rounded-xl px-3 py-2 mr-2">
-                                        <Text className="text-[10px] uppercase tracking-wide text-blue-500 font-bold">Date</Text>
-                                        <Text className="text-xs font-semibold text-blue-900 mt-0.5">{formatDateOnly(item.appointment_date)}</Text>
+                                <View className="mt-3 flex-row items-stretch" style={{ gap: 8 }}>
+                                    <View className="flex-1 bg-blue-50 rounded-xl px-2.5 py-2">
+                                        <Text className="text-[10px] uppercase tracking-wide text-blue-500 font-bold">Date & Time</Text>
+                                        <Text className="text-sm font-semibold text-blue-900 mt-0.5" numberOfLines={1}>
+                                            {formatDateOnly(item.appointment_date)} {'•'} {formatTimeOnly(item.start_time)}
+                                        </Text>
                                     </View>
-                                    <View className="flex-1 bg-emerald-50 rounded-xl px-3 py-2 ml-2">
-                                        <Text className="text-[10px] uppercase tracking-wide text-emerald-600 font-bold">Time</Text>
-                                        <Text className="text-xs font-semibold text-emerald-900 mt-0.5">{formatTimeOnly(item.start_time)}</Text>
+                                    <View className="flex-1 bg-blue-50 rounded-xl items-center justify-center py-2 px-2">
+                                        <Text className="text-[10px] uppercase tracking-wide text-blue-600 font-bold">Appointment No.</Text>
+                                        <Text className="mt-1 text-lg font-extrabold text-blue-900">
+                                            {item.booking_id ?? item.patient?.booking_id ?? item.appointment_id}
+                                        </Text>
                                     </View>
                                 </View>
 

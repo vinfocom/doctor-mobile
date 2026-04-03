@@ -1168,40 +1168,43 @@ const AppointmentsScreen = () => {
                             <Text className="text-gray-500 text-xs mt-0.5" numberOfLines={1}>
                                 {item.clinic?.clinic_name || 'N/A'}
                             </Text>
-                            <View className="mt-1.5 self-start px-2 py-1 rounded-md bg-gray-100">
-                                <Text className="text-xs font-bold text-gray-700">Appointment No. {item.booking_id ?? item.appointment_id}</Text>
-                            </View>
                             {canUseChat && isHighlighted && (
                                 <View className="mt-1.5 self-start px-2 py-1 rounded-md bg-blue-600">
                                     <Text className="text-[10px] font-semibold text-white">New message</Text>
                                 </View>
                             )}
                         </View>
-                        <View className="items-end ml-2">
-                            <StatusBadge status={item.status} cancelledBy={item.cancelled_by} />
+                        <View className="ml-2 w-[142px] flex-row items-start justify-between">
+                            <View className="self-start">
+                                <StatusBadge status={item.status} cancelledBy={item.cancelled_by} />
+                            </View>
                             {canManageAppointments ? (
                                 <TouchableOpacity
                                     onPress={() => setOpenCardMenuId((prev) => (prev === item.appointment_id ? null : item.appointment_id))}
-                                    className="mt-2 p-1.5 rounded-lg bg-gray-100"
+                                    className="self-start ml-3 p-1.5 rounded-lg bg-gray-100"
                                 >
                                     {isMenuOpen ? <X size={14} color="#4b5563" /> : <EllipsisVertical size={14} color="#4b5563" />}
                                 </TouchableOpacity>
                             ) : (
-                                <View className="mt-2 px-2.5 py-1 rounded-lg bg-gray-100">
+                                <View className="self-start ml-3 px-2.5 py-1 rounded-lg bg-gray-100">
                                     <Text className="text-[10px] font-semibold text-gray-500">View only</Text>
                                 </View>
                             )}
                         </View>
                     </View>
 
-                    <View className="mt-3 flex-row">
-                        <View className="flex-1 bg-blue-50 rounded-xl px-3 py-2 mr-2">
-                            <Text className="text-[10px] uppercase tracking-wide text-blue-500 font-bold">Date</Text>
-                            <Text className="text-xs font-semibold text-blue-900 mt-0.5">{slotDate}</Text>
+                    <View className="mt-3 flex-row items-stretch" style={{ gap: 8 }}>
+                        <View className="flex-1 bg-blue-50 rounded-xl px-2.5 py-2">
+                            <Text className="text-[10px] uppercase tracking-wide text-blue-500 font-bold">Date & Time</Text>
+                            <Text className="text-sm font-semibold text-blue-900 mt-0.5" numberOfLines={1}>
+                                {slotDate} {'•'} {slotTime}
+                            </Text>
                         </View>
-                        <View className="flex-1 bg-emerald-50 rounded-xl px-3 py-2 ml-2">
-                            <Text className="text-[10px] uppercase tracking-wide text-emerald-600 font-bold">Time</Text>
-                            <Text className="text-xs font-semibold text-emerald-900 mt-0.5">{slotTime}</Text>
+                        <View className="w-[148px] bg-blue-50 rounded-xl items-center justify-center py-2 px-2">
+                            <Text className="text-[10px] uppercase tracking-wide text-blue-600 font-bold">Appointment No.</Text>
+                            <Text className="mt-1 text-lg font-extrabold text-blue-900">
+                                {item.booking_id ?? item.appointment_id}
+                            </Text>
                         </View>
                     </View>
                     {canUpdate && (
