@@ -553,6 +553,14 @@ const ProfileScreen = () => {
                                 <LogOut size={20} color="#ef4444" style={{ marginRight: 8 }} />
                                 <Text className="text-red-500 font-bold text-lg">Logout</Text>
                             </TouchableOpacity>
+                            <Text className="text-center text-xs text-gray-400 mt-4">
+                                Version {APP_VERSION}
+                            </Text>
+                            <TouchableOpacity onPress={() => Linking.openURL('https://dapto.vinfocom.co.in/privacy-policy')}>
+                                <Text className="text-center text-xs text-blue-600 mt-2">
+                                    Privacy Policy
+                                </Text>
+                            </TouchableOpacity>
                         </Animated.View>
                     </View>
                 </ScrollView>
@@ -954,6 +962,11 @@ const ProfileScreen = () => {
                         <Text className="text-center text-xs text-gray-400 mt-4">
                             Version {APP_VERSION}
                         </Text>
+                        <TouchableOpacity onPress={() => Linking.openURL('https://dapto.vinfocom.co.in/privacy-policy')}>
+                            <Text className="text-center text-xs text-blue-600 mt-2">
+                                Privacy Policy
+                            </Text>
+                        </TouchableOpacity>
                     </Animated.View>
                 </View>
             </ScrollView>
