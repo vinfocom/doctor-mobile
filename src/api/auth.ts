@@ -13,8 +13,34 @@ export interface AuthMeUser {
     staff_doctor_id: number | null;
 }
 
-export const login = async (email: string, password: string) => {
-    const response = await client.post('/auth/login', { email, password });
+export interface LoginChallenge {
+    challengeId: string;
+    question: string;
+    expiresAt: string;
+}
+
+export const getLoginChallenge = async (): Promise<LoginChallenge> => {
+    const response = await client.get('/auth/login-challenge');
+    return response.data;
+};
+
+export const verifyLoginChallenge = async (challengeId: string, answer: string) => {
+    const response = await client.post('/auth/login-challenge', { challengeId, answer });
+    return response.data;
+};
+
+export const login = async (
+    email: string,
+    password: string,
+    challengeId: string,
+    challengeVerificationToken: string
+) => {
+    const response = await client.post('/auth/login', {
+        email,
+        password,
+        challengeId,
+        challengeVerificationToken,
+    });
     return response.data;
 };
 

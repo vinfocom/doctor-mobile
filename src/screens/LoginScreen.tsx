@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
     View,
     Text,
@@ -17,11 +17,18 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
-import { login, patientLogin, saveDoctorPushToken, savePatientPushToken } from '../api/auth';
+import {
+    getLoginChallenge,
+    login,
+    patientLogin,
+    saveDoctorPushToken,
+    savePatientPushToken,
+    verifyLoginChallenge,
+} from '../api/auth';
 import { setAuthSession, type AppRole } from '../api/token';
 import { useAuthSession } from '../context/AuthSessionContext';
 import { registerForPushNotificationsAsync } from '../hooks/usePushNotifications';
-import { Stethoscope, Mail, Lock, Eye, EyeOff, ArrowRight, ShieldCheck } from 'lucide-react-native';
+import { Stethoscope, Mail, Lock, Eye, EyeOff, ArrowRight, ShieldCheck, RefreshCw, Calculator } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { API_URL } from '../config/env';
 
@@ -68,6 +75,102 @@ const LoginScreen = () => {
     const [emailFocused, setEmailFocused] = useState(false);
     const [passwordFocused, setPasswordFocused] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
+    const [challengeQuestion, setChallengeQuestion] = useState('');
+    const [challengeId, setChallengeId] = useState('');
+    const [challengeAnswer, setChallengeAnswer] = useState('');
+    const [challengeVerificationToken, setChallengeVerificationToken] = useState('');
+    const [challengeVerified, setChallengeVerified] = useState(false);
+    const [challengeLoading, setChallengeLoading] = useState(false);
+    const [verifyingChallenge, setVerifyingChallenge] = useState(false);
+    const [challengeMessage, setChallengeMessage] = useState('');
+    const [challengeError, setChallengeError] = useState('');
+
+    const canAttemptDoctorLogin = useMemo(
+        () =>
+            Boolean(
+                email.trim() &&
+                password &&
+                challengeAnswer.trim()
+            ),
+        [challengeAnswer, email, password]
+    );
+
+    const loadLoginChallenge = async (clearAnswer = true) => {
+        setChallengeLoading(true);
+        setChallengeError('');
+        setChallengeMessage('');
+        setChallengeVerified(false);
+        setChallengeVerificationToken('');
+        try {
+            const challenge = await getLoginChallenge();
+            setChallengeQuestion(challenge.question);
+            setChallengeId(challenge.challengeId);
+            if (clearAnswer) {
+                setChallengeAnswer('');
+            }
+        } catch {
+            setChallengeQuestion('');
+            setChallengeId('');
+            setChallengeError('Could not load calculation. Please try again.');
+        } finally {
+            setChallengeLoading(false);
+        }
+    };
+
+    const handleVerifyChallenge = async () => {
+        if (!challengeId) {
+            Alert.alert('Verification Failed', 'Calculation is missing. Please generate a new one.');
+            return;
+        }
+
+        if (!challengeAnswer.trim()) {
+            Alert.alert('Verification Failed', 'Please enter the calculation answer first.');
+            return;
+        }
+
+        setVerifyingChallenge(true);
+        setChallengeError('');
+        setChallengeMessage('');
+        setChallengeVerified(false);
+        setChallengeVerificationToken('');
+
+        try {
+            const response = await verifyLoginChallenge(challengeId, challengeAnswer.trim());
+            setChallengeVerificationToken(response?.verificationToken || '');
+            setChallengeVerified(true);
+            setChallengeMessage('Verified');
+        } catch (error: any) {
+            const message = error?.response?.data?.error || 'Wrong answer';
+            setChallengeVerified(false);
+            await loadLoginChallenge();
+            setChallengeError(message);
+        } finally {
+            setVerifyingChallenge(false);
+        }
+    };
+
+    useEffect(() => {
+        if (mode === 'DOCTOR') {
+            loadLoginChallenge();
+            return;
+        }
+
+        setChallengeQuestion('');
+        setChallengeId('');
+        setChallengeAnswer('');
+        setChallengeVerificationToken('');
+        setChallengeVerified(false);
+        setChallengeError('');
+        setChallengeMessage('');
+    }, [mode]);
+
+    useEffect(() => {
+        if (challengeVerified) {
+            setChallengeVerified(false);
+            setChallengeMessage('');
+            setChallengeVerificationToken('');
+        }
+    }, [challengeAnswer]);
 
     const handleLogin = async () => {
         // Alert.alert('API Check', `Using API URL:\n${API_URL}`);
@@ -78,7 +181,16 @@ const LoginScreen = () => {
                     Alert.alert('Error', 'Please enter email and password');
                     return;
                 }
-                const response = await login(email, password);
+                if (!challengeId || !challengeVerified || !challengeVerificationToken) {
+                    Alert.alert('Verification Required', 'Please solve and verify the calculation before logging in.');
+                    return;
+                }
+                const response = await login(
+                    email.trim(),
+                    password,
+                    challengeId,
+                    challengeVerificationToken
+                );
                 const userRole = response?.user?.role as AppRole | undefined;
                 if (response.token && (userRole === 'DOCTOR' || userRole === 'CLINIC_STAFF')) {
                     await setAuthSession(response.token, userRole);
@@ -109,7 +221,12 @@ const LoginScreen = () => {
             const status = error?.response?.status;
             let message = error?.response?.data?.error || 'Login failed. Please check your credentials and try again.';
 
-            if (status === 401 || status === 400 || status === 404) {
+            if (mode === 'DOCTOR' && status === 400) {
+                setChallengeVerified(false);
+                await loadLoginChallenge();
+            }
+
+            if (status === 401 || status === 404) {
                 message = mode === 'DOCTOR'
                     ? 'Invalid email or password.'
                     : 'Invalid phone number or username.';
@@ -264,6 +381,77 @@ const LoginScreen = () => {
                                             </TouchableOpacity>
                                         </View>
                                     </View>
+
+                                    <View className="mb-6">
+                                        <View className="flex-row items-center justify-between mb-2">
+                                            <Text className="text-base font-bold text-gray-700 ml-1">
+                                                Quick Verification
+                                            </Text>
+                                            <TouchableOpacity
+                                                onPress={() => loadLoginChallenge()}
+                                                disabled={challengeLoading || verifyingChallenge}
+                                                className="flex-row items-center"
+                                            >
+                                                <RefreshCw size={14} color="#2563eb" />
+                                                <Text className="text-blue-600 font-semibold text-xs ml-1.5">Regenerate</Text>
+                                            </TouchableOpacity>
+                                        </View>
+
+                                        <View className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 mb-3">
+                                            <View className="flex-row items-center">
+                                                <Calculator size={18} color="#2563eb" />
+                                                {challengeLoading ? (
+                                                    <Text className="text-slate-800 font-bold text-base ml-2">
+                                                        Loading calculation...
+                                                    </Text>
+                                                ) : challengeQuestion ? (
+                                                    <>
+                                                        <Text className="text-slate-800 font-bold text-base ml-2">
+                                                            {challengeQuestion.replace('?', '')}
+                                                        </Text>
+                                                        <TextInput
+                                                            className="min-w-[56px] bg-white text-center text-base font-bold text-slate-800 mx-2 px-2 py-1.5 rounded-xl border border-blue-200"
+                                                            placeholder="Ans"
+                                                            placeholderTextColor="#9ca3af"
+                                                            value={challengeAnswer}
+                                                            onChangeText={setChallengeAnswer}
+                                                            keyboardType="number-pad"
+                                                            editable={!challengeLoading && !challengeVerified}
+                                                        />
+                                                    </>
+                                                ) : (
+                                                    <Text className="text-slate-800 font-bold text-base ml-2">
+                                                        Calculation unavailable
+                                                    </Text>
+                                                )}
+                                                <TouchableOpacity
+                                                    onPress={handleVerifyChallenge}
+                                                    disabled={challengeLoading || verifyingChallenge || challengeVerified || !challengeAnswer.trim() || !challengeId}
+                                                    activeOpacity={0.8}
+                                                    className={`ml-auto rounded-xl px-3 py-2 items-center justify-center ${challengeLoading || verifyingChallenge || challengeVerified || !challengeAnswer.trim() || !challengeId ? 'bg-slate-300' : 'bg-blue-600'}`}
+                                                >
+                                                    {verifyingChallenge ? (
+                                                        <ActivityIndicator color="#fff" size="small" />
+                                                    ) : (
+                                                        <Text className="text-white font-bold text-xs">
+                                                            Verify
+                                                        </Text>
+                                                    )}
+                                                </TouchableOpacity>
+                                            </View>
+                                        </View>
+
+                                        {challengeMessage ? (
+                                            <Text className="text-emerald-600 text-sm font-medium mt-1.5">
+                                                {challengeMessage}
+                                            </Text>
+                                        ) : null}
+                                        {challengeError ? (
+                                            <Text className="text-rose-600 text-sm font-medium mt-1.5">
+                                                {challengeError}
+                                            </Text>
+                                        ) : null}
+                                    </View>
                                 </>
                             ) : (
                                 <View className="mb-8">
@@ -287,9 +475,9 @@ const LoginScreen = () => {
                             {/* Login Button */}
                             <TouchableOpacity
                                 onPress={handleLogin}
-                                disabled={loading}
+                                disabled={loading || (mode === 'DOCTOR' && !canAttemptDoctorLogin)}
                                 activeOpacity={0.8}
-                                className={`rounded-2xl py-5 items-center justify-center ${loading ? 'bg-blue-300' : 'bg-blue-600'
+                                className={`rounded-2xl py-5 items-center justify-center ${loading || (mode === 'DOCTOR' && !canAttemptDoctorLogin) ? 'bg-blue-300' : 'bg-blue-600'
                                     }`}
                                 style={{
                                     shadowColor: '#1d4ed8',
