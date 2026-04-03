@@ -19,6 +19,7 @@ import {
     X,
     Calendar,
     Users,
+    ChevronLeft,
 } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { getPatientProfile, updatePatientProfile } from '../api/auth';
@@ -128,6 +129,13 @@ export default function PatientProfileScreen() {
 
                 {/* Header */}
                 <Animated.View entering={FadeInDown.duration(600).springify()} className="bg-blue-700 px-6 pt-8 pb-10">
+                    <TouchableOpacity
+                        onPress={() => navigation.goBack()}
+                        className="self-start w-10 h-10 rounded-full bg-white/15 items-center justify-center mb-4"
+                        activeOpacity={0.85}
+                    >
+                        <ChevronLeft size={20} color="#ffffff" />
+                    </TouchableOpacity>
                     <View className="flex-row items-center justify-between mb-4">
                         <View className="flex-1">
                             <Text className="text-blue-200 text-sm font-medium">Patient Profile</Text>
