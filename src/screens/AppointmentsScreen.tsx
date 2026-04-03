@@ -1315,12 +1315,22 @@ const AppointmentsScreen = () => {
                         <View className="flex-row items-center">
                             <TouchableOpacity
                                 onPress={() => {
-                                    setShowSearch((prev) => !prev);
+                                    setShowSearch((prev) => {
+                                        const next = !prev;
+                                        if (!next) {
+                                            setSearchQuery('');
+                                        }
+                                        return next;
+                                    });
                                     setHeaderMenuVisible(false);
                                 }}
                                 className="bg-white p-3 rounded-full mr-2"
                             >
-                                <Search size={20} color="#1d4ed8" />
+                                {showSearch ? (
+                                    <X size={20} color="#1d4ed8" />
+                                ) : (
+                                    <Search size={20} color="#1d4ed8" />
+                                )}
                             </TouchableOpacity>
                             {canManageAppointments && (
                                 <TouchableOpacity
