@@ -1168,13 +1168,13 @@ const AppointmentsScreen = () => {
                             <Text className="text-gray-500 text-xs mt-0.5" numberOfLines={1}>
                                 {item.clinic?.clinic_name || 'N/A'}
                             </Text>
+                        </View>
+                        <View className="ml-2 flex-row items-start justify-end">
                             {canUseChat && isHighlighted && (
-                                <View className="mt-1.5 self-start px-2 py-1 rounded-md bg-blue-600">
+                                <View className="self-start mr-2 px-2 py-1 rounded-md bg-blue-600">
                                     <Text className="text-[10px] font-semibold text-white">New message</Text>
                                 </View>
                             )}
-                        </View>
-                        <View className="ml-2 w-[142px] flex-row items-start justify-between">
                             <View className="self-start">
                                 <StatusBadge status={item.status} cancelledBy={item.cancelled_by} />
                             </View>

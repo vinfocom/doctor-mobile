@@ -609,17 +609,15 @@ export default function PatientAppointmentsScreen() {
                                         <Text className="text-gray-500 text-xs mt-0.5" numberOfLines={1}>
                                             {item.clinic?.clinic_name || 'Clinic'}
                                         </Text>
-                                        <View className="mt-1.5 flex-row flex-wrap items-center gap-1.5">
-                                            {hasOtherContext ? (
-                                                <View className={`self-start px-2.5 py-1 rounded-full ${effectiveRelationType === 'OTHER' ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'}`}>
-                                                    <Text className={`text-[10px] font-semibold ${effectiveRelationType === 'OTHER' ? 'text-amber-700' : 'text-sky-700'}`}>
-                                                        {getRelationBadgeText(item, effectiveRelationType)}
-                                                    </Text>
-                                                </View>
-                                            ) : null}
-                                        </View>
                                     </View>
-                                    <View className="ml-2 w-[142px] flex-row items-start justify-between">
+                                    <View className="ml-2 flex-row items-start justify-end">
+                                        {hasOtherContext ? (
+                                            <View className={`self-start mr-2 px-2.5 py-1 rounded-full ${effectiveRelationType === 'OTHER' ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'}`}>
+                                                <Text className={`text-[10px] font-semibold ${effectiveRelationType === 'OTHER' ? 'text-amber-700' : 'text-sky-700'}`}>
+                                                    {getRelationBadgeText(item, effectiveRelationType)}
+                                                </Text>
+                                            </View>
+                                        ) : null}
                                         <View className={`px-2 py-1 rounded-md ${isPast ? 'bg-gray-200' : item.status === 'CANCELLED' ? 'bg-red-100' : item.status === 'COMPLETED' ? 'bg-green-100' : 'bg-blue-100'}`}>
                                             <Text className={`text-[10px] font-bold uppercase ${isPast ? 'text-gray-600' : item.status === 'CANCELLED' ? 'text-red-600' : item.status === 'COMPLETED' ? 'text-green-700' : 'text-blue-700'}`}>{item.status || 'BOOKED'}</Text>
                                         </View>
