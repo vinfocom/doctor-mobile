@@ -19,6 +19,7 @@ type PublicEnvName = 'EXPO_PUBLIC_API_URL' | 'EXPO_PUBLIC_SOCKET_URL' | 'EXPO_PU
 type ExpoExtra = {
     apiUrl?: string;
     socketUrl?: string;
+    appVersion?: string;
 };
 
 const getExpoExtra = (): ExpoExtra => {
@@ -63,7 +64,10 @@ const normalized = rawApiUrl.replace(/\/+$/, "");
 export const API_URL = normalized.endsWith("/api") ? normalized : `${normalized}/api`;
 const rawSocketUrl = readConfigValue('EXPO_PUBLIC_SOCKET_URL', 'socketUrl');
 export const SOCKET_URL = ensureHttpProtocol(rawSocketUrl).replace(/\/+$/, "");
-export const APP_VERSION = (getEnvValue('EXPO_PUBLIC_APP_VERSION') || '').trim() || '1.0.0';
+export const APP_VERSION =
+    (getEnvValue('EXPO_PUBLIC_APP_VERSION') || '').trim() ||
+    (getExpoExtra().appVersion || '').trim() ||
+    '1.0.0';
 
 if (__DEV__) {
     console.log(`[env] API_URL=${API_URL} SOCKET_URL=${SOCKET_URL} APP_VERSION=${APP_VERSION}`);
