@@ -11,7 +11,6 @@ import {
     ScrollView,
     StatusBar,
     Keyboard,
-    TouchableWithoutFeedback,
     useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -268,22 +267,22 @@ const LoginScreen = () => {
     return (
         <SafeAreaView className="flex-1 bg-gray-50" edges={['bottom', 'left', 'right']}>
             <StatusBar barStyle="light-content" backgroundColor="#1d4ed8" />
-            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                    keyboardVerticalOffset={0}
-                    className="flex-1"
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={0}
+                className="flex-1"
+            >
+                <ScrollView
+                    contentContainerStyle={{
+                        flexGrow: 1,
+                        paddingBottom: keyboardVisible ? 12 : Math.max(insets.bottom + 20, 28),
+                    }}
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                    showsVerticalScrollIndicator={false}
+                    className="bg-gray-50"
+                    scrollIndicatorInsets={{ bottom: keyboardVisible ? 12 : Math.max(insets.bottom + 20, 28) }}
                 >
-                    <ScrollView
-                        contentContainerStyle={{
-                            flexGrow: 1,
-                            paddingBottom: keyboardVisible ? 12 : Math.max(insets.bottom + 20, 28),
-                        }}
-                        keyboardShouldPersistTaps="handled"
-                        showsVerticalScrollIndicator={false}
-                        className="bg-gray-50"
-                        scrollIndicatorInsets={{ bottom: keyboardVisible ? 12 : Math.max(insets.bottom + 20, 28) }}
-                    >
                         {/* ── Header ── */}
                         <SafeAreaView edges={['top']} className="bg-blue-700">
                         <Animated.View
@@ -323,7 +322,7 @@ const LoginScreen = () => {
                         {/* ── Form Card ── */}
                         <Animated.View
                             entering={FadeInUp.delay(200).duration(500)}
-                            className={`flex-1 bg-gray-50 ${
+                            className={`bg-gray-50 ${
                                 isVeryCompactScreen ? 'px-5 pt-4 pb-4 -mt-4' : isCompactScreen ? 'px-5 pt-5 pb-4 -mt-5' : 'px-6 pt-6 pb-5 -mt-6'
                             }`}
                             style={{ borderTopLeftRadius: 36, borderTopRightRadius: 36 }}
@@ -700,9 +699,8 @@ const LoginScreen = () => {
                                 </View>
                             </View>
                         </Animated.View>
-                    </ScrollView>
-                </KeyboardAvoidingView>
-            </TouchableWithoutFeedback>
+                </ScrollView>
+            </KeyboardAvoidingView>
         </SafeAreaView>
     );
 };
