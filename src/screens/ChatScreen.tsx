@@ -13,6 +13,39 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Chat'>;
+type ChatTimelineItem =
+    | { type: 'separator'; id: string; label: string }
+    | { type: 'message'; id: string; message: any };
+
+const getMessageDateKey = (value?: string) => {
+    const date = new Date(String(value || ''));
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+};
+
+const getDateSeparatorLabel = (dateKey: string) => {
+    if (!dateKey) return '';
+
+    const today = new Date();
+    const todayKey = today.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayKey = yesterday.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+
+    if (dateKey === todayKey) return 'Today';
+    if (dateKey === yesterdayKey) return 'Yesterday';
+
+    const [year, month, day] = dateKey.split('-').map(Number);
+    const parsed = new Date(year, (month || 1) - 1, day || 1);
+    if (Number.isNaN(parsed.getTime())) return dateKey;
+
+    return parsed.toLocaleDateString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+    });
+};
 
 export default function ChatScreen({ route, navigation }: Props) {
     const { patientId, doctorId, patientName, profilePicUrl, viewer = 'DOCTOR' } = route.params;
@@ -72,6 +105,35 @@ export default function ChatScreen({ route, navigation }: Props) {
         });
         return Array.from(byId.values()).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     };
+
+    const timelineItems = React.useMemo<ChatTimelineItem[]>(() => {
+        const items: ChatTimelineItem[] = [];
+        let lastDateKey = '';
+
+        messages.forEach((message, index) => {
+            const dateKey = getMessageDateKey(message.created_at);
+            const messageId = message.message_id
+                ? `id:${message.message_id}`
+                : `tmp:${message.temp_id || `${message.sender}:${message.created_at}:${index}`}`;
+
+            if (dateKey && dateKey !== lastDateKey) {
+                items.push({
+                    type: 'separator',
+                    id: `sep:${dateKey}`,
+                    label: getDateSeparatorLabel(dateKey),
+                });
+                lastDateKey = dateKey;
+            }
+
+            items.push({
+                type: 'message',
+                id: messageId,
+                message,
+            });
+        });
+
+        return items;
+    }, [messages]);
 
     const fetchMessages = async () => {
         try {
@@ -292,39 +354,50 @@ export default function ChatScreen({ route, navigation }: Props) {
         ]);
     };
 
-    const renderMessage = ({ item }: { item: any }) => {
-        const mine = viewer === 'PATIENT' ? item.sender === 'PATIENT' : item.sender === 'DOCTOR';
-        const formattedTime = new Date(item.created_at).toLocaleTimeString('en-IN', {
+    const renderMessage = ({ item }: { item: ChatTimelineItem }) => {
+        if (item.type === 'separator') {
+            return (
+                <View className="items-center my-2">
+                    <View className="bg-gray-200 rounded-full px-3 py-1">
+                        <Text className="text-[11px] font-semibold text-gray-600">{item.label}</Text>
+                    </View>
+                </View>
+            );
+        }
+
+        const message = item.message;
+        const mine = viewer === 'PATIENT' ? message.sender === 'PATIENT' : message.sender === 'DOCTOR';
+        const formattedTime = new Date(message.created_at).toLocaleTimeString('en-IN', {
             hour: '2-digit',
             minute: '2-digit',
             hour12: true,
             timeZone: 'Asia/Kolkata',
         });
-        const hasAttachment = Boolean(item.attachment_url);
-        const isImageAttachment = item.attachment_type === 'image' || String(item.attachment_mime || '').startsWith('image/');
+        const hasAttachment = Boolean(message.attachment_url);
+        const isImageAttachment = message.attachment_type === 'image' || String(message.attachment_mime || '').startsWith('image/');
         return (
             <View className={`mb-3 max-w-[80%] rounded-2xl px-4 py-3 ${mine ? 'bg-blue-600 self-end rounded-tr-sm' : 'bg-white border border-gray-100 self-start rounded-tl-sm shadow-sm'}`}>
                 {hasAttachment && isImageAttachment && (
-                    <TouchableOpacity onPress={() => { void openAttachmentUrl(item.attachment_url); }}>
+                    <TouchableOpacity onPress={() => { void openAttachmentUrl(message.attachment_url); }}>
                         <Image
-                            source={{ uri: item.attachment_url }}
-                            style={{ width: 180, height: 180, borderRadius: 12, marginBottom: item.content ? 8 : 0 }}
+                            source={{ uri: message.attachment_url }}
+                            style={{ width: 180, height: 180, borderRadius: 12, marginBottom: message.content ? 8 : 0 }}
                         />
                     </TouchableOpacity>
                 )}
                 {hasAttachment && !isImageAttachment && (
                     <TouchableOpacity
-                        onPress={() => { void openAttachmentUrl(item.attachment_url); }}
+                        onPress={() => { void openAttachmentUrl(message.attachment_url); }}
                         className={`flex-row items-center px-3 py-2 rounded-xl mb-2 ${mine ? 'bg-blue-500' : 'bg-gray-100'}`}
                     >
                         <FileText size={16} color={mine ? '#dbeafe' : '#4b5563'} style={{ marginRight: 8 }} />
                         <Text className={`text-xs font-semibold ${mine ? 'text-blue-100' : 'text-gray-700'}`} numberOfLines={1}>
-                            {item.attachment_name || 'Attachment'}
+                            {message.attachment_name || 'Attachment'}
                         </Text>
                     </TouchableOpacity>
                 )}
-                {item.content ? (
-                    <Text className={`text-base ${mine ? 'text-white' : 'text-gray-800'}`}>{item.content}</Text>
+                {message.content ? (
+                    <Text className={`text-base ${mine ? 'text-white' : 'text-gray-800'}`}>{message.content}</Text>
                 ) : null}
                 <Text className={`text-[10px] mt-1 text-right ${mine ? 'text-blue-200' : 'text-gray-400'}`}>
                     {formattedTime}
@@ -373,12 +446,8 @@ export default function ChatScreen({ route, navigation }: Props) {
                 ) : (
                     <FlatList
                         ref={flatListRef}
-                        data={messages}
-                        keyExtractor={(item, index) =>
-                            item.message_id
-                                ? `id:${item.message_id}`
-                                : `tmp:${item.temp_id || `${item.sender}:${item.created_at}:${index}`}`
-                        }
+                        data={timelineItems}
+                        keyExtractor={(item) => item.id}
                         renderItem={renderMessage}
                         contentContainerStyle={{
                             paddingHorizontal: 16,

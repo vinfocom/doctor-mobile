@@ -109,13 +109,15 @@ export default function PatientAnnouncementsScreen() {
     }
 
     return (
-        <SafeAreaView className="flex-1 bg-blue-700">
+        <SafeAreaView className="flex-1 bg-gray-50" edges={['left', 'right']}>
             <StatusBar barStyle="light-content" backgroundColor="#1d4ed8" />
             <View className="flex-1 bg-gray-50">
-                <View className="bg-blue-700 px-5 pt-6 pb-6 rounded-b-3xl">
-                    <Text className="text-blue-100 text-sm">Patient Portal</Text>
-                    <Text className="text-white text-3xl font-bold mt-1">Announcements</Text>
-                </View>
+                <SafeAreaView edges={['top']} className="bg-blue-700 rounded-b-3xl overflow-hidden">
+                    <View className="bg-blue-700 px-5 pt-6 pb-6">
+                        <Text className="text-blue-100 text-sm">Patient Portal</Text>
+                        <Text className="text-white text-3xl font-bold mt-1">Announcements</Text>
+                    </View>
+                </SafeAreaView>
 
                 <FlashList
                     data={items}

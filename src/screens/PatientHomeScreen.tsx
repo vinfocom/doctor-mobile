@@ -10,15 +10,15 @@ import {
     Modal,
     ScrollView,
     Image,
+    TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { User, MessageCircle, LogOut, Settings } from 'lucide-react-native';
+import { CalendarDays, ChevronLeft, ChevronRight, User, MessageCircle, Settings } from 'lucide-react-native';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
-import { getPatientProfile } from '../api/auth';
+import { getPatientProfile, updatePatientProfile } from '../api/auth';
 import { getPatientAppointments } from '../api/patientAppointments';
-import { removeToken } from '../api/token';
 import { getChatNotifications, type IncomingNotificationMessage } from '../api/notifications';
 import { useSWRLite } from '../lib/useSWRLite';
 import { FlashList } from '@shopify/flash-list';
@@ -129,11 +129,53 @@ const getRelationBadgeText = (item?: AppointmentItem | null) => {
     return 'Self';
 };
 
+const GENDER_OPTIONS = ['Male', 'Female', 'Other', 'Prefer not to say'];
+const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+const pad2 = (value: number) => String(value).padStart(2, '0');
+const ymdFromParts = (year: number, month: number, day: number) =>
+    `${year}-${pad2(month)}-${pad2(day)}`;
+
+const getTodayYMD = () => {
+    const now = new Date();
+    return ymdFromParts(now.getFullYear(), now.getMonth() + 1, now.getDate());
+};
+
+const formatDob = (value?: string) => {
+    if (!value) return 'Select date of birth';
+    const [year, month, day] = value.split('-').map(Number);
+    const date = new Date(year, (month || 1) - 1, day || 1);
+    if (Number.isNaN(date.getTime())) return 'Select date of birth';
+
+    return date.toLocaleDateString('en-IN', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+    });
+};
+
+const calculateAgeFromDob = (dob: string) => {
+    if (!dob) return null;
+    const [year, month, day] = dob.split('-').map(Number);
+    const birthDate = new Date(year, (month || 1) - 1, day || 1);
+    if (Number.isNaN(birthDate.getTime())) return null;
+
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const hasHadBirthdayThisYear =
+        today.getMonth() > birthDate.getMonth() ||
+        (today.getMonth() === birthDate.getMonth() && today.getDate() >= birthDate.getDate());
+
+    if (!hasHadBirthdayThisYear) age -= 1;
+    if (age < 0 || age > 150) return null;
+    return age;
+};
+
 export default function PatientHomeScreen() {
     type HistoryFilter = 'TODAY' | 'TOMORROW' | 'UPCOMING';
     const navigation = useNavigation<Nav>();
     const isFocused = useIsFocused();
-    const { clearSession } = useAuthSession();
+    const { clearSession, refreshSession } = useAuthSession();
     const [refreshing, setRefreshing] = useState(false);
     const [announcementCount, setAnnouncementCount] = useState(getPatientAnnouncementsUnreadCount());
     const [incomingMessage, setIncomingMessage] = useState<IncomingNotificationMessage | null>(null);
@@ -143,9 +185,20 @@ export default function PatientHomeScreen() {
     const [historyDoctor, setHistoryDoctor] = useState<DoctorItem | null>(null);
     const [historyVisible, setHistoryVisible] = useState(false);
     const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('TODAY');
+    const [profileCompletionVisible, setProfileCompletionVisible] = useState(false);
+    const [profileCompletionSaving, setProfileCompletionSaving] = useState(false);
+    const [completionDob, setCompletionDob] = useState('');
+    const [completionGender, setCompletionGender] = useState('');
+    const [showDobCalendar, setShowDobCalendar] = useState(false);
+    const [showYearPicker, setShowYearPicker] = useState(false);
+    const [dobMonth, setDobMonth] = useState(() => {
+        const today = new Date();
+        return { year: today.getFullYear(), month: today.getMonth() };
+    });
     const lastNotifCheckAtRef = useRef<string>(new Date(Date.now() - 2 * 60 * 1000).toISOString());
     const bubbleHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const socketRef = useRef<Socket | null>(null);
+    const yearScrollRef = useRef<ScrollView | null>(null);
     const socketEnabled = React.useMemo(() => !SOCKET_URL.includes('vercel.app'), []);
     const lastHandledAnnouncementsReadAtRef = useRef<number>(0);
     const patientReadDoctorAtRef = useRef<Map<number, number>>(new Map());
@@ -178,6 +231,63 @@ export default function PatientHomeScreen() {
         () => Array.from(unreadChatCountsByDoctor.values()).reduce((sum, count) => sum + count, 0),
         [unreadChatCountsByDoctor]
     );
+    const profileNeedsCompletion = useMemo(
+        () => Boolean(patient && (!patient.age || !String(patient.gender || '').trim())),
+        [patient]
+    );
+    const shouldShowSignupOnboarding = useMemo(
+        () =>
+            Boolean(
+                patient &&
+                patient.profile_type === 'SELF' &&
+                patient.doctor_id == null &&
+                patient.booking_id == null &&
+                uniqueDoctors.length === 0 &&
+                appointmentsByDoctor.size === 0
+            ),
+        [appointmentsByDoctor.size, patient, uniqueDoctors.length]
+    );
+    const computedCompletionAge = useMemo(() => calculateAgeFromDob(completionDob), [completionDob]);
+    const maxDob = getTodayYMD();
+    const selectedDobDate = useMemo(
+        () => (completionDob ? new Date(`${completionDob}T00:00:00`) : null),
+        [completionDob]
+    );
+    const selectedYear = useMemo(() => {
+        if (selectedDobDate && !Number.isNaN(selectedDobDate.getTime())) {
+            return selectedDobDate.getFullYear();
+        }
+        return dobMonth.year;
+    }, [dobMonth.year, selectedDobDate]);
+
+    useEffect(() => {
+        if (!patient) return;
+        setCompletionGender(patient.gender || '');
+        if (!profileNeedsCompletion) {
+            setProfileCompletionVisible(false);
+            setShowDobCalendar(false);
+            setShowYearPicker(false);
+            setCompletionDob('');
+            return;
+        }
+        setProfileCompletionVisible(true);
+    }, [patient, profileNeedsCompletion]);
+
+    useEffect(() => {
+        if (!showYearPicker) return;
+
+        const currentYear = new Date().getFullYear();
+        const boundedYear = Math.min(Math.max(selectedYear, 1900), currentYear);
+        const yearIndex = boundedYear - 1900;
+        const estimatedChipWidth = 74;
+        const offset = Math.max(0, yearIndex * estimatedChipWidth - estimatedChipWidth * 2);
+
+        const timer = setTimeout(() => {
+            yearScrollRef.current?.scrollTo({ x: offset, animated: false });
+        }, 50);
+
+        return () => clearTimeout(timer);
+    }, [selectedYear, showYearPicker]);
 
     useEffect(() => {
         void ensurePatientAnnouncementsStateHydrated().then(() => {
@@ -325,6 +435,11 @@ export default function PatientHomeScreen() {
 
     useEffect(() => {
         if (!isFocused) return;
+        revalidate().catch(() => undefined);
+    }, [isFocused, revalidate]);
+
+    useEffect(() => {
+        if (!isFocused) return;
         const interval = setInterval(() => {
             loadLatestAppointments().catch(() => undefined);
         }, 12000);
@@ -463,10 +578,162 @@ export default function PatientHomeScreen() {
         setRefreshing(false);
     };
 
-    const handleLogout = async () => {
-        await removeToken();
-        clearSession();
-        navigation.reset({ index: 0, routes: [{ name: "Login" }] });
+    const renderDobCalendar = () => {
+        const { year, month } = dobMonth;
+        const firstDow = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const cells: (number | null)[] = [
+            ...Array(firstDow).fill(null),
+            ...Array.from({ length: daysInMonth }, (_, index) => index + 1),
+        ];
+
+        while (cells.length % 7 !== 0) cells.push(null);
+
+        const prevMonth = () => setDobMonth(({ year: y, month: m }) => {
+            if (m === 0) return { year: y - 1, month: 11 };
+            return { year: y, month: m - 1 };
+        });
+
+        const nextMonth = () => setDobMonth(({ year: y, month: m }) => {
+            if (m === 11) return { year: y + 1, month: 0 };
+            return { year: y, month: m + 1 };
+        });
+
+        const monthName = new Date(year, month, 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+        const currentYear = new Date().getFullYear();
+        const years = Array.from({ length: currentYear - 1900 + 1 }, (_, index) => 1900 + index);
+
+        return (
+            <View className="border border-gray-200 rounded-2xl overflow-hidden bg-white mt-3">
+                <View className="flex-row items-center justify-between px-4 py-3 bg-blue-50">
+                    <TouchableOpacity onPress={prevMonth} className="p-1 rounded-full">
+                        <ChevronLeft size={18} color="#1d4ed8" />
+                    </TouchableOpacity>
+                    <View className="flex-row items-center">
+                        <Text className="text-blue-800 font-bold text-sm mr-2">{monthName}</Text>
+                        <TouchableOpacity
+                            onPress={() => setShowYearPicker((prev) => !prev)}
+                            className="px-2.5 py-1 rounded-full bg-white border border-blue-200"
+                        >
+                            <Text className="text-xs font-bold text-blue-700">{year}</Text>
+                        </TouchableOpacity>
+                    </View>
+                    <TouchableOpacity onPress={nextMonth} className="p-1 rounded-full">
+                        <ChevronRight size={18} color="#1d4ed8" />
+                    </TouchableOpacity>
+                </View>
+
+                {showYearPicker ? (
+                    <View className="border-b border-gray-100 bg-white px-3 py-3">
+                        <ScrollView
+                            ref={yearScrollRef}
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            contentContainerStyle={{ paddingRight: 12 }}
+                        >
+                            <View className="flex-row">
+                                {years.map((optionYear) => {
+                                    const isSelectedYear = optionYear === selectedYear;
+                                    return (
+                                        <TouchableOpacity
+                                            key={optionYear}
+                                            onPress={() => {
+                                                setDobMonth((prev) => ({ ...prev, year: optionYear }));
+                                                setShowYearPicker(false);
+                                            }}
+                                            className={`mr-2 rounded-xl border px-3 py-2 ${
+                                                isSelectedYear ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'
+                                            }`}
+                                        >
+                                            <Text className={`text-xs font-semibold ${isSelectedYear ? 'text-blue-700' : 'text-gray-700'}`}>
+                                                {optionYear}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </View>
+                        </ScrollView>
+                    </View>
+                ) : null}
+
+                <View className="flex-row bg-gray-50">
+                    {DAY_LABELS.map((label) => (
+                        <View key={label} className="flex-1 items-center py-1.5">
+                            <Text className="text-xs text-gray-400 font-semibold">{label}</Text>
+                        </View>
+                    ))}
+                </View>
+
+                <View className="px-2 pb-3 pt-2">
+                    {Array.from({ length: cells.length / 7 }, (_, row) => (
+                        <View key={row} className="flex-row">
+                            {cells.slice(row * 7, row * 7 + 7).map((day, col) => {
+                                if (!day) return <View key={`${row}-${col}`} className="flex-1 m-1" />;
+
+                                const dateStr = ymdFromParts(year, month + 1, day);
+                                const isSelected = dateStr === completionDob;
+                                const isDisabled = dateStr > maxDob;
+
+                                return (
+                                    <TouchableOpacity
+                                        key={`${row}-${col}`}
+                                        onPress={() => {
+                                            if (isDisabled) return;
+                                            setCompletionDob(dateStr);
+                                            setShowDobCalendar(false);
+                                            setShowYearPicker(false);
+                                        }}
+                                        disabled={isDisabled}
+                                        className={`flex-1 m-1 h-9 items-center justify-center rounded-xl ${
+                                            isSelected ? 'bg-blue-600' : 'bg-transparent'
+                                        } ${isDisabled ? 'opacity-25' : 'opacity-100'}`}
+                                    >
+                                        <Text className={`text-sm font-semibold ${isSelected ? 'text-white' : 'text-gray-700'}`}>
+                                            {day}
+                                        </Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+                    ))}
+                </View>
+            </View>
+        );
+    };
+
+    const handleCompleteProfile = async () => {
+        const nextGender = String(completionGender || '').trim();
+        const ageToSave = patient?.age ?? computedCompletionAge;
+
+        if (!ageToSave) {
+            Alert.alert('Complete Profile', 'Please select your date of birth to calculate age.');
+            return;
+        }
+
+        if (!nextGender) {
+            Alert.alert('Complete Profile', 'Please select your gender.');
+            return;
+        }
+
+        setProfileCompletionSaving(true);
+        try {
+            await updatePatientProfile({
+                age: ageToSave,
+                gender: nextGender,
+            });
+            await Promise.all([
+                refreshSession(),
+                revalidate(),
+            ]);
+            setProfileCompletionVisible(false);
+            setShowDobCalendar(false);
+            setShowYearPicker(false);
+            setCompletionDob('');
+        } catch (error: any) {
+            Alert.alert('Update Failed', error?.response?.data?.error || 'Failed to complete profile.');
+        } finally {
+            setProfileCompletionSaving(false);
+        }
     };
 
     if (loading) {
@@ -478,23 +745,25 @@ export default function PatientHomeScreen() {
     }
 
     return (
-        <SafeAreaView className="flex-1 bg-blue-700">
+        <SafeAreaView className="flex-1 bg-gray-50" edges={['left', 'right']}>
             <StatusBar barStyle="light-content" backgroundColor="#1d4ed8" />
             <View className="flex-1 bg-gray-50">
-                <View className="bg-blue-700 px-5 pt-6 pb-6 rounded-b-3xl">
-                    <View className="flex-row items-center justify-between">
-                        <View>
-                            <Text className="text-blue-100 text-sm">Patient Portal</Text>
-                            <Text className="text-white text-3xl font-bold mt-1">{patient?.full_name || "Patient"}</Text>
+                <SafeAreaView edges={['top']} className="bg-blue-700 rounded-b-3xl overflow-hidden">
+                    <View className="bg-blue-700 px-5 pt-6 pb-6">
+                        <View className="flex-row items-center justify-between">
+                            <View>
+                                <Text className="text-blue-100 text-sm">Patient Portal</Text>
+                                <Text className="text-white text-3xl font-bold mt-1">{patient?.full_name || "Patient"}</Text>
+                            </View>
+                            <TouchableOpacity
+                                onPress={() => navigation.navigate('PatientProfile')}
+                                className="bg-white/20 rounded-full p-2"
+                            >
+                                <Settings size={22} color="#fff" />
+                            </TouchableOpacity>
                         </View>
-                        <TouchableOpacity
-                            onPress={() => navigation.navigate('PatientProfile')}
-                            className="bg-white/20 rounded-full p-2"
-                        >
-                            <Settings size={22} color="#fff" />
-                        </TouchableOpacity>
                     </View>
-                </View>
+                </SafeAreaView>
 
                 <FlashList
                     data={uniqueDoctors}
@@ -512,7 +781,9 @@ export default function PatientHomeScreen() {
                                     </Text>
                                 </View>
                             )}
-                            <Text className="text-gray-700 font-bold text-base">My Doctors</Text>
+                            {!shouldShowSignupOnboarding ? (
+                                <Text className="text-gray-700 font-bold text-base">My Doctors</Text>
+                            ) : null}
                         </View>
                     }
                     renderItem={({ item }) => {
@@ -557,8 +828,18 @@ export default function PatientHomeScreen() {
                                         const badgeText = hasOtherContext ? getRelationBadgeText(appt) : '';
                                         if (!badgeText) return null;
                                         return (
-                                            <View className={`self-start w-[58px] items-center px-2.5 py-1 rounded-full ${appt?.relation_type === 'OTHER' ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'}`}>
-                                                <Text className={`text-[10px] font-semibold text-center ${appt?.relation_type === 'OTHER' ? 'text-amber-700' : 'text-sky-700'}`}>
+                                            <View
+                                                className={`self-start max-w-[104px] items-center px-2 py-0.5 rounded-full ${
+                                                    appt?.relation_type === 'OTHER' ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'
+                                                }`}
+                                            >
+                                                <Text
+                                                    className={`text-[10px] font-semibold text-center ${
+                                                        appt?.relation_type === 'OTHER' ? 'text-amber-700' : 'text-sky-700'
+                                                    }`}
+                                                    numberOfLines={1}
+                                                    ellipsizeMode="tail"
+                                                >
                                                     {badgeText}
                                                 </Text>
                                             </View>
@@ -596,18 +877,55 @@ export default function PatientHomeScreen() {
                         </TouchableOpacity>
                     )}}
                     ListEmptyComponent={
-                        <View className="items-center mt-14">
-                            <Text className="text-gray-500">No assigned doctors yet</Text>
-                        </View>
-                    }
-                    ListFooterComponent={
-                        <TouchableOpacity
-                            onPress={handleLogout}
-                            className="mt-6 border border-red-200 bg-red-50 rounded-xl py-3 items-center flex-row justify-center"
-                        >
-                            <LogOut size={18} color="#ef4444" />
-                            <Text className="text-red-500 font-semibold ml-2">Logout</Text>
-                        </TouchableOpacity>
+                        shouldShowSignupOnboarding ? (
+                            <View className="items-center mt-10 px-1">
+                                <View
+                                    className="w-full max-w-[360px] bg-white rounded-3xl px-5 py-6 items-center"
+                                    style={{
+                                        shadowColor: '#000',
+                                        shadowOffset: { width: 0, height: 4 },
+                                        shadowOpacity: 0.08,
+                                        shadowRadius: 10,
+                                        elevation: 3,
+                                    }}
+                                >
+                                    <View className="mb-4 items-center justify-center">
+                                        <View className="absolute w-20 h-20 rounded-full bg-blue-50" />
+                                        <View className="absolute w-12 h-12 rounded-full bg-sky-100 -right-1 top-1" />
+                                        <View className="w-14 h-14 rounded-2xl bg-white border border-blue-100 items-center justify-center">
+                                            <CalendarDays size={26} color="#2563eb" />
+                                        </View>
+                                    </View>
+                                    <Text className="text-slate-800 text-xl font-bold">No doctors yet</Text>
+                                    <Text className="text-slate-500 text-sm text-center leading-5 mt-2 px-2">
+                                        Book your first appointment to connect with a doctor.
+                                    </Text>
+
+                                    <View className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-4 mt-5">
+                                        <Text className="text-slate-700 text-sm font-semibold">1. Choose doctor</Text>
+                                        <Text className="text-slate-700 text-sm font-semibold mt-2">2. Pick clinic and time</Text>
+                                        <Text className="text-slate-700 text-sm font-semibold mt-2">3. Your doctor appears here</Text>
+                                    </View>
+
+                                    <TouchableOpacity
+                                        className="mt-5 w-full rounded-2xl bg-blue-600 py-3.5 items-center justify-center"
+                                        activeOpacity={0.85}
+                                        onPress={() =>
+                                            navigation.navigate('PatientMain', {
+                                                screen: 'PatientAppointments',
+                                                params: { openCreate: true },
+                                            })
+                                        }
+                                    >
+                                        <Text className="text-white font-bold text-base">Book First Appointment</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        ) : (
+                            <View className="items-center mt-14">
+                                <Text className="text-gray-500">No assigned doctors yet</Text>
+                            </View>
+                        )
                     }
                 />
                 <IncomingMessageBubble
@@ -621,6 +939,132 @@ export default function PatientHomeScreen() {
                         handleOpenDoctorChat(message.doctorId, message.senderName);
                     }}
                 />
+
+                <Modal visible={profileCompletionVisible} transparent animationType="fade" onRequestClose={() => undefined}>
+                    <View className="flex-1 justify-end bg-black/50">
+                        <View className="bg-white rounded-t-3xl p-5 max-h-[88%]">
+                            <View className="mb-4">
+                                <Text className="text-xs text-blue-500 font-semibold uppercase tracking-wider">Complete Profile</Text>
+                                <Text className="text-2xl font-bold text-gray-900 mt-1">
+                                    Finish your patient details
+                                </Text>
+                                <Text className="text-sm text-gray-500 mt-2">
+                                    Please complete your profile before continuing.
+                                </Text>
+                            </View>
+
+                            <ScrollView showsVerticalScrollIndicator={false}>
+                                {!patient?.age ? (
+                                    <View className="mb-4">
+                                        <Text className="text-base font-bold text-gray-700 mb-2">Date of Birth</Text>
+                                        <TouchableOpacity
+                                            onPress={() => {
+                                                setShowDobCalendar(true);
+                                                setShowYearPicker(false);
+                                            }}
+                                            className={`bg-white rounded-2xl px-4 border-2 flex-row items-center justify-between py-4 ${
+                                                showDobCalendar ? 'border-blue-500' : 'border-gray-200'
+                                            }`}
+                                        >
+                                            <Text className={`text-base ${completionDob ? 'text-gray-800 font-medium' : 'text-gray-400'}`}>
+                                                {completionDob ? formatDob(completionDob) : 'Select date of birth'}
+                                            </Text>
+                                            <View className="flex-row items-center">
+                                                {computedCompletionAge != null ? (
+                                                    <Text className="text-blue-600 font-semibold text-sm mr-2">{computedCompletionAge} yrs</Text>
+                                                ) : null}
+                                                <CalendarDays size={18} color="#2563eb" />
+                                            </View>
+                                        </TouchableOpacity>
+                                    </View>
+                                ) : (
+                                    <View className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                                        <Text className="text-xs font-semibold uppercase text-emerald-700">Age</Text>
+                                        <Text className="text-sm font-medium text-emerald-900 mt-1">
+                                            {patient.age} years already on file
+                                        </Text>
+                                    </View>
+                                )}
+
+                                <View className="mb-4">
+                                    <Text className="text-base font-bold text-gray-700 mb-2">Gender</Text>
+                                    <View className="bg-white rounded-2xl px-4 py-3 border-2 border-gray-200">
+                                        <View className="flex-row flex-wrap gap-2">
+                                            {GENDER_OPTIONS.map((option) => (
+                                                <TouchableOpacity
+                                                    key={option}
+                                                    onPress={() => setCompletionGender(option)}
+                                                    className={`px-3 py-1.5 rounded-full border ${
+                                                        completionGender === option ? 'bg-blue-600 border-blue-600' : 'bg-gray-50 border-gray-300'
+                                                    }`}
+                                                >
+                                                    <Text className={`text-xs font-semibold ${completionGender === option ? 'text-white' : 'text-gray-600'}`}>
+                                                        {option}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            ))}
+                                        </View>
+                                    </View>
+                                </View>
+
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        void handleCompleteProfile();
+                                    }}
+                                    disabled={profileCompletionSaving}
+                                    className={`rounded-2xl items-center justify-center py-4 ${
+                                        profileCompletionSaving ? 'bg-blue-300' : 'bg-blue-600'
+                                    }`}
+                                >
+                                    {profileCompletionSaving ? (
+                                        <View className="flex-row items-center">
+                                            <ActivityIndicator color="#fff" size="small" />
+                                            <Text className="text-white font-bold ml-3 text-base">Saving...</Text>
+                                        </View>
+                                    ) : (
+                                        <Text className="text-white font-extrabold text-base tracking-wide">
+                                            Save and Continue
+                                        </Text>
+                                    )}
+                                </TouchableOpacity>
+                            </ScrollView>
+                        </View>
+                    </View>
+                </Modal>
+
+                <Modal
+                    visible={showDobCalendar}
+                    transparent
+                    animationType="slide"
+                    onRequestClose={() => {
+                        setShowDobCalendar(false);
+                        setShowYearPicker(false);
+                    }}
+                >
+                    <View className="flex-1 justify-end bg-black/50">
+                        <View className="bg-white rounded-t-3xl p-5 max-h-[78%]">
+                            <View className="flex-row items-center justify-between mb-4">
+                                <View>
+                                    <Text className="text-xs text-gray-400">Select Date of Birth</Text>
+                                    <Text className="text-lg font-bold text-gray-800">
+                                        {completionDob ? formatDob(completionDob) : 'Choose your birth date'}
+                                    </Text>
+                                </View>
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        setShowDobCalendar(false);
+                                        setShowYearPicker(false);
+                                    }}
+                                    className="bg-gray-100 rounded-full px-3 py-2"
+                                >
+                                    <Text className="text-gray-600 text-xs font-semibold">Close</Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            <View>{renderDobCalendar()}</View>
+                        </View>
+                    </View>
+                </Modal>
 
                 <Modal visible={historyVisible} transparent animationType="slide" onRequestClose={() => setHistoryVisible(false)}>
                     <View className="flex-1 justify-end bg-black/40">

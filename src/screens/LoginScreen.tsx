@@ -18,6 +18,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import {
+    checkPatientLoginAvailability,
     getLoginChallenge,
     login,
     patientLogin,
@@ -28,7 +29,7 @@ import {
 import { setAuthSession, type AppRole } from '../api/token';
 import { useAuthSession } from '../context/AuthSessionContext';
 import { registerForPushNotificationsAsync } from '../hooks/usePushNotifications';
-import { Stethoscope, Mail, Lock, Eye, EyeOff, ArrowRight, ShieldCheck, RefreshCw, Calculator, Check } from 'lucide-react-native';
+import { Stethoscope, Mail, Lock, Eye, EyeOff, ArrowRight, ShieldCheck, RefreshCw, Calculator, Check, UserPlus, Phone } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp, ZoomIn } from 'react-native-reanimated';
 import { API_URL } from '../config/env';
 
@@ -75,9 +76,16 @@ const LoginScreen = () => {
     const [loading, setLoading] = useState(false);
     const [mode, setMode] = useState<'DOCTOR' | 'PATIENT'>('DOCTOR');
     const [patientIdentifier, setPatientIdentifier] = useState('');
+    const [patientPassword, setPatientPassword] = useState('');
+    const [phoneChecked, setPhoneChecked] = useState(false);
+    const [checkingPhone, setCheckingPhone] = useState(false);
+    const [requiresPasswordSetup, setRequiresPasswordSetup] = useState(false);
+    const [forgotPasswordMode, setForgotPasswordMode] = useState(false);
     const [emailFocused, setEmailFocused] = useState(false);
     const [passwordFocused, setPasswordFocused] = useState(false);
+    const [patientPasswordFocused, setPatientPasswordFocused] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
+    const [showPatientPassword, setShowPatientPassword] = useState(false);
     const [challengeQuestion, setChallengeQuestion] = useState('');
     const [challengeId, setChallengeId] = useState('');
     const [challengeAnswer, setChallengeAnswer] = useState('');
@@ -100,9 +108,42 @@ const LoginScreen = () => {
         () =>
             mode === 'DOCTOR'
                 ? Boolean(email.trim() && password && challengeAnswer.trim())
-                : Boolean(patientIdentifier.trim() && challengeAnswer.trim()),
-        [challengeAnswer, email, mode, password, patientIdentifier]
+                : Boolean(
+                    phoneChecked &&
+                    !requiresPasswordSetup &&
+                    patientIdentifier.trim() &&
+                    patientPassword.trim() &&
+                    challengeVerified &&
+                    challengeVerificationToken
+                ),
+        [
+            challengeAnswer,
+            challengeVerificationToken,
+            challengeVerified,
+            email,
+            mode,
+            password,
+            patientIdentifier,
+            patientPassword,
+            phoneChecked,
+            requiresPasswordSetup,
+        ]
     );
+
+    const resetPatientDetectedFlow = () => {
+        setPhoneChecked(false);
+        setCheckingPhone(false);
+        setRequiresPasswordSetup(false);
+        setForgotPasswordMode(false);
+        setPatientPassword('');
+        setShowPatientPassword(false);
+        setPatientPasswordFocused(false);
+        setChallengeVerified(false);
+        setChallengeVerificationToken('');
+        setChallengeStatus('idle');
+        setChallengeAnswer('');
+        setAnswerInputActive(false);
+    };
 
     const loadLoginChallenge = async (clearAnswer = true) => {
         setChallengeLoading(true);
@@ -181,6 +222,70 @@ const LoginScreen = () => {
         };
     }, []);
 
+    const handleContinueWithPhone = async () => {
+        if (!patientIdentifier.trim()) {
+            Alert.alert('Error', 'Please enter phone number');
+            return;
+        }
+
+        setCheckingPhone(true);
+        try {
+            const result = await checkPatientLoginAvailability(patientIdentifier.trim());
+            if (!result?.exists) {
+                Alert.alert('Patient Not Found', 'Patient not found. Please create an account.');
+                return;
+            }
+
+            setPatientPassword('');
+            setForgotPasswordMode(false);
+            setRequiresPasswordSetup(!result.hasPassword);
+            setPhoneChecked(true);
+
+            if (result.hasPassword) {
+                setChallengeVerified(false);
+                setChallengeVerificationToken('');
+                setChallengeStatus('idle');
+                setChallengeAnswer('');
+                setAnswerInputActive(false);
+                await loadLoginChallenge();
+            }
+        } catch (error: any) {
+            const message =
+                error?.response?.data?.error ||
+                'Unable to check this phone number right now. Please try again.';
+            Alert.alert('Unable to Continue', message);
+        } finally {
+            setCheckingPhone(false);
+        }
+    };
+
+    const handleForgotPassword = () => {
+        setForgotPasswordMode(true);
+        if (!patientIdentifier.trim()) {
+            Alert.alert('Error', 'Please enter phone number');
+            return;
+        }
+
+        navigation.navigate('PatientOtp', {
+            phone: patientIdentifier.trim(),
+            purpose: 'RESET_PASSWORD',
+            forgotPasswordMode: true,
+        });
+    };
+
+    const handleOpenPasswordSetupOtp = () => {
+        if (!patientIdentifier.trim()) {
+            Alert.alert('Error', 'Please enter phone number');
+            return;
+        }
+
+        navigation.navigate('PatientOtp', {
+            phone: patientIdentifier.trim(),
+            purpose: 'SET_PASSWORD_FIRST_TIME',
+            forgotPasswordMode: false,
+        });
+    };
+
     const handleLogin = async () => {
         // Alert.alert('API Check', `Using API URL:\n${API_URL}`);
         setLoading(true);
@@ -213,7 +318,11 @@ const LoginScreen = () => {
                 }
             } else {
                 if (!patientIdentifier.trim()) {
-                    Alert.alert('Error', 'Please enter phone or telegram username');
+                    Alert.alert('Error', 'Please enter phone number');
+                    return;
+                }
+                if (!patientPassword.trim()) {
+                    Alert.alert('Error', 'Please enter password');
                     return;
                 }
                 if (!challengeId || !challengeVerified || !challengeVerificationToken) {
@@ -222,6 +331,7 @@ const LoginScreen = () => {
                 }
                 const response = await patientLogin(
                     patientIdentifier.trim(),
+                    patientPassword.trim(),
                     challengeId,
                     challengeVerificationToken
                 );
@@ -246,7 +356,11 @@ const LoginScreen = () => {
             if (status === 401 || status === 404) {
                 message = mode === 'DOCTOR'
                     ? 'Invalid email or password.'
-                    : 'Invalid phone number or username.';
+                    : 'Invalid phone number or password.';
+            } else if (status === 428) {
+                message = 'This account needs password setup before login.';
+                setRequiresPasswordSetup(true);
+                setPhoneChecked(true);
             } else if (status === 500) {
                 message = 'Server error. Please try again later.';
             } else if (!status) {
@@ -264,6 +378,10 @@ const LoginScreen = () => {
         }
     };
 
+    const authScrollBottomInset = keyboardVisible
+        ? Math.max(insets.bottom + 220, 280)
+        : Math.max(insets.bottom + 20, 28);
+
     return (
         <SafeAreaView className="flex-1 bg-gray-50" edges={['bottom', 'left', 'right']}>
             <StatusBar barStyle="light-content" backgroundColor="#1d4ed8" />
@@ -275,13 +393,13 @@ const LoginScreen = () => {
                 <ScrollView
                     contentContainerStyle={{
                         flexGrow: 1,
-                        paddingBottom: keyboardVisible ? 12 : Math.max(insets.bottom + 20, 28),
+                        paddingBottom: authScrollBottomInset,
                     }}
                     keyboardShouldPersistTaps="handled"
-                    keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                    keyboardDismissMode="none"
                     showsVerticalScrollIndicator={false}
                     className="bg-gray-50"
-                    scrollIndicatorInsets={{ bottom: keyboardVisible ? 12 : Math.max(insets.bottom + 20, 28) }}
+                    scrollIndicatorInsets={{ bottom: authScrollBottomInset }}
                 >
                         {/* ── Header ── */}
                         <SafeAreaView edges={['top']} className="bg-blue-700">
@@ -314,7 +432,7 @@ const LoginScreen = () => {
                                 {mode === 'DOCTOR' ? 'Doctor & Staff Portal' : 'Patient Portal'}
                             </Text>
                             <Text className={`text-blue-200 text-center ${isVeryCompactScreen ? 'text-xs' : 'text-sm'}`}>
-                                {mode === 'DOCTOR' ? 'Sign in to manage appointments and clinic access' : 'Sign in to chat with your doctor'}
+                                {mode === 'DOCTOR' ? 'Sign in to manage appointments and clinic access' : 'Sign in with your phone number'}
                             </Text>
                         </Animated.View>
                         </SafeAreaView>
@@ -334,10 +452,16 @@ const LoginScreen = () => {
                                         isVeryCompactScreen ? 'text-2xl' : isCompactScreen ? 'text-[26px]' : 'text-[28px]'
                                     }`}
                                 >
-                                    Hi Doctor 👋
+                                    {mode === 'DOCTOR' ? 'Hi Doctor 👋' : 'Welcome Back'}
                                 </Text>
                                 <Text className={`text-slate-400 text-center ${isVeryCompactScreen ? 'text-xs' : 'text-sm'}`}>
-                                    Please enter your credentials to continue
+                                    {mode === 'DOCTOR'
+                                        ? 'Please enter your credentials to continue'
+                                        : !phoneChecked
+                                            ? 'Enter your phone number to continue'
+                                            : requiresPasswordSetup
+                                                ? 'This account needs password setup before login'
+                                                : 'Enter your password and verification to continue'}
                                 </Text>
                             </View>
 
@@ -448,18 +572,21 @@ const LoginScreen = () => {
                                             }`}
                                         >
                                             <View className="flex-row items-center pl-3">
-                                                <View className="flex-1 min-w-0 flex-row items-center flex-wrap">
+                                                <View className="flex-1 min-w-0 flex-row items-center">
                                                     <Calculator size={24} color="#2563eb" />
                                                 {challengeLoading ? (
                                                     <Text className="text-slate-800 font-bold text-2xl ml-3 shrink">
                                                         Loading calculation...
                                                     </Text>
                                                 ) : challengeQuestion ? (
-                                                    <View className="flex-1 min-w-0 flex-row items-center flex-wrap ml-4">
+                                                    <View className="flex-1 min-w-0 flex-row items-center ml-4">
                                                         <Text
                                                             className={`text-slate-800 font-bold mr-2 shrink ${
                                                                 isVeryCompactScreen || isLargeText ? 'text-[24px]' : 'text-[28px]'
                                                             }`}
+                                                            numberOfLines={1}
+                                                            adjustsFontSizeToFit
+                                                            minimumFontScale={0.72}
                                                         >
                                                             {challengeQuestion.replace('?', '')}
                                                         </Text>
@@ -527,123 +654,237 @@ const LoginScreen = () => {
                                 </>
                             ) : (
                                 <>
-                                    <View className={isVeryCompactScreen ? 'mb-3.5' : 'mb-4'}>
+                                    <View
+                                        className={
+                                            phoneChecked
+                                                ? (isVeryCompactScreen ? 'mb-2' : 'mb-2.5')
+                                                : (isVeryCompactScreen ? 'mb-3.5' : 'mb-4')
+                                        }
+                                    >
                                         <Text className="text-base font-bold text-gray-700 mb-2 ml-1">
-                                            Phone or Telegram Username
+                                            Phone Number
                                         </Text>
                                         <View className="flex-row items-center bg-white rounded-2xl px-4 border-2 border-gray-200">
-                                            <Mail size={20} color="#64748b" />
+                                            <Phone size={20} color="#64748b" />
                                             <TextInput
                                                 className={`flex-1 px-3 text-base text-slate-800 ${isVeryCompactScreen ? 'py-3.5' : 'py-4'}`}
-                                                placeholder="e.g. 9392569600 or username"
+                                                placeholder="e.g. 9392569600"
                                                 placeholderTextColor="#9ca3af"
                                                 value={patientIdentifier}
-                                                onChangeText={setPatientIdentifier}
+                                                onChangeText={(text) => {
+                                                    setPatientIdentifier(text);
+                                                    if (phoneChecked) resetPatientDetectedFlow();
+                                                }}
                                                 autoCapitalize="none"
+                                                keyboardType="phone-pad"
                                             />
                                         </View>
                                     </View>
 
-                                    <View className="mb-2">
-                                        <View className="flex-row items-center justify-between mb-2">
-                                            <Text className="text-base font-bold text-gray-700 ml-1">
-                                                Quick Verification
-                                            </Text>
-                                            <TouchableOpacity
-                                                onPress={() => loadLoginChallenge()}
-                                                disabled={challengeLoading || verifyingChallenge}
-                                                className="flex-row items-center"
-                                            >
-                                                <RefreshCw size={14} color="#2563eb" />
-                                            </TouchableOpacity>
-                                        </View>
-
-                                        <View
-                                            className={`bg-white border border-blue-100 rounded-2xl px-4 ${
-                                                isVeryCompactScreen ? 'py-2 mb-1.5' : 'py-2.5 mb-2'
-                                            }`}
+                                    {!phoneChecked ? (
+                                        <TouchableOpacity
+                                            onPress={() => {
+                                                void handleContinueWithPhone();
+                                            }}
+                                            disabled={checkingPhone}
+                                            activeOpacity={0.8}
+                                            className={`rounded-2xl items-center justify-center ${
+                                                isVeryCompactScreen ? 'py-3.5' : 'py-4'
+                                            } ${checkingPhone ? 'bg-blue-300' : 'bg-blue-600'}`}
+                                            style={{
+                                                shadowColor: '#1d4ed8',
+                                                shadowOffset: { width: 0, height: 6 },
+                                                shadowOpacity: 0.4,
+                                                shadowRadius: 12,
+                                                elevation: 8,
+                                            }}
                                         >
-                                            <View className="flex-row items-center pl-3">
-                                                <View className="flex-1 min-w-0 flex-row items-center flex-wrap">
-                                                    <Calculator size={24} color="#2563eb" />
-                                                {challengeLoading ? (
-                                                    <Text className="text-slate-800 font-bold text-2xl ml-3 shrink">
-                                                        Loading calculation...
-                                                    </Text>
-                                                ) : challengeQuestion ? (
-                                                    <View className="flex-1 min-w-0 flex-row items-center flex-wrap ml-4">
-                                                        <Text
-                                                            className={`text-slate-800 font-bold mr-2 shrink ${
-                                                                isVeryCompactScreen || isLargeText ? 'text-[24px]' : 'text-[28px]'
-                                                            }`}
-                                                        >
-                                                            {challengeQuestion.replace('?', '')}
-                                                        </Text>
-                                                        {challengeAnswer === '' && !answerInputActive && !challengeVerified ? (
-                                                            <TouchableOpacity
-                                                                activeOpacity={0.9}
-                                                                onPress={() => setAnswerInputActive(true)}
-                                                                className="bg-white items-center justify-center ml-2 px-2 rounded-2xl border border-blue-200 shrink-0"
-                                                                style={{ width: verificationBoxWidth, height: verificationBoxHeight }}
-                                                            >
-                                                                <Text className="font-bold text-gray-400" style={{ fontSize: verificationFontSize }}>?</Text>
-                                                            </TouchableOpacity>
-                                                        ) : (
-                                                            <TextInput
-                                                                autoFocus={answerInputActive && !challengeVerified}
-                                                                className="bg-white text-center font-bold text-slate-800 ml-2 px-2 rounded-2xl border border-blue-200 shrink-0"
-                                                                placeholder="?"
-                                                                placeholderTextColor="#9ca3af"
-                                                                value={challengeAnswer}
-                                                                onChangeText={(text) => {
-                                                                    setChallengeAnswer(text);
-                                                                    if (text === '' && !challengeVerified) {
-                                                                        setAnswerInputActive(false);
-                                                                    }
-                                                                }}
-                                                                onBlur={() => {
-                                                                    if (!challengeAnswer && !challengeVerified) {
-                                                                        setAnswerInputActive(false);
-                                                                    }
-                                                                }}
-                                                                keyboardType="number-pad"
-                                                                maxLength={4}
-                                                                editable={!challengeLoading && !challengeVerified}
-                                                                style={{
-                                                                    width: verificationBoxWidth,
-                                                                    height: verificationBoxHeight,
-                                                                    textAlign: 'center',
-                                                                    fontSize: verificationFontSize,
-                                                                    lineHeight: verificationFontSize + 4,
-                                                                }}
-                                                            />
-                                                        )}
-                                                    </View>
-                                                ) : (
-                                                    <Text className="text-slate-800 font-bold text-2xl ml-3 shrink">
-                                                        Calculation unavailable
-                                                    </Text>
-                                                )}
+                                            {checkingPhone ? (
+                                                <View className="flex-row items-center">
+                                                    <ActivityIndicator color="#fff" size="small" />
+                                                    <Text className="text-white font-bold ml-3 text-lg">Checking...</Text>
                                                 </View>
-                                                <View className="ml-3 w-9 h-9 items-center justify-center shrink-0">
-                                                    {verifyingChallenge ? (
-                                                        <ActivityIndicator color="#2563eb" size="small" />
-                                                    ) : challengeStatus === 'success' ? (
-                                                        <Animated.View
-                                                            entering={ZoomIn.duration(220)}
-                                                            className="w-9 h-9 rounded-xl bg-emerald-500 items-center justify-center"
-                                                        >
-                                                            <Check size={18} color="#fff" />
-                                                        </Animated.View>
-                                                    ) : null}
+                                            ) : (
+                                                <View className="flex-row items-center">
+                                                    <Text className="text-white font-extrabold mr-2 tracking-wide text-lg">Continue</Text>
+                                                    <ArrowRight size={20} color="#fff" />
+                                                </View>
+                                            )}
+                                        </TouchableOpacity>
+                                    ) : null}
+
+                                    {phoneChecked && !requiresPasswordSetup ? (
+                                        <>
+                                            <View className={isVeryCompactScreen ? 'mb-2 mt-1' : 'mb-2.5 mt-1'}>
+                                                <View className="flex-row items-center justify-between mb-2">
+                                                    <Text className="text-base font-bold text-gray-700 ml-1">Password</Text>
+                                                    <TouchableOpacity onPress={handleForgotPassword} activeOpacity={0.8}>
+                                                        <Text className="text-blue-600 font-semibold">Forgot Password?</Text>
+                                                    </TouchableOpacity>
+                                                </View>
+                                                <View
+                                                    className={`flex-row items-center bg-white rounded-2xl px-4 border-2 ${
+                                                        patientPasswordFocused ? 'border-blue-500' : 'border-gray-200'
+                                                    }`}
+                                                    style={{
+                                                        shadowColor: patientPasswordFocused ? '#2563eb' : '#000',
+                                                        shadowOffset: { width: 0, height: 2 },
+                                                        shadowOpacity: patientPasswordFocused ? 0.15 : 0.04,
+                                                        shadowRadius: 6,
+                                                        elevation: patientPasswordFocused ? 4 : 1,
+                                                    }}
+                                                >
+                                                    <Lock size={20} color="#64748b" />
+                                                    <TextInput
+                                                        className={`flex-1 px-3 text-base text-slate-800 ${isVeryCompactScreen ? 'py-3.5' : 'py-4'}`}
+                                                        placeholder="Enter your password"
+                                                        placeholderTextColor="#9ca3af"
+                                                        value={patientPassword}
+                                                        onChangeText={setPatientPassword}
+                                                        secureTextEntry={!showPatientPassword}
+                                                        autoCapitalize="none"
+                                                        onFocus={() => setPatientPasswordFocused(true)}
+                                                        onBlur={() => setPatientPasswordFocused(false)}
+                                                    />
+                                                    <TouchableOpacity onPress={() => setShowPatientPassword((prev) => !prev)} hitSlop={8}>
+                                                        {showPatientPassword ? <EyeOff size={20} color="#64748b" /> : <Eye size={20} color="#64748b" />}
+                                                    </TouchableOpacity>
                                                 </View>
                                             </View>
+
+                                            <View className="mb-0.5">
+                                                <View className="flex-row items-center justify-between mb-2">
+                                                    <Text className="text-base font-bold text-gray-700 ml-1">
+                                                        Quick Verification
+                                                    </Text>
+                                                    <TouchableOpacity
+                                                        onPress={() => loadLoginChallenge()}
+                                                        disabled={challengeLoading || verifyingChallenge}
+                                                        className="flex-row items-center"
+                                                    >
+                                                        <RefreshCw size={14} color="#2563eb" />
+                                                    </TouchableOpacity>
+                                                </View>
+
+                                                <View
+                                                    className={`bg-white border border-blue-100 rounded-2xl px-4 ${
+                                                        isVeryCompactScreen ? 'py-2 mb-1.5' : 'py-2.5 mb-2'
+                                                    }`}
+                                                >
+                                                    <View className="flex-row items-center pl-3">
+                                                        <View className="flex-1 min-w-0 flex-row items-center">
+                                                            <Calculator size={24} color="#2563eb" />
+                                                        {challengeLoading ? (
+                                                            <Text className="text-slate-800 font-bold text-2xl ml-3 shrink">
+                                                                Loading calculation...
+                                                            </Text>
+                                                        ) : challengeQuestion ? (
+                                                            <View className="flex-1 min-w-0 flex-row items-center ml-4">
+                                                                <Text
+                                                                    className={`text-slate-800 font-bold mr-2 shrink ${
+                                                                        isVeryCompactScreen || isLargeText ? 'text-[24px]' : 'text-[28px]'
+                                                                    }`}
+                                                                    numberOfLines={1}
+                                                                    adjustsFontSizeToFit
+                                                                    minimumFontScale={0.72}
+                                                                >
+                                                                    {challengeQuestion.replace('?', '')}
+                                                                </Text>
+                                                                {challengeAnswer === '' && !answerInputActive && !challengeVerified ? (
+                                                                    <TouchableOpacity
+                                                                        activeOpacity={0.9}
+                                                                        onPress={() => setAnswerInputActive(true)}
+                                                                        className="bg-white items-center justify-center ml-2 px-2 rounded-2xl border border-blue-200 shrink-0"
+                                                                        style={{ width: verificationBoxWidth, height: verificationBoxHeight }}
+                                                                    >
+                                                                        <Text className="font-bold text-gray-400" style={{ fontSize: verificationFontSize }}>?</Text>
+                                                                    </TouchableOpacity>
+                                                                ) : (
+                                                                    <TextInput
+                                                                        autoFocus={answerInputActive && !challengeVerified}
+                                                                        className="bg-white text-center font-bold text-slate-800 ml-2 px-2 rounded-2xl border border-blue-200 shrink-0"
+                                                                        placeholder="?"
+                                                                        placeholderTextColor="#9ca3af"
+                                                                        value={challengeAnswer}
+                                                                        onChangeText={(text) => {
+                                                                            setChallengeAnswer(text);
+                                                                            if (text === '' && !challengeVerified) {
+                                                                                setAnswerInputActive(false);
+                                                                            }
+                                                                        }}
+                                                                        onBlur={() => {
+                                                                            if (!challengeAnswer && !challengeVerified) {
+                                                                                setAnswerInputActive(false);
+                                                                            }
+                                                                        }}
+                                                                        keyboardType="number-pad"
+                                                                        maxLength={4}
+                                                                        editable={!challengeLoading && !challengeVerified}
+                                                                        style={{
+                                                                            width: verificationBoxWidth,
+                                                                            height: verificationBoxHeight,
+                                                                            textAlign: 'center',
+                                                                            fontSize: verificationFontSize,
+                                                                            lineHeight: verificationFontSize + 4,
+                                                                        }}
+                                                                    />
+                                                                )}
+                                                            </View>
+                                                        ) : (
+                                                            <Text className="text-slate-800 font-bold text-2xl ml-3 shrink">
+                                                                Calculation unavailable
+                                                            </Text>
+                                                        )}
+                                                        </View>
+                                                        <View className="ml-3 w-9 h-9 items-center justify-center shrink-0">
+                                                            {verifyingChallenge ? (
+                                                                <ActivityIndicator color="#2563eb" size="small" />
+                                                            ) : challengeStatus === 'success' ? (
+                                                                <Animated.View
+                                                                    entering={ZoomIn.duration(220)}
+                                                                    className="w-9 h-9 rounded-xl bg-emerald-500 items-center justify-center"
+                                                                >
+                                                                    <Check size={18} color="#fff" />
+                                                                </Animated.View>
+                                                            ) : null}
+                                                        </View>
+                                                    </View>
+                                                </View>
+                                            </View>
+                                        </>
+                                    ) : null}
+
+                                    {phoneChecked && requiresPasswordSetup ? (
+                                        <View className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
+                                            <Text className="text-base font-bold text-amber-800">Password setup required</Text>
+                                            <Text className="text-sm text-amber-700 mt-1">
+                                                Verify your phone with OTP to create a password for this account.
+                                            </Text>
+                                            <TouchableOpacity
+                                                onPress={handleOpenPasswordSetupOtp}
+                                                activeOpacity={0.85}
+                                                className="rounded-2xl items-center justify-center py-3.5 mt-4 bg-blue-600"
+                                                style={{
+                                                    shadowColor: '#1d4ed8',
+                                                    shadowOffset: { width: 0, height: 6 },
+                                                    shadowOpacity: 0.3,
+                                                    shadowRadius: 10,
+                                                    elevation: 6,
+                                                }}
+                                            >
+                                                <View className="flex-row items-center">
+                                                    <Text className="text-white font-extrabold mr-2 tracking-wide text-base">Get OTP</Text>
+                                                    <ArrowRight size={18} color="#fff" />
+                                                </View>
+                                            </TouchableOpacity>
                                         </View>
-                                    </View>
+                                    ) : null}
+
                                 </>
                             )}
 
                             {/* Login Button */}
+                            {mode === 'DOCTOR' || (mode === 'PATIENT' && phoneChecked && !requiresPasswordSetup) ? (
                             <TouchableOpacity
                                 onPress={handleLogin}
                                 disabled={loading || !canAttemptLogin}
@@ -688,13 +929,31 @@ const LoginScreen = () => {
                                     </View>
                                 )}
                             </TouchableOpacity>
+                            ) : null}
+
+                            {mode === 'PATIENT' ? (
+                                <TouchableOpacity
+                                    onPress={() => navigation.navigate('Signup')}
+                                    activeOpacity={0.8}
+                                    className={`rounded-2xl items-center justify-center border border-blue-200 bg-white ${
+                                        isVeryCompactScreen ? 'py-3 mt-3' : 'py-3.5 mt-3'
+                                    }`}
+                                >
+                                    <View className="flex-row items-center">
+                                        <UserPlus size={18} color="#2563eb" />
+                                        <Text className="text-blue-600 font-bold ml-2 text-base">New patient? Create account</Text>
+                                    </View>
+                                </TouchableOpacity>
+                            ) : null}
 
                             {/* Security Note */}
                             <View className={`px-4 ${isVeryCompactScreen ? 'mt-3' : 'mt-4'}`}>
                                 <View className="flex-row items-center justify-center">
                                     <ShieldCheck size={14} color="#9ca3af" />
                                     <Text className="text-xs text-gray-400 text-center ml-2" maxFontSizeMultiplier={1.2}>
-                                        Authorized medical personnel only.{'\n'}Your session is encrypted and secure.
+                                        {mode === 'DOCTOR'
+                                            ? <>Authorized medical personnel only.{'\n'}Your session is encrypted and secure.</>
+                                            : 'Your session is encrypted and secure.'}
                                     </Text>
                                 </View>
                             </View>

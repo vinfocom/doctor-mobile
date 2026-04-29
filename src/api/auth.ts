@@ -19,6 +19,27 @@ export interface LoginChallenge {
     expiresAt: string;
 }
 
+export interface PatientMeUser {
+    patient_id?: number;
+    full_name?: string | null;
+    phone?: string | null;
+    age?: number | null;
+    gender?: string | null;
+    admin_id?: number | null;
+    doctor_id?: number | null;
+    booking_id?: number | null;
+    profile_type?: 'SELF' | 'OTHER' | null;
+    role?: AppRole;
+}
+
+export interface PatientLoginAvailability {
+    exists: boolean;
+    hasPassword: boolean;
+    patient?: PatientMeUser | null;
+}
+
+export type PatientOtpPurpose = 'SET_PASSWORD_FIRST_TIME' | 'RESET_PASSWORD';
+
 export const getLoginChallenge = async (): Promise<LoginChallenge> => {
     const response = await client.get('/auth/login-challenge');
     return response.data;
@@ -82,15 +103,105 @@ export const updateProfile = async (data: {
     return response.data;
 };
 
+export const checkPatientLoginAvailability = async (phone: string) => {
+    const response = await client.get('/patient-auth/login', {
+        params: { phone },
+    });
+    return response.data as PatientLoginAvailability;
+};
+
 export const patientLogin = async (
-    identifier: string,
+    phone: string,
+    password: string,
     challengeId: string,
     challengeVerificationToken: string
 ) => {
     const response = await client.post('/patient-auth/login', {
-        identifier,
+        phone,
+        password,
         challengeId,
         challengeVerificationToken,
+    });
+    return response.data;
+};
+
+export const checkPatientSignupAvailability = async (phone: string) => {
+    const response = await client.get('/patient-auth/signup', {
+        params: { phone },
+    });
+    return response.data as { exists: boolean; patient?: PatientMeUser | null };
+};
+
+export const patientSignup = async (data: {
+    full_name: string;
+    phone?: string;
+    password: string;
+    confirmPassword: string;
+    age?: number | string;
+    gender?: string;
+    challengeId: string;
+    challengeVerificationToken: string;
+}) => {
+    const response = await client.post('/patient-auth/signup', data);
+    return response.data;
+};
+
+export const sendPatientOtp = async (phone: string, purpose: PatientOtpPurpose) => {
+    const response = await client.post('/patient-auth/send-otp', {
+        phone,
+        purpose,
+    });
+    return response.data as {
+        success: boolean;
+        message: string;
+        expiresInSeconds: number;
+        resendAfterSeconds: number;
+    };
+};
+
+export const verifyPatientOtp = async (
+    phone: string,
+    purpose: PatientOtpPurpose,
+    otp: string
+) => {
+    const response = await client.post('/patient-auth/verify-otp', {
+        phone,
+        purpose,
+        otp,
+    });
+    return response.data as {
+        success: boolean;
+        message: string;
+        verificationToken: string;
+    };
+};
+
+export const setPasswordWithOtp = async (
+    phone: string,
+    newPassword: string,
+    confirmPassword: string,
+    verificationToken: string
+) => {
+    const response = await client.post('/patient-auth/set-password-with-otp', {
+        phone,
+        newPassword,
+        confirmPassword,
+        verificationToken,
+    });
+    return response.data;
+};
+
+export const resetPasswordWithOtp = async (
+    phone: string,
+    newPassword: string,
+    confirmPassword: string,
+    verificationToken: string
+) => {
+    const response = await client.post('/patient-auth/reset-password-with-otp', {
+        phone,
+        newPassword,
+        confirmPassword,
+        verificationToken,
     });
     return response.data;
 };

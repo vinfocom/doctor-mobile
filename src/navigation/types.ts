@@ -15,12 +15,25 @@ export type MainTabParamList = {
 
 export type PatientTabParamList = {
   PatientHome: undefined;
-  PatientAppointments: undefined;
+  PatientAppointments: {
+    openCreate?: boolean;
+  } | undefined;
   PatientAnnouncements: undefined;
 };
 
 export type RootStackParamList = {
   Login: undefined;
+  Signup: undefined;
+  PatientOtp: {
+    phone: string;
+    purpose: 'SET_PASSWORD_FIRST_TIME' | 'RESET_PASSWORD';
+    forgotPasswordMode: boolean;
+  };
+  PatientResetPassword: {
+    phone: string;
+    verificationToken: string;
+    purpose: 'SET_PASSWORD_FIRST_TIME' | 'RESET_PASSWORD';
+  };
   DoctorMain: NavigatorScreenParams<MainTabParamList> | undefined;
   PatientMain: NavigatorScreenParams<PatientTabParamList> | undefined;
   Chat: { patientId: number; doctorId: number; patientName: string; viewer?: 'DOCTOR' | 'PATIENT'; profilePicUrl?: string | null };

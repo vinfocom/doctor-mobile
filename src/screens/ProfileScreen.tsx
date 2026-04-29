@@ -35,6 +35,8 @@ import {
 } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { getProfile, updateProfile } from '../api/auth';
+import { getClinics } from '../api/clinics';
+import { getAllDoctors } from '../api/doctors';
 import { getLeaves, addLeave, deleteLeave } from '../api/leaves';
 import { removeToken } from '../api/token';
 import { uploadDoctorFile } from '../api/uploads';
@@ -163,6 +165,8 @@ const ProfileScreen = () => {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [editing, setEditing] = useState(false);
+    const [assignedClinicName, setAssignedClinicName] = useState('');
+    const [linkedDoctorName, setLinkedDoctorName] = useState('');
 
     // Editable fields
     const [doctorName, setDoctorName] = useState('');
@@ -210,6 +214,44 @@ const ProfileScreen = () => {
         fetchProfile();
         fetchLeaves();
     }, [isClinicStaff]);
+
+    useEffect(() => {
+        if (!isClinicStaff) return;
+
+        let active = true;
+        const loadClinicStaffDisplayNames = async () => {
+            try {
+                const [clinicsRes, doctorsRes] = await Promise.all([
+                    getClinics().catch(() => ({ clinics: [] })),
+                    getAllDoctors().catch(() => ({ doctors: [] })),
+                ]);
+
+                if (!active) return;
+
+                const clinics = Array.isArray((clinicsRes as any)?.clinics) ? (clinicsRes as any).clinics : [];
+                const doctors = Array.isArray((doctorsRes as any)?.doctors)
+                    ? (doctorsRes as any).doctors
+                    : Array.isArray(doctorsRes)
+                      ? doctorsRes
+                      : [];
+
+                const matchedClinic = clinics.find((item: any) => Number(item?.clinic_id) === Number(staff_clinic_id));
+                const matchedDoctor = doctors.find((item: any) => Number(item?.doctor_id) === Number(staff_doctor_id));
+
+                setAssignedClinicName(String(matchedClinic?.clinic_name || '').trim());
+                setLinkedDoctorName(String(matchedDoctor?.doctor_name || '').trim());
+            } catch {
+                if (!active) return;
+                setAssignedClinicName('');
+                setLinkedDoctorName('');
+            }
+        };
+
+        loadClinicStaffDisplayNames();
+        return () => {
+            active = false;
+        };
+    }, [isClinicStaff, staff_clinic_id, staff_doctor_id]);
 
     const fetchLeaves = async () => {
         try {
@@ -539,15 +581,19 @@ const ProfileScreen = () => {
                             <View className="bg-white rounded-2xl px-4 py-4 mb-3 flex-row items-start" style={{ elevation: 2 }}>
                                 <View className="mr-3 mt-0.5"><CalendarDays size={20} color="#4b5563" /></View>
                                 <View className="flex-1">
-                                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-0.5">Assigned Clinic ID</Text>
-                                    <Text className="text-base text-gray-800 font-medium">{staff_clinic_id ? String(staff_clinic_id) : 'All Clinics'}</Text>
+                                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-0.5">Assigned Clinic Name</Text>
+                                    <Text className="text-base text-gray-800 font-medium">
+                                        {staff_clinic_id ? (assignedClinicName || 'N/A') : 'All Clinics'}
+                                    </Text>
                                 </View>
                             </View>
                             <View className="bg-white rounded-2xl px-4 py-4 mb-3 flex-row items-start" style={{ elevation: 2 }}>
                                 <View className="mr-3 mt-0.5"><MessageCircle size={20} color="#4b5563" /></View>
                                 <View className="flex-1">
-                                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-0.5">Linked Doctor ID</Text>
-                                    <Text className="text-base text-gray-800 font-medium">{staff_doctor_id ? String(staff_doctor_id) : 'N/A'}</Text>
+                                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-0.5">Linked Doctor Name</Text>
+                                    <Text className="text-base text-gray-800 font-medium">
+                                        {staff_doctor_id ? (linkedDoctorName ? `Dr. ${linkedDoctorName}` : 'N/A') : 'N/A'}
+                                    </Text>
                                 </View>
                             </View>
                         </Animated.View>

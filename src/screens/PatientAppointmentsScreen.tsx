@@ -12,15 +12,17 @@ import {
     StatusBar,
     Image,
 } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { CalendarPlus, Clock3, History, User, MoreVertical, Search, X, ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import type { RouteProp } from '@react-navigation/native';
 import { getPatientAppointments, createPatientAppointment, updatePatientAppointment } from '../api/patientAppointments';
 import { getPatientProfile } from '../api/auth';
 import { getClinics } from '../api/clinics';
 import { getSlots, getAvailableDates } from '../api/slots';
 import { getAllDoctors } from '../api/doctors';
+import type { PatientTabParamList } from '../navigation/types';
 
 type AppointmentItem = {
     appointment_id: number;
@@ -120,9 +122,12 @@ const getRelationBadgeText = (item?: AppointmentItem | null, relationTypeOverrid
 };
 
 const normalizeName = (value?: string | null) => String(value || '').trim().toLowerCase();
+const formatClinicAddress = (value?: string | null) => String(value || '').trim();
 
 export default function PatientAppointmentsScreen() {
     type BookingFor = 'SELF' | 'OTHER';
+    const navigation = useNavigation<any>();
+    const route = useRoute<RouteProp<PatientTabParamList, 'PatientAppointments'>>();
     const [loading, setLoading] = useState(true);
     const [cancelling, setCancelling] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
@@ -130,7 +135,13 @@ export default function PatientAppointmentsScreen() {
     const [patientName, setPatientName] = useState('');
     const [otherPatientName, setOtherPatientName] = useState('');
     const [hasOtherContext, setHasOtherContext] = useState(false);
-    const [doctors, setDoctors] = useState<Array<{ doctor_id: number; doctor_name: string; specialization?: string | null; profile_pic_url?: string | null }>>([]);
+    const [doctors, setDoctors] = useState<Array<{
+        doctor_id: number;
+        doctor_name: string;
+        specialization?: string | null;
+        profile_pic_url?: string | null;
+        status?: string | null;
+    }>>([]);
     const [allClinics, setAllClinics] = useState<any[]>([]);
     const [clinics, setClinics] = useState<any[]>([]);
     const [slots, setSlots] = useState<string[]>([]);
@@ -140,6 +151,7 @@ export default function PatientAppointmentsScreen() {
     const [openCardMenuId, setOpenCardMenuId] = useState<number | null>(null);
     const [selectedAppointment, setSelectedAppointment] = useState<AppointmentItem | null>(null);
     const [showDoctorSearch, setShowDoctorSearch] = useState(false);
+    const [showClinicSelect, setShowClinicSelect] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [availableDates, setAvailableDates] = useState<Set<string>>(new Set());
     const [loadingDates, setLoadingDates] = useState(false);
@@ -189,11 +201,13 @@ export default function PatientAppointmentsScreen() {
 
         const ds = ((doctorsRes?.doctors || []) as any[])
             .filter((d) => d?.doctor_id)
+            .filter((d) => String(d?.status || '').toUpperCase() !== 'INACTIVE')
             .map((d) => ({
                 doctor_id: d.doctor_id,
                 doctor_name: d.doctor_name || 'Doctor',
                 specialization: d?.specialization ?? null,
                 profile_pic_url: d?.profile_pic_url ?? null,
+                status: d?.status ?? null,
             }));
         setDoctors(ds);
 
@@ -271,6 +285,23 @@ export default function PatientAppointmentsScreen() {
         await loadAll().catch(() => undefined);
         setRefreshing(false);
     };
+
+    const handleOpenCreateModal = () => {
+        setSelectedAppointment(null);
+        setForm({ doctor_id: '', clinic_id: '', date: '', time: '', booking_for: 'SELF', patient_name: patientName });
+        setShowDoctorSearch(false);
+        setShowClinicSelect(false);
+        setSearchQuery('');
+        setAvailableDates(new Set());
+        setOpenCardMenuId(null);
+        setOpen(true);
+    };
+
+    useEffect(() => {
+        if (!route.params?.openCreate) return;
+        handleOpenCreateModal();
+        navigation.setParams?.({ openCreate: undefined });
+    }, [navigation, patientName, route.params?.openCreate]);
 
     const submitBooking = async () => {
         if (!form.doctor_id || !form.clinic_id || !form.date || !form.time) {
@@ -519,6 +550,14 @@ export default function PatientAppointmentsScreen() {
             return doctorName.includes(q) || specialization.includes(q);
         });
     }, [doctors, searchQuery]);
+    const filteredClinics = useMemo(
+        () => clinics.filter((c) => !form.doctor_id || String(c?.doctor_id || '') === String(form.doctor_id)),
+        [clinics, form.doctor_id]
+    );
+    const selectedClinic = useMemo(
+        () => filteredClinics.find((c) => String(c?.clinic_id) === String(form.clinic_id)) || null,
+        [filteredClinics, form.clinic_id]
+    );
 
 
     if (loading) {
@@ -530,20 +569,22 @@ export default function PatientAppointmentsScreen() {
     }
 
     return (
-        <SafeAreaView className="flex-1 bg-blue-700">
+        <SafeAreaView className="flex-1 bg-gray-50" edges={['left', 'right']}>
             <StatusBar barStyle="light-content" backgroundColor="#1d4ed8" />
             <View className="flex-1 bg-gray-50">
-                <View className="bg-blue-700 px-5 pt-6 pb-6 rounded-b-3xl">
-                    <View className="flex-row items-center justify-between">
-                        <View>
-                            <Text className="text-blue-100 text-sm">Patient Portal</Text>
-                            <Text className="text-white text-2xl font-bold mt-1">My Appointments</Text>
+                <SafeAreaView edges={['top']} className="bg-blue-700 rounded-b-3xl overflow-hidden">
+                    <View className="bg-blue-700 px-5 pt-6 pb-6">
+                        <View className="flex-row items-center justify-between">
+                            <View>
+                                <Text className="text-blue-100 text-sm">Patient Portal</Text>
+                            <Text className="text-white text-3xl font-bold mt-1">My Appointments</Text>
                         </View>
-                        <TouchableOpacity onPress={() => { setSelectedAppointment(null); setForm({ doctor_id: '', clinic_id: '', date: '', time: '', booking_for: 'SELF', patient_name: patientName }); setOpen(true); }} className="bg-white rounded-full p-3">
-                            <CalendarPlus size={20} color="#1d4ed8" />
-                        </TouchableOpacity>
+                            <TouchableOpacity onPress={handleOpenCreateModal} className="bg-white rounded-full p-3">
+                                <CalendarPlus size={20} color="#1d4ed8" />
+                            </TouchableOpacity>
+                        </View>
                     </View>
-                </View>
+                </SafeAreaView>
 
                 <FlashList
                     data={activeTab === 'UPCOMING' ? upcoming : past}
@@ -610,30 +651,41 @@ export default function PatientAppointmentsScreen() {
                                             {item.clinic?.clinic_name || 'Clinic'}
                                         </Text>
                                     </View>
-                                    <View className="ml-2 flex-row items-start justify-end">
+                                    <View className="ml-2 items-end">
+                                        <View className="flex-row items-start justify-end">
+                                            <View className={`px-2 py-1 rounded-md ${isPast ? 'bg-gray-200' : item.status === 'CANCELLED' ? 'bg-red-100' : item.status === 'COMPLETED' ? 'bg-green-100' : 'bg-blue-100'}`}>
+                                                <Text className={`text-[10px] font-bold uppercase ${isPast ? 'text-gray-600' : item.status === 'CANCELLED' ? 'text-red-600' : item.status === 'COMPLETED' ? 'text-green-700' : 'text-blue-700'}`}>{item.status || 'BOOKED'}</Text>
+                                            </View>
+                                            <TouchableOpacity
+                                                onPress={() => setOpenCardMenuId((prev) => (prev === item.appointment_id ? null : item.appointment_id))}
+                                                className="self-start ml-3 p-1.5 rounded-lg bg-gray-100"
+                                            >
+                                                {isMenuOpen ? <X size={14} color="#4b5563" /> : <MoreVertical size={14} color="#4b5563" />}
+                                            </TouchableOpacity>
+                                        </View>
                                         {hasOtherContext ? (
-                                            <View className={`self-start mr-2 px-2.5 py-1 rounded-full ${effectiveRelationType === 'OTHER' ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'}`}>
-                                                <Text className={`text-[10px] font-semibold ${effectiveRelationType === 'OTHER' ? 'text-amber-700' : 'text-sky-700'}`}>
+                                            <View className={`self-end mt-2 mr-10 max-w-[104px] px-2 py-0.5 rounded-full ${effectiveRelationType === 'OTHER' ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'}`}>
+                                                <Text
+                                                    className={`text-[10px] font-semibold ${effectiveRelationType === 'OTHER' ? 'text-amber-700' : 'text-sky-700'}`}
+                                                    numberOfLines={1}
+                                                    ellipsizeMode="tail"
+                                                >
                                                     {getRelationBadgeText(item, effectiveRelationType)}
                                                 </Text>
                                             </View>
                                         ) : null}
-                                        <View className={`px-2 py-1 rounded-md ${isPast ? 'bg-gray-200' : item.status === 'CANCELLED' ? 'bg-red-100' : item.status === 'COMPLETED' ? 'bg-green-100' : 'bg-blue-100'}`}>
-                                            <Text className={`text-[10px] font-bold uppercase ${isPast ? 'text-gray-600' : item.status === 'CANCELLED' ? 'text-red-600' : item.status === 'COMPLETED' ? 'text-green-700' : 'text-blue-700'}`}>{item.status || 'BOOKED'}</Text>
-                                        </View>
-                                        <TouchableOpacity
-                                            onPress={() => setOpenCardMenuId((prev) => (prev === item.appointment_id ? null : item.appointment_id))}
-                                            className="self-start ml-3 p-1.5 rounded-lg bg-gray-100"
-                                        >
-                                            {isMenuOpen ? <X size={14} color="#4b5563" /> : <MoreVertical size={14} color="#4b5563" />}
-                                        </TouchableOpacity>
                                     </View>
                                 </View>
 
                                 <View className="mt-3 flex-row items-stretch" style={{ gap: 8 }}>
                                     <View className="flex-1 bg-blue-50 rounded-xl px-2.5 py-2">
                                         <Text className="text-[10px] uppercase tracking-wide text-blue-500 font-bold">Date & Time</Text>
-                                        <Text className="text-sm font-semibold text-blue-900 mt-0.5" numberOfLines={1}>
+                                        <Text
+                                            className="text-sm font-semibold text-blue-900 mt-0.5"
+                                            numberOfLines={1}
+                                            adjustsFontSizeToFit
+                                            minimumFontScale={0.82}
+                                        >
                                             {formatDateOnly(item.appointment_date)} {'•'} {formatTimeOnly(item.start_time)}
                                         </Text>
                                     </View>
@@ -763,22 +815,34 @@ export default function PatientAppointmentsScreen() {
 
                                 <View>
                                     <Text className="text-sm font-bold text-gray-700 mb-2">Clinic</Text>
-                                    <View className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden">
-                                        <Picker
-                                            selectedValue={form.clinic_id}
-                                            onValueChange={(itemValue) => setForm((p) => ({ ...p, clinic_id: itemValue, date: '', time: '' }))}
-                                            style={{ color: '#374151', height: 50 }}
-                                            dropdownIconColor="#6b7280"
-                                            enabled={form.doctor_id !== ''}
-                                        >
-                                            <Picker.Item label={form.doctor_id ? "Select a Clinic" : "Select Doctor First"} value="" color="#9ca3af" />
-                                            {clinics
-                                                .filter((c) => !form.doctor_id || String(c?.doctor_id || '') === String(form.doctor_id))
-                                                .map((c) => (
-                                                    <Picker.Item key={c.clinic_id} label={c.clinic_name} value={String(c.clinic_id)} />
-                                                ))}
-                                        </Picker>
-                                    </View>
+                                    <TouchableOpacity
+                                        onPress={() => {
+                                            if (!form.doctor_id) return;
+                                            setShowClinicSelect(true);
+                                        }}
+                                        activeOpacity={0.85}
+                                        className={`bg-gray-50 border rounded-xl px-4 py-3 min-h-[50px] flex-row items-center justify-between ${
+                                            form.doctor_id ? 'border-gray-200' : 'border-gray-100'
+                                        }`}
+                                    >
+                                        <View className="flex-1 pr-3">
+                                            {selectedClinic ? (
+                                                <>
+                                                    <Text className="text-gray-800 font-medium">{selectedClinic.clinic_name || 'Clinic'}</Text>
+                                                    {formatClinicAddress(selectedClinic.location) ? (
+                                                        <Text className="text-xs text-gray-500 mt-0.5">
+                                                            {formatClinicAddress(selectedClinic.location)}
+                                                        </Text>
+                                                    ) : null}
+                                                </>
+                                            ) : (
+                                                <Text className="text-gray-400">
+                                                    {form.doctor_id ? 'Select a Clinic' : 'Select Doctor First'}
+                                                </Text>
+                                            )}
+                                        </View>
+                                        <Search size={16} color="#6b7280" />
+                                    </TouchableOpacity>
                                 </View>
 
                                 <View>
@@ -988,6 +1052,65 @@ export default function PatientAppointmentsScreen() {
                                 ))
                             )}
                         </ScrollView>
+                    </View>
+                </View>
+            </Modal>
+
+            <Modal visible={showClinicSelect} transparent animationType="slide" onRequestClose={() => setShowClinicSelect(false)}>
+                <View className="flex-1 justify-end bg-black/40">
+                    <View className="bg-white rounded-t-3xl p-5 max-h-[75%]">
+                        <View className="flex-row items-center justify-between mb-4">
+                            <Text className="text-lg font-bold text-gray-800">Select Clinic</Text>
+                            <TouchableOpacity onPress={() => setShowClinicSelect(false)} className="bg-gray-100 rounded-full px-3 py-2">
+                                <Text className="text-xs font-semibold text-gray-600">Close</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        {!form.doctor_id ? (
+                            <View className="py-8 items-center">
+                                <Text className="text-gray-400 text-sm">Select a doctor first</Text>
+                            </View>
+                        ) : filteredClinics.length === 0 ? (
+                            <View className="py-8 items-center">
+                                <Text className="text-gray-400 text-sm">No clinics available for this doctor</Text>
+                            </View>
+                        ) : (
+                            <ScrollView
+                                showsVerticalScrollIndicator={false}
+                                contentContainerStyle={{ paddingBottom: 40 }}
+                            >
+                                {filteredClinics.map((clinic) => {
+                                    const isSelected = String(clinic?.clinic_id) === String(form.clinic_id);
+                                    return (
+                                        <TouchableOpacity
+                                            key={clinic.clinic_id}
+                                            onPress={() => {
+                                                setForm((prev) => ({
+                                                    ...prev,
+                                                    clinic_id: String(clinic.clinic_id),
+                                                    date: '',
+                                                    time: '',
+                                                }));
+                                                setShowClinicSelect(false);
+                                            }}
+                                            activeOpacity={0.85}
+                                            className={`rounded-2xl border px-4 py-3 mb-3 ${
+                                                isSelected ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'
+                                            }`}
+                                        >
+                                            <Text className={`font-semibold ${isSelected ? 'text-blue-700' : 'text-gray-800'}`}>
+                                                {clinic.clinic_name || 'Clinic'}
+                                            </Text>
+                                            {formatClinicAddress(clinic.location) ? (
+                                                <Text className={`text-xs mt-1 ${isSelected ? 'text-blue-600' : 'text-gray-500'}`}>
+                                                    {formatClinicAddress(clinic.location)}
+                                                </Text>
+                                            ) : null}
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </ScrollView>
+                        )}
                     </View>
                 </View>
             </Modal>

@@ -31,6 +31,7 @@ import {
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { getProfile } from '../api/auth';
 import { getAppointments } from '../api/appointments';
+import { getAllDoctors } from '../api/doctors';
 import { removeToken } from '../api/token';
 import { getChatNotifications } from '../api/notifications';
 import { useSWRLite } from '../lib/useSWRLite';
@@ -94,7 +95,7 @@ const QuickActionButton = ({
 const DashboardScreen = () => {
     const navigation = useNavigation<DashboardScreenNavigationProp>();
     const isFocused = useIsFocused();
-    const { role, staff_role, name, email, clearSession, refreshSession } = useAuthSession();
+    const { role, staff_role, staff_doctor_id, name, email, clearSession, refreshSession } = useAuthSession();
     const isClinicStaff = role === 'CLINIC_STAFF';
     const getClinicStaffProfile = React.useCallback(async () => ({ doctor: null }), []);
     const [refreshing, setRefreshing] = useState(false);
@@ -111,8 +112,19 @@ const DashboardScreen = () => {
         isClinicStaff ? 'clinic-staff:profile' : 'doctor:profile',
         isClinicStaff ? getClinicStaffProfile : getProfile
     );
+    const { data: clinicStaffDoctorLookup } = useSWRLite(
+        isClinicStaff && staff_doctor_id ? `clinic-staff:doctor:${staff_doctor_id}` : 'clinic-staff:doctor:none',
+        async () => {
+            if (!isClinicStaff || !staff_doctor_id) return null;
+            const response = await getAllDoctors();
+            const doctors = Array.isArray(response) ? response : (response?.doctors || []);
+            const matchedDoctor = doctors.find((item: any) => Number(item?.doctor_id) === Number(staff_doctor_id));
+            return matchedDoctor || null;
+        }
+    );
     const profile = profileData?.doctor;
     const displayName = isClinicStaff ? (name || 'Clinic Staff') : (profile?.doctor_name || 'Doctor');
+    const linkedDoctorName = String(clinicStaffDoctorLookup?.doctor_name || '').trim();
     const roleBadgeLabel = isClinicStaff
         ? `Clinic Staff${staff_role ? ` | ${String(staff_role).replace(/_/g, ' ')}` : ''}`
         : 'Doctor';
@@ -252,7 +264,7 @@ const DashboardScreen = () => {
     }
 
     return (
-        <SafeAreaView className="flex-1 bg-blue-700 ">
+        <SafeAreaView className="flex-1 bg-gray-50" edges={['left', 'right']}>
             <StatusBar barStyle="light-content" backgroundColor="#3032ceff" />
             <ScrollView
                 className="flex-1 bg-gray-50"
@@ -262,13 +274,14 @@ const DashboardScreen = () => {
                 }
             >
 
-                {/* Header */}
-                <Animated.View
-                    entering={FadeInDown.duration(600).springify()}
-                    className="bg-blue-700 px-6 pt-16 pb-16 "
+                <SafeAreaView edges={['top']} className="bg-blue-700">
+                    {/* Header */}
+                    <Animated.View
+                        entering={FadeInDown.duration(600).springify()}
+                        className="bg-blue-700 px-6 pt-16 pb-16 "
 
-                >
-                    <View className=" items-center gap-6 justify-between mb-4">
+                    >
+                        <View className=" items-center gap-6 justify-between mb-4">
                         <TouchableOpacity
                             activeOpacity={0.7}
                             onPress={() => navigation.navigate('Profile')}
@@ -290,14 +303,24 @@ const DashboardScreen = () => {
                             <Text className="text-white text-4xl font-bold">
                                 {isClinicStaff ? displayName : `Dr. ${displayName}`}
                             </Text>
-                            <View className="self-start mt-3 bg-white/15 border border-white/20 rounded-full px-3 py-1.5">
-                                <Text className="text-white text-xs font-bold">{roleBadgeLabel}</Text>
-                            </View>
+                            {isClinicStaff && linkedDoctorName ? (
+                                <View className="self-start mt-3 bg-white/15 border border-white/20 rounded-full px-3 py-1.5">
+                                    <Text className="text-white text-xs font-bold">Dr. {linkedDoctorName}</Text>
+                                </View>
+                            ) : (
+                                <View className="self-start mt-3 bg-white/15 border border-white/20 rounded-full px-3 py-1.5">
+                                    <Text className="text-white text-xs font-bold">{roleBadgeLabel}</Text>
+                                </View>
+                            )}
+                            {isClinicStaff ? (
+                                <Text className="text-blue-100 text-sm mt-2">{roleBadgeLabel}</Text>
+                            ) : null}
                         </View>
 
 
-                    </View>
-                </Animated.View>
+                        </View>
+                    </Animated.View>
+                </SafeAreaView>
 
                 <View className="px-5 mt-6">
                     {/* Smart notification banner */}

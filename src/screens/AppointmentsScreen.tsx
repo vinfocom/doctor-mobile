@@ -457,7 +457,7 @@ const AppointmentsScreen = () => {
     const [dateTo, setDateTo] = useState(() => getISTTodayYMD());
     const [filterCalendarMode, setFilterCalendarMode] = useState<'FROM' | 'TO' | null>(null);
     const [showQuickDatePicker, setShowQuickDatePicker] = useState(false);
-    const [statusFilter, setStatusFilter] = useState<'ALL' | 'BOOKED' | 'PENDING' | 'COMPLETED' | 'CANCELLED'>('ALL');
+    const [statusFilter, setStatusFilter] = useState<'ALL' | 'BOOKED' | 'PENDING' | 'COMPLETED' | 'CANCELLED'>('BOOKED');
     const [headerMenuVisible, setHeaderMenuVisible] = useState(false);
     const [exportModalVisible, setExportModalVisible] = useState(false);
     const [exportPreset, setExportPreset] = useState<'ONE_DAY' | 'ONE_WEEK' | 'ONE_MONTH' | 'CUSTOM'>('ONE_DAY');
