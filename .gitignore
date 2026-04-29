@@ -38,6 +38,7 @@ yarn-error.*
 # local env files
 .env*.local
 credentials.json
+assets/adi-registration.properties
 
 # typescript
 *.tsbuildinfo
