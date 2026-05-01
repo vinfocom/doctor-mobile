@@ -39,6 +39,7 @@ yarn-error.*
 .env*.local
 credentials.json
 assets/adi-registration.properties
+android/app/src/main/assets/adi-registration.properties
 
 # typescript
 *.tsbuildinfo

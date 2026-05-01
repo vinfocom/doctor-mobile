@@ -2,7 +2,7 @@
   "expo": {
     "name": "Dapto",
     "slug": "Dapto",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/daptao.png",
     "userInterfaceStyle": "light",
@@ -41,7 +41,8 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.singhaditya1627.doctormobile"
+      "package": "com.singhaditya1627.doctormobile",
+      "versionCode": 10102
     },
     "web": {
       "favicon": "./assets/favicon.png",
