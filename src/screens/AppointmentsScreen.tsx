@@ -28,9 +28,11 @@ import {
     PlusCircle,
     Eraser,
     Download,
+    Pencil,
 } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getAppointments, createAppointment, updateAppointment, deleteAppointment } from '../api/appointments';
+import { updatePatient } from '../api/patients';
 import { getClinics } from '../api/clinics';
 import { getAvailableDates, getSlots } from '../api/slots';
 import client from '../api/client';
@@ -168,6 +170,8 @@ const formatPatientGender = (value?: string | null) => {
     return normalized.charAt(0).toUpperCase() + normalized.slice(1).toLowerCase();
 };
 
+const normalizePhoneInput = (value?: string | null) => String(value || '').replace(/\D/g, '');
+
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<string, { dot: string; badge: string; label: string; dotColor: string }> = {
@@ -213,6 +217,7 @@ interface ClinicDropdownProps {
 }
 
 type BookingFor = 'SELF' | 'OTHER';
+const GENDER_OPTIONS = ['Male', 'Female', 'Other', 'Prefer not to say'];
 
 interface MatchedPatient {
     patient_id: number;
@@ -221,6 +226,8 @@ interface MatchedPatient {
 }
 
 interface AppointmentPatientDetails {
+    patient_id?: number | null;
+    appointment_id?: number | null;
     full_name?: string | null;
     phone?: string | null;
     age?: number | null;
@@ -475,6 +482,12 @@ const AppointmentsScreen = () => {
     const [lockedPatientProfile, setLockedPatientProfile] = useState<MatchedPatient | null>(null);
     const [patientDetailsVisible, setPatientDetailsVisible] = useState(false);
     const [selectedPatientDetails, setSelectedPatientDetails] = useState<AppointmentPatientDetails | null>(null);
+    const [patientEditVisible, setPatientEditVisible] = useState(false);
+    const [patientEditName, setPatientEditName] = useState('');
+    const [patientEditPhone, setPatientEditPhone] = useState('');
+    const [patientEditAge, setPatientEditAge] = useState('');
+    const [patientEditGender, setPatientEditGender] = useState('');
+    const [savingPatientEdit, setSavingPatientEdit] = useState(false);
 
     useEffect(() => {
         fetchAppointments();
@@ -907,11 +920,144 @@ const AppointmentsScreen = () => {
         return error?.response?.data?.error || fallbackMessage;
     }, []);
 
-    const openPatientDetails = useCallback((patient?: AppointmentPatientDetails | null) => {
-        setOpenCardMenuId(null);
-        setSelectedPatientDetails(patient || null);
-        setPatientDetailsVisible(true);
+    const closePatientEdit = useCallback(() => {
+        setPatientEditVisible(false);
+        setPatientEditName('');
+        setPatientEditPhone('');
+        setPatientEditAge('');
+        setPatientEditGender('');
+        setSavingPatientEdit(false);
     }, []);
+
+    const openPatientDetails = useCallback((item?: any) => {
+        setOpenCardMenuId(null);
+        closePatientEdit();
+        setSelectedPatientDetails(item?.patient ? {
+            patient_id: item.patient.patient_id ?? item.patient_id ?? null,
+            appointment_id: item.appointment_id ?? null,
+            full_name: item.patient.full_name ?? null,
+            phone: item.patient.phone ?? null,
+            age: item.patient.age ?? null,
+            gender: item.patient.gender ?? null,
+        } : null);
+        setPatientDetailsVisible(true);
+    }, [closePatientEdit]);
+
+    const openPatientEdit = useCallback(() => {
+        if (!canManageAppointments) {
+            showPermissionDenied();
+            return;
+        }
+        if (!selectedPatientDetails?.patient_id) {
+            Alert.alert('Error', 'Patient details are unavailable for editing.');
+            return;
+        }
+
+        setPatientEditName(selectedPatientDetails.full_name || '');
+        setPatientEditPhone(selectedPatientDetails.phone || '');
+        setPatientEditAge(
+            selectedPatientDetails.age !== null && selectedPatientDetails.age !== undefined
+                ? String(selectedPatientDetails.age)
+                : ''
+        );
+        setPatientEditGender(selectedPatientDetails.gender || '');
+        setPatientEditVisible(true);
+    }, [canManageAppointments, selectedPatientDetails, showPermissionDenied]);
+
+    const handleSavePatientEdit = useCallback(async () => {
+        if (!selectedPatientDetails?.patient_id) {
+            Alert.alert('Error', 'Patient details are unavailable for editing.');
+            return;
+        }
+
+        const fullName = patientEditName.trim();
+        const phone = normalizePhoneInput(patientEditPhone);
+        const ageText = patientEditAge.trim();
+        const gender = patientEditGender.trim();
+
+        if (!fullName) {
+            Alert.alert('Error', 'Please enter patient name');
+            return;
+        }
+        if (!phone) {
+            Alert.alert('Error', 'Please enter phone number');
+            return;
+        }
+        if (phone.length < 10 || phone.length > 15) {
+            Alert.alert('Error', 'Please enter a valid phone number with 10 to 15 digits');
+            return;
+        }
+        if (!selectedPatientDetails.appointment_id) {
+            Alert.alert('Error', 'This patient record is missing appointment context and cannot be edited safely.');
+            return;
+        }
+        if (ageText) {
+            const parsedAge = parseInt(ageText, 10);
+            if (Number.isNaN(parsedAge) || parsedAge <= 0 || parsedAge >= 150) {
+                Alert.alert('Error', 'Please enter a valid age between 1 and 149');
+                return;
+            }
+        }
+
+        setSavingPatientEdit(true);
+        try {
+            const updated = await updatePatient(selectedPatientDetails.patient_id, {
+                full_name: fullName,
+                phone,
+                age: ageText ? parseInt(ageText, 10) : null,
+                gender: gender || null,
+                appointment_id: selectedPatientDetails.appointment_id ?? undefined,
+            });
+
+            const updatedPatient = updated.patient;
+            const linkedPatientIds = new Set(updated.linked_patient_ids || [selectedPatientDetails.patient_id]);
+
+            setAppointments((prev) => prev.map((appointment) => {
+                const appointmentPatientId = appointment?.patient?.patient_id ?? appointment?.patient_id;
+                if (!appointmentPatientId || !linkedPatientIds.has(appointmentPatientId)) {
+                    return appointment;
+                }
+
+                const isEditedPatient = appointmentPatientId === updatedPatient.patient_id;
+                return {
+                    ...appointment,
+                    patient: {
+                        ...appointment.patient,
+                        phone: updatedPatient.phone,
+                        ...(isEditedPatient ? {
+                            full_name: updatedPatient.full_name,
+                            age: updatedPatient.age,
+                            gender: updatedPatient.gender,
+                        } : {}),
+                    },
+                };
+            }));
+
+            setSelectedPatientDetails((prev) => prev ? ({
+                ...prev,
+                full_name: updatedPatient.full_name,
+                phone: updatedPatient.phone,
+                age: updatedPatient.age,
+                gender: updatedPatient.gender,
+            }) : prev);
+
+            closePatientEdit();
+            Alert.alert('Success', 'Patient details updated successfully');
+            fetchAppointments();
+        } catch (error: any) {
+            Alert.alert('Error', getApiErrorMessage(error, 'Failed to update patient details'));
+        } finally {
+            setSavingPatientEdit(false);
+        }
+    }, [
+        closePatientEdit,
+        getApiErrorMessage,
+        patientEditAge,
+        patientEditGender,
+        patientEditName,
+        patientEditPhone,
+        selectedPatientDetails,
+    ]);
 
     const handleCreateAppointment = async () => {
         if (!canManageAppointments) {
@@ -1150,7 +1296,7 @@ const AppointmentsScreen = () => {
             >
                     <View className="flex-row items-start">
                         <TouchableOpacity
-                            onPress={() => openPatientDetails(item.patient)}
+                            onPress={() => openPatientDetails(item)}
                             activeOpacity={0.85}
                             className="bg-blue-100 w-10 h-10 rounded-xl items-center justify-center mr-3 relative"
                         >
@@ -1595,37 +1741,148 @@ const AppointmentsScreen = () => {
                 animationType="fade"
                 transparent
                 visible={patientDetailsVisible}
-                onRequestClose={() => setPatientDetailsVisible(false)}
+                onRequestClose={() => {
+                    setPatientDetailsVisible(false);
+                    closePatientEdit();
+                }}
             >
                 <View className="flex-1 justify-end bg-black/45">
-                    <TouchableOpacity className="flex-1" activeOpacity={1} onPress={() => setPatientDetailsVisible(false)} />
+                    <TouchableOpacity
+                        className="flex-1"
+                        activeOpacity={1}
+                        onPress={() => {
+                            setPatientDetailsVisible(false);
+                            closePatientEdit();
+                        }}
+                    />
                     <View className="bg-white rounded-t-3xl px-6 pt-5 pb-8">
                         <View className="flex-row items-start justify-between">
                             <Text className="text-xl font-bold text-gray-900">Patient Details</Text>
-                            <TouchableOpacity
-                                onPress={() => setPatientDetailsVisible(false)}
-                                className="bg-gray-100 p-2 rounded-full"
-                            >
-                                <X size={18} color="#374151" />
-                            </TouchableOpacity>
+                            <View className="flex-row items-center" style={{ gap: 8 }}>
+                                {canManageAppointments && selectedPatientDetails?.patient_id ? (
+                                    <TouchableOpacity
+                                        onPress={openPatientEdit}
+                                        className="bg-blue-50 border border-blue-100 p-2 rounded-full"
+                                    >
+                                        <Pencil size={16} color="#2563eb" />
+                                    </TouchableOpacity>
+                                ) : null}
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        setPatientDetailsVisible(false);
+                                        closePatientEdit();
+                                    }}
+                                    className="bg-gray-100 p-2 rounded-full"
+                                >
+                                    <X size={18} color="#374151" />
+                                </TouchableOpacity>
+                            </View>
                         </View>
 
-                        <View className="mt-5 rounded-2xl border border-gray-100 bg-gray-50 overflow-hidden">
-                            {[
-                                { label: 'Name', value: selectedPatientDetails?.full_name || 'Unknown Patient' },
-                                { label: 'Phone', value: formatPatientPhone(selectedPatientDetails?.phone) },
-                                { label: 'Age', value: formatPatientAge(selectedPatientDetails?.age) },
-                                { label: 'Gender', value: formatPatientGender(selectedPatientDetails?.gender) },
-                            ].map((field, index, arr) => (
-                                <View
-                                    key={field.label}
-                                    className={`px-4 py-4 ${index < arr.length - 1 ? 'border-b border-gray-200' : ''}`}
-                                >
-                                    <Text className="text-xs uppercase tracking-wide text-gray-400 font-bold">{field.label}</Text>
-                                    <Text className="text-base font-semibold text-gray-900 mt-1.5">{field.value}</Text>
+                        {!patientEditVisible ? (
+                            <View className="mt-5 rounded-2xl border border-gray-100 bg-gray-50 overflow-hidden">
+                                {[
+                                    { label: 'Name', value: selectedPatientDetails?.full_name || 'Unknown Patient' },
+                                    { label: 'Phone', value: formatPatientPhone(selectedPatientDetails?.phone) },
+                                    { label: 'Age', value: formatPatientAge(selectedPatientDetails?.age) },
+                                    { label: 'Gender', value: formatPatientGender(selectedPatientDetails?.gender) },
+                                ].map((field, index, arr) => (
+                                    <View
+                                        key={field.label}
+                                        className={`px-4 py-4 ${index < arr.length - 1 ? 'border-b border-gray-200' : ''}`}
+                                    >
+                                        <Text className="text-xs uppercase tracking-wide text-gray-400 font-bold">{field.label}</Text>
+                                        <Text className="text-base font-semibold text-gray-900 mt-1.5">{field.value}</Text>
+                                    </View>
+                                ))}
+                            </View>
+                        ) : null}
+
+                        {canManageAppointments && patientEditVisible ? (
+                            <View className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-4">
+                                <View className="flex-row items-center justify-between">
+                                    <Text className="text-base font-bold text-blue-900">Edit Patient</Text>
+                                    <TouchableOpacity onPress={closePatientEdit} className="px-3 py-1 rounded-full bg-white border border-blue-100">
+                                        <Text className="text-xs font-semibold text-blue-700">Close</Text>
+                                    </TouchableOpacity>
                                 </View>
-                            ))}
-                        </View>
+
+                                <View className="mt-4">
+                                    <Text className="text-sm font-bold text-gray-700 mb-2">Name</Text>
+                                    <TextInput
+                                        className="bg-white border border-gray-200 rounded-xl px-4 py-3.5 text-gray-800 text-base"
+                                        value={patientEditName}
+                                        onChangeText={setPatientEditName}
+                                        placeholder="Enter patient name"
+                                    />
+                                </View>
+
+                                <View className="mt-4">
+                                    <Text className="text-sm font-bold text-gray-700 mb-2">Phone</Text>
+                                    <TextInput
+                                        className="bg-white border border-gray-200 rounded-xl px-4 py-3.5 text-gray-800 text-base"
+                                        value={patientEditPhone}
+                                        onChangeText={setPatientEditPhone}
+                                        placeholder="Enter phone number"
+                                        keyboardType="phone-pad"
+                                    />
+                                </View>
+
+                                <View className="mt-4">
+                                    <Text className="text-sm font-bold text-gray-700 mb-2">Age</Text>
+                                    <TextInput
+                                        className="bg-white border border-gray-200 rounded-xl px-4 py-3.5 text-gray-800 text-base"
+                                        value={patientEditAge}
+                                        onChangeText={setPatientEditAge}
+                                        placeholder="Enter age"
+                                        keyboardType="number-pad"
+                                    />
+                                </View>
+
+                                <View className="mt-4">
+                                    <Text className="text-sm font-bold text-gray-700 mb-2">Gender</Text>
+                                    <View className="flex-row flex-wrap" style={{ gap: 8 }}>
+                                        {GENDER_OPTIONS.map((option) => {
+                                            const selected = patientEditGender === option;
+                                            return (
+                                                <TouchableOpacity
+                                                    key={option}
+                                                    onPress={() => {
+                                                        setPatientEditGender(option);
+                                                    }}
+                                                    className={`px-3 py-2 rounded-full border ${selected ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-200'}`}
+                                                >
+                                                    <Text className={`text-sm font-semibold ${selected ? 'text-white' : 'text-gray-700'}`}>
+                                                        {option}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            );
+                                        })}
+                                    </View>
+                                </View>
+
+                                <View className="mt-5 flex-row" style={{ gap: 10 }}>
+                                    <TouchableOpacity
+                                        onPress={closePatientEdit}
+                                        className="flex-1 rounded-xl border border-gray-200 bg-white px-4 py-3 items-center"
+                                        disabled={savingPatientEdit}
+                                    >
+                                        <Text className="text-sm font-semibold text-gray-700">Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        onPress={handleSavePatientEdit}
+                                        className="flex-1 rounded-xl bg-blue-600 px-4 py-3 items-center"
+                                        disabled={savingPatientEdit}
+                                    >
+                                        {savingPatientEdit ? (
+                                            <ActivityIndicator size="small" color="#ffffff" />
+                                        ) : (
+                                            <Text className="text-sm font-semibold text-white">Save Changes</Text>
+                                        )}
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        ) : null}
                     </View>
                 </View>
             </Modal>
