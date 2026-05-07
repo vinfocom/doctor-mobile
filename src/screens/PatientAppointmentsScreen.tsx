@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     View,
     Text,
@@ -128,6 +128,7 @@ export default function PatientAppointmentsScreen() {
     type BookingFor = 'SELF' | 'OTHER';
     const navigation = useNavigation<any>();
     const route = useRoute<RouteProp<PatientTabParamList, 'PatientAppointments'>>();
+    const listRef = useRef<any>(null);
     const [loading, setLoading] = useState(true);
     const [cancelling, setCancelling] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
@@ -302,6 +303,65 @@ export default function PatientAppointmentsScreen() {
         handleOpenCreateModal();
         navigation.setParams?.({ openCreate: undefined });
     }, [navigation, patientName, route.params?.openCreate]);
+
+    useEffect(() => {
+        const openRescheduleAppointmentId = route.params?.openRescheduleAppointmentId;
+        if (!openRescheduleAppointmentId || items.length === 0) return;
+
+        const targetItem = items.map(withTs).find((item) => item.appointment_id === openRescheduleAppointmentId);
+        if (!targetItem) {
+            navigation.setParams?.({ openRescheduleAppointmentId: undefined });
+            return;
+        }
+
+        const targetTab = targetItem.ts < now ? 'PAST' : 'UPCOMING';
+        if (activeTab !== targetTab) {
+            setActiveTab(targetTab);
+        }
+
+        handleReschedule(targetItem);
+        navigation.setParams?.({ openRescheduleAppointmentId: undefined });
+    }, [activeTab, items, navigation, now, route.params?.openRescheduleAppointmentId]);
+
+    useEffect(() => {
+        const focusAppointmentId = route.params?.focusAppointmentId;
+        if (!focusAppointmentId || items.length === 0) return;
+
+        const targetItem = items.map(withTs).find((item) => item.appointment_id === focusAppointmentId);
+        if (!targetItem) {
+            navigation.setParams?.({ focusAppointmentId: undefined, autoOpenMenu: undefined });
+            return;
+        }
+
+        const targetTab = targetItem.ts < now ? 'PAST' : 'UPCOMING';
+        if (activeTab !== targetTab) {
+            setActiveTab(targetTab);
+            return;
+        }
+
+        const activeItems = activeTab === 'UPCOMING' ? upcoming : past;
+        const targetIndex = activeItems.findIndex((item) => item.appointment_id === focusAppointmentId);
+        if (targetIndex === -1) return;
+
+        if (route.params?.autoOpenMenu) {
+            setOpenCardMenuId(focusAppointmentId);
+        }
+
+        const timer = setTimeout(() => {
+            try {
+                listRef.current?.scrollToIndex({
+                    index: targetIndex,
+                    animated: true,
+                    viewPosition: 0.25,
+                });
+            } catch {
+                // Ignore if the list has not measured yet.
+            }
+            navigation.setParams?.({ focusAppointmentId: undefined, autoOpenMenu: undefined });
+        }, 250);
+
+        return () => clearTimeout(timer);
+    }, [activeTab, items, navigation, now, past, route.params?.autoOpenMenu, route.params?.focusAppointmentId, upcoming]);
 
     const submitBooking = async () => {
         if (!form.doctor_id || !form.clinic_id || !form.date || !form.time) {
@@ -587,6 +647,7 @@ export default function PatientAppointmentsScreen() {
                 </SafeAreaView>
 
                 <FlashList
+                    ref={listRef}
                     data={activeTab === 'UPCOMING' ? upcoming : past}
                     keyExtractor={(item) => String(item.appointment_id)}
                     refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}

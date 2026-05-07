@@ -668,7 +668,7 @@ const LoginScreen = () => {
                                             <Phone size={20} color="#64748b" />
                                             <TextInput
                                                 className={`flex-1 px-3 text-base text-slate-800 ${isVeryCompactScreen ? 'py-3.5' : 'py-4'}`}
-                                                placeholder="e.g. 9392569600"
+                                                placeholder="e.g. 9999999999"
                                                 placeholderTextColor="#9ca3af"
                                                 value={patientIdentifier}
                                                 onChangeText={(text) => {

@@ -581,7 +581,7 @@ export default function SignupScreen() {
                                             className="flex-1 text-gray-800 text-base py-4 px-3"
                                             value={phone}
                                             onChangeText={setPhone}
-                                            placeholder="e.g. 9392569600"
+                                            placeholder="e.g. 9999999999"
                                             placeholderTextColor="#9ca3af"
                                             keyboardType="phone-pad"
                                         />

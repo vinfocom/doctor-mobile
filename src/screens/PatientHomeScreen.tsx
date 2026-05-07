@@ -12,13 +12,14 @@ import {
     Image,
     TextInput,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { CalendarDays, ChevronLeft, ChevronRight, User, MessageCircle, Settings } from 'lucide-react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CalendarDays, ChevronLeft, ChevronRight, User, MessageCircle, Radio, Settings } from 'lucide-react-native';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 import { getPatientProfile, updatePatientProfile } from '../api/auth';
 import { getPatientAppointments } from '../api/patientAppointments';
+import { getPatientLiveQueue, type PatientLiveQueueData } from '../api/patientLiveQueue';
 import { getChatNotifications, type IncomingNotificationMessage } from '../api/notifications';
 import { useSWRLite } from '../lib/useSWRLite';
 import { FlashList } from '@shopify/flash-list';
@@ -46,6 +47,15 @@ interface DoctorItem {
     profile_pic_url?: string | null;
     relation_type?: 'SELF' | 'OTHER';
 }
+
+type DoctorLiveQueueCardState = PatientLiveQueueData & {
+    appointment_id: number;
+};
+
+type SelectedLiveQueueState = DoctorLiveQueueCardState & {
+    doctor_id: number;
+    doctor_name: string;
+};
 
 type AppointmentItem = {
     appointment_id: number;
@@ -174,6 +184,7 @@ const calculateAgeFromDob = (dob: string) => {
 export default function PatientHomeScreen() {
     type HistoryFilter = 'TODAY' | 'TOMORROW' | 'UPCOMING';
     const navigation = useNavigation<Nav>();
+    const insets = useSafeAreaInsets();
     const isFocused = useIsFocused();
     const { clearSession, refreshSession } = useAuthSession();
     const [refreshing, setRefreshing] = useState(false);
@@ -182,6 +193,8 @@ export default function PatientHomeScreen() {
     const [unreadChatCountsByDoctor, setUnreadChatCountsByDoctor] = useState<Map<number, number>>(new Map());
     const [latestBookedAppointmentByDoctor, setLatestBookedAppointmentByDoctor] = useState<Map<number, AppointmentItem>>(new Map());
     const [appointmentsByDoctor, setAppointmentsByDoctor] = useState<Map<number, AppointmentItem[]>>(new Map());
+    const [liveQueueByDoctor, setLiveQueueByDoctor] = useState<Map<number, DoctorLiveQueueCardState>>(new Map());
+    const [selectedLiveQueue, setSelectedLiveQueue] = useState<SelectedLiveQueueState | null>(null);
     const [historyDoctor, setHistoryDoctor] = useState<DoctorItem | null>(null);
     const [historyVisible, setHistoryVisible] = useState(false);
     const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('TODAY');
@@ -327,6 +340,43 @@ export default function PatientHomeScreen() {
         }
     }, []);
 
+    const refreshDoctorLiveQueue = React.useCallback(async (doctorId: number, appointmentId: number) => {
+        try {
+            const queueData = await getPatientLiveQueue(appointmentId);
+            const normalizedQueueData = {
+                ...queueData,
+                appointment_id: appointmentId,
+            } satisfies DoctorLiveQueueCardState;
+
+            setLiveQueueByDoctor((prev) => {
+                const next = new Map(prev);
+                if (normalizedQueueData.state === 'ACTIVE' || normalizedQueueData.state === 'WAITING' || normalizedQueueData.state === 'MISSED') {
+                    next.set(doctorId, normalizedQueueData);
+                } else {
+                    next.delete(doctorId);
+                }
+                return next;
+            });
+
+            setSelectedLiveQueue((prev) => {
+                if (!prev || prev.doctor_id !== doctorId || prev.appointment_id !== appointmentId) {
+                    return prev;
+                }
+                if (normalizedQueueData.state !== 'ACTIVE' && normalizedQueueData.state !== 'WAITING' && normalizedQueueData.state !== 'MISSED') {
+                    return null;
+                }
+                return {
+                    ...prev,
+                    ...normalizedQueueData,
+                };
+            });
+
+            return normalizedQueueData;
+        } catch {
+            return null;
+        }
+    }, []);
+
     const loadLatestAppointments = React.useCallback(async () => {
         try {
             const res = await getPatientAppointments();
@@ -351,6 +401,17 @@ export default function PatientHomeScreen() {
                     return bTs - aTs;
                 });
                 byDoctor.set(doctorId, sorted);
+                const todaysMissed = sorted.find((appointment) => {
+                    const appointmentYmd = toYMD(appointment.appointment_date);
+                    const status = String(appointment.status || '').toUpperCase();
+                    return appointmentYmd === todayIST && status === 'PENDING';
+                });
+
+                if (todaysMissed) {
+                    nextBooked.set(doctorId, todaysMissed);
+                    return;
+                }
+
                 const upcomingBooked = sorted
                     .filter((appointment) => {
                         const appointmentYmd = toYMD(appointment.appointment_date);
@@ -373,10 +434,30 @@ export default function PatientHomeScreen() {
             });
             setLatestBookedAppointmentByDoctor(nextBooked);
             setAppointmentsByDoctor(byDoctor);
+
+            const queueEntries = await Promise.all(
+                Array.from(nextBooked.entries()).map(async ([doctorId, appointment]) => {
+                    const appointmentYmd = toYMD(appointment.appointment_date);
+                    if (!appointment.appointment_id || appointmentYmd !== todayIST) {
+                        return [doctorId, null] as const;
+                    }
+
+                    const queueData = await refreshDoctorLiveQueue(doctorId, appointment.appointment_id);
+                    return [doctorId, queueData] as const;
+                })
+            );
+
+            const nextQueueMap = new Map<number, DoctorLiveQueueCardState>();
+            queueEntries.forEach(([doctorId, queueData]) => {
+                if (queueData && (queueData.state === 'ACTIVE' || queueData.state === 'WAITING' || queueData.state === 'MISSED')) {
+                    nextQueueMap.set(doctorId, queueData);
+                }
+            });
+            setLiveQueueByDoctor(nextQueueMap);
         } catch {
             // ignore appointment load errors on dashboard
         }
-    }, [todayIST]);
+    }, [refreshDoctorLiveQueue, todayIST]);
 
     const checkIncomingNotifications = React.useCallback(async () => {
         if (!isFocused) return;
@@ -566,6 +647,33 @@ export default function PatientHomeScreen() {
             await loadLatestAppointments();
         }
     }, [appointmentsByDoctor.size, loadLatestAppointments]);
+
+    const handleOpenLiveQueue = React.useCallback(async (doctor: DoctorItem) => {
+        const queueData = liveQueueByDoctor.get(doctor.doctor_id);
+        if (!queueData) return;
+
+        setSelectedLiveQueue({
+            ...queueData,
+            doctor_id: doctor.doctor_id,
+            doctor_name: doctor.doctor_name ? `Dr. ${doctor.doctor_name}` : 'Doctor',
+        });
+
+        if (queueData.state !== 'MISSED') {
+            await refreshDoctorLiveQueue(doctor.doctor_id, queueData.appointment_id);
+        }
+    }, [liveQueueByDoctor, refreshDoctorLiveQueue]);
+
+    useEffect(() => {
+        if (!isFocused || !selectedLiveQueue || selectedLiveQueue.state === 'MISSED') return;
+
+        refreshDoctorLiveQueue(selectedLiveQueue.doctor_id, selectedLiveQueue.appointment_id).catch(() => undefined);
+
+        const interval = setInterval(() => {
+            refreshDoctorLiveQueue(selectedLiveQueue.doctor_id, selectedLiveQueue.appointment_id).catch(() => undefined);
+        }, 5000);
+
+        return () => clearInterval(interval);
+    }, [isFocused, refreshDoctorLiveQueue, selectedLiveQueue]);
 
     const onRefresh = async () => {
         setRefreshing(true);
@@ -858,6 +966,43 @@ export default function PatientHomeScreen() {
                                 })()}
                                 <Text className="text-[10px] text-gray-400 mt-1">Tap to view appointment history</Text>
                             </View>
+                            {(() => {
+                                const queueData = liveQueueByDoctor.get(item.doctor_id);
+                                if (!queueData) return null;
+
+                                const isCurrentPatient =
+                                    queueData.state === 'ACTIVE' &&
+                                    queueData.your_number != null &&
+                                    queueData.current_number != null &&
+                                    queueData.your_number === queueData.current_number;
+
+                                const iconTone = queueData.state === 'MISSED'
+                                    ? 'bg-rose-50 border-rose-200'
+                                    : isCurrentPatient
+                                    ? 'bg-emerald-50 border-emerald-200'
+                                    : queueData.state === 'ACTIVE'
+                                        ? 'bg-blue-50 border-blue-100'
+                                        : 'bg-amber-50 border-amber-200';
+                                const iconColor = queueData.state === 'MISSED'
+                                    ? '#dc2626'
+                                    : isCurrentPatient
+                                    ? '#16a34a'
+                                    : queueData.state === 'ACTIVE'
+                                        ? '#2563eb'
+                                        : '#b45309';
+
+                                return (
+                                    <TouchableOpacity
+                                        onPress={(e) => {
+                                            e?.stopPropagation?.();
+                                            handleOpenLiveQueue(item);
+                                        }}
+                                        className={`w-9 h-9 rounded-full border items-center justify-center mr-2 ${iconTone}`}
+                                    >
+                                        <Radio size={17} color={iconColor} />
+                                    </TouchableOpacity>
+                                );
+                            })()}
                             <TouchableOpacity
                             onPress={(e) => {
                                 e?.stopPropagation?.();
@@ -1237,7 +1382,156 @@ export default function PatientHomeScreen() {
                                 );
                             })()}
                         </View>
+                        </View>
                     </View>
+                </Modal>
+
+                <Modal visible={Boolean(selectedLiveQueue)} transparent animationType="slide" onRequestClose={() => setSelectedLiveQueue(null)}>
+                    <View className="flex-1 justify-end bg-black/40">
+                        <SafeAreaView edges={[]} className="w-full">
+                            <View
+                                className="rounded-t-3xl bg-white px-5 pt-5"
+                                style={{ paddingBottom: Math.max(insets.bottom, 16) }}
+                            >
+                                <View className="flex-row items-center justify-between mb-4">
+                                    <View className="flex-1 pr-3">
+                                        <Text className="text-xs text-gray-400">Live Queue</Text>
+                                        <Text className="text-lg font-bold text-gray-800">
+                                            {selectedLiveQueue?.doctor_name || 'Doctor'}
+                                        </Text>
+                                    </View>
+                                    <TouchableOpacity
+                                        onPress={() => setSelectedLiveQueue(null)}
+                                        className="bg-gray-100 rounded-full px-3 py-2"
+                                    >
+                                        <Text className="text-gray-600 text-xs font-semibold">Close</Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                {selectedLiveQueue?.state === 'WAITING' ? (
+                                    <View className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
+                                        <Text className="text-sm font-semibold text-amber-800">
+                                            {selectedLiveQueue.message || 'Live queue will be available during your appointment schedule'}
+                                        </Text>
+                                    </View>
+                                ) : selectedLiveQueue?.state === 'MISSED' ? (
+                                    <View className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-4">
+                                        <Text className="text-base font-bold text-rose-800">
+                                            You missed your turn
+                                        </Text>
+                                        <Text className="mt-2 text-sm font-medium text-rose-700">
+                                            This appointment was marked as not visited
+                                        </Text>
+                                        <Text className="mt-1 text-sm font-medium text-rose-700">
+                                            Please contact the clinic/doctor for help
+                                        </Text>
+                                        <TouchableOpacity
+                                            onPress={() => {
+                                                const appointmentId = selectedLiveQueue.appointment_id;
+                                                setSelectedLiveQueue(null);
+                                                navigation.navigate('PatientMain', {
+                                                    screen: 'PatientAppointments',
+                                                    params: {
+                                                        openRescheduleAppointmentId: appointmentId,
+                                                    },
+                                                });
+                                            }}
+                                            className="mt-4 items-center rounded-2xl bg-rose-600 px-4 py-3"
+                                        >
+                                            <Text className="text-sm font-bold text-white">Go to Appointment</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                ) : selectedLiveQueue?.state === 'ACTIVE' ? (
+                                    (() => {
+                                        const isCurrentPatient =
+                                            selectedLiveQueue.your_number != null &&
+                                            selectedLiveQueue.current_number != null &&
+                                            selectedLiveQueue.your_number === selectedLiveQueue.current_number;
+
+                                        return (
+                                            <View className={`overflow-hidden rounded-[28px] border ${isCurrentPatient ? 'border-emerald-200 bg-[#f4fff7]' : 'border-blue-100 bg-[#f6faff]'}`}>
+                                                <View className={`${isCurrentPatient ? 'bg-[rgb(22,163,74)]' : 'bg-[rgb(28,100,242)]'} px-5 pb-4 pt-4`}>
+                                                    <Text className={`text-[11px] font-bold uppercase tracking-[2px] ${isCurrentPatient ? 'text-emerald-100' : 'text-blue-100'}`}>
+                                                        Live Queue
+                                                    </Text>
+                                                    <Text className="mt-1 text-base font-semibold text-white">
+                                                        {selectedLiveQueue.clinic_name || 'Clinic'}
+                                                    </Text>
+                                                </View>
+
+                                                <View className="px-4 pb-4 pt-4">
+                                                    {isCurrentPatient ? (
+                                                        <View className="mb-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4">
+                                                            <Text className="text-base font-bold text-emerald-800">
+                                                                It&apos;s your turn
+                                                            </Text>
+                                                            <Text className="mt-1 text-sm font-medium text-emerald-700">
+                                                                Please proceed to the clinic/doctor
+                                                            </Text>
+                                                        </View>
+                                                    ) : null}
+
+                                                    <View className="flex-row gap-3">
+                                                        <View className="flex-1 items-center rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-4">
+                                                            <Text className="text-center text-[11px] font-bold uppercase tracking-[1.4px] text-emerald-700">
+                                                                Current Number
+                                                            </Text>
+                                                            <Text className="mt-2 text-center text-3xl font-black text-emerald-900">
+                                                                {selectedLiveQueue.current_number ?? '--'}
+                                                            </Text>
+                                                        </View>
+                                                        {isCurrentPatient ? (
+                                                            <View className="flex-1 items-center rounded-2xl border border-emerald-200 bg-emerald-100 px-4 py-4">
+                                                                <Text className="text-center text-[11px] font-bold uppercase tracking-[1.4px] text-emerald-800">
+                                                                    Status
+                                                                </Text>
+                                                                <Text className="mt-2 text-center text-lg font-black text-emerald-900">
+                                                                    Now Serving You
+                                                                </Text>
+                                                            </View>
+                                                        ) : (
+                                                            <View className="flex-1 items-center rounded-2xl border border-amber-100 bg-amber-50 px-4 py-4">
+                                                                <Text className="text-center text-[11px] font-bold uppercase tracking-[1.4px] text-amber-700">
+                                                                    Next Number
+                                                                </Text>
+                                                                <Text className="mt-2 text-center text-3xl font-black text-amber-900">
+                                                                    {selectedLiveQueue.next_number ?? '--'}
+                                                                </Text>
+                                                            </View>
+                                                        )}
+                                                    </View>
+
+                                                    <View className="mt-3 flex-row gap-3">
+                                                        <View className={`flex-1 items-center rounded-2xl px-4 py-4 ${isCurrentPatient ? 'border-2 border-emerald-300 bg-emerald-100' : 'border border-blue-100 bg-blue-50'}`}>
+                                                            <Text className={`text-center text-[11px] font-bold uppercase tracking-[1.4px] ${isCurrentPatient ? 'text-emerald-800' : 'text-blue-700'}`}>
+                                                                Your Number
+                                                            </Text>
+                                                            <Text className={`mt-2 text-center font-black ${isCurrentPatient ? 'text-[40px] text-emerald-900' : 'text-3xl text-blue-900'}`}>
+                                                                {selectedLiveQueue.your_number ?? '--'}
+                                                            </Text>
+                                                        </View>
+                                                        <View className={`flex-1 items-center rounded-2xl px-4 py-4 ${isCurrentPatient ? 'border border-slate-200 bg-slate-50' : 'border border-slate-200 bg-white'}`}>
+                                                            <Text className={`text-center text-[11px] font-bold uppercase tracking-[1.4px] ${isCurrentPatient ? 'text-slate-400' : 'text-slate-500'}`}>
+                                                                {isCurrentPatient ? 'Queue Status' : 'Patients Ahead'}
+                                                            </Text>
+                                                            {isCurrentPatient ? (
+                                                                <Text className="mt-2 text-center text-sm font-semibold text-slate-500">
+                                                                    No one ahead
+                                                                </Text>
+                                                            ) : (
+                                                                <Text className="mt-2 text-center text-3xl font-black text-slate-900">
+                                                                    {selectedLiveQueue.patients_ahead ?? '--'}
+                                                                </Text>
+                                                            )}
+                                                        </View>
+                                                    </View>
+                                                </View>
+                                            </View>
+                                        );
+                                    })()
+                                ) : null}
+                            </View>
+                        </SafeAreaView>
                     </View>
                 </Modal>
             </View>
