@@ -13,13 +13,14 @@ import {
     TextInput,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CalendarDays, ChevronLeft, ChevronRight, User, MessageCircle, Radio, Settings } from 'lucide-react-native';
+import { CalendarDays, ChevronLeft, ChevronRight, User, MessageCircle, Radio, Settings, FileText, Upload, ImagePlus, ZoomIn, ZoomOut, X, Trash2, Camera } from 'lucide-react-native';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 import { getPatientProfile, updatePatientProfile } from '../api/auth';
 import { getPatientAppointments } from '../api/patientAppointments';
 import { getPatientLiveQueue, type PatientLiveQueueData } from '../api/patientLiveQueue';
+import { createPrescriptionUpload, deletePrescriptionRecord, listPrescriptions, type PrescriptionUploadFile } from '../api/prescriptions';
 import { getChatNotifications, type IncomingNotificationMessage } from '../api/notifications';
 import { useSWRLite } from '../lib/useSWRLite';
 import { FlashList } from '@shopify/flash-list';
@@ -36,6 +37,16 @@ import {
     markPatientAnnouncementsRead,
     subscribePatientAnnouncementsState,
 } from '../lib/mobileNotificationState';
+import PrescriptionImageViewerModal from '../components/PrescriptionImageViewerModal';
+import PrescriptionHistoryCard from '../components/PrescriptionHistoryCard';
+import PrescriptionUploadPreviewGrid from '../components/PrescriptionUploadPreviewGrid';
+import {
+    appendPrescriptionUploadFiles as mergePrescriptionUploadFiles,
+    pickPrescriptionImagesFromCamera,
+    pickPrescriptionImagesFromLibrary,
+    PRESCRIPTION_MAX_PAGE_COUNT,
+} from '../lib/prescriptionImageUpload';
+import { getPrescriptionErrorMessage } from '../lib/prescriptionErrors';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -69,6 +80,46 @@ type AppointmentItem = {
     doctor?: { doctor_id: number };
     clinic?: { clinic_id: number; clinic_name?: string | null };
     patient?: { booking_id?: number | null; full_name?: string | null };
+};
+
+type PrescriptionPageItem = {
+    prescription_page_id: number;
+    page_number: number;
+    storage_key: string;
+    file_url: string;
+    mime_type: string | null;
+    original_file_name: string | null;
+    file_size_bytes: number | null;
+    width: number | null;
+    height: number | null;
+    created_at: string;
+};
+
+type PrescriptionRecordItem = {
+    prescription_id: number;
+    patient_id: number;
+    doctor_id: number;
+    clinic_id: number | null;
+    appointment_id: number | null;
+    uploaded_by_role: 'PATIENT' | 'DOCTOR' | 'STAFF';
+    uploaded_by_user_id: number | null;
+    uploaded_by_patient_id: number | null;
+    note: string | null;
+    page_count: number;
+    status: 'ACTIVE' | 'ARCHIVED' | 'DELETED';
+    created_at: string;
+    updated_at: string;
+    pages: PrescriptionPageItem[];
+    uploaded_by_user?: {
+        user_id: number;
+        name?: string | null;
+        email?: string | null;
+    } | null;
+    uploaded_by_patient?: {
+        patient_id: number;
+        full_name?: string | null;
+        phone?: string | null;
+    } | null;
 };
 
 const toYMD = (value?: string) => {
@@ -197,6 +248,17 @@ export default function PatientHomeScreen() {
     const [selectedLiveQueue, setSelectedLiveQueue] = useState<SelectedLiveQueueState | null>(null);
     const [historyDoctor, setHistoryDoctor] = useState<DoctorItem | null>(null);
     const [historyVisible, setHistoryVisible] = useState(false);
+    const [prescriptionVisible, setPrescriptionVisible] = useState(false);
+    const [prescriptionLoading, setPrescriptionLoading] = useState(false);
+    const [prescriptionError, setPrescriptionError] = useState('');
+    const [prescriptionRecords, setPrescriptionRecords] = useState<PrescriptionRecordItem[]>([]);
+    const [prescriptionUploadLoading, setPrescriptionUploadLoading] = useState(false);
+    const [prescriptionUploadFiles, setPrescriptionUploadFiles] = useState<PrescriptionUploadFile[]>([]);
+    const [prescriptionUploadNote, setPrescriptionUploadNote] = useState('');
+    const [selectedPrescription, setSelectedPrescription] = useState<PrescriptionRecordItem | null>(null);
+    const [selectedPrescriptionPageIndex, setSelectedPrescriptionPageIndex] = useState(0);
+    const [prescriptionZoomScale, setPrescriptionZoomScale] = useState(1);
+    const [prescriptionViewerVisible, setPrescriptionViewerVisible] = useState(false);
     const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('TODAY');
     const [profileCompletionVisible, setProfileCompletionVisible] = useState(false);
     const [profileCompletionSaving, setProfileCompletionSaving] = useState(false);
@@ -647,6 +709,167 @@ export default function PatientHomeScreen() {
             await loadLatestAppointments();
         }
     }, [appointmentsByDoctor.size, loadLatestAppointments]);
+
+    const closePrescriptionViewer = React.useCallback(() => {
+        setPrescriptionViewerVisible(false);
+        setSelectedPrescription(null);
+        setSelectedPrescriptionPageIndex(0);
+        setPrescriptionZoomScale(1);
+    }, []);
+
+    const resetPrescriptionFlow = React.useCallback(() => {
+        closePrescriptionViewer();
+        setPrescriptionVisible(false);
+        setPrescriptionLoading(false);
+        setPrescriptionError('');
+        setPrescriptionRecords([]);
+        setPrescriptionUploadLoading(false);
+        setPrescriptionUploadFiles([]);
+        setPrescriptionUploadNote('');
+    }, [closePrescriptionViewer]);
+
+    const formatPrescriptionUploader = React.useCallback((record: PrescriptionRecordItem) => {
+        if (record.uploaded_by_role === 'PATIENT') {
+            return record.uploaded_by_patient?.full_name
+                ? `Uploaded by: Patient - ${record.uploaded_by_patient.full_name}`
+                : 'Uploaded by: Patient';
+        }
+
+        if (record.uploaded_by_role === 'DOCTOR') {
+            return record.uploaded_by_user?.name
+                ? `Uploaded by: Doctor - ${record.uploaded_by_user.name}`
+                : 'Uploaded by: Doctor';
+        }
+
+        return record.uploaded_by_user?.name
+            ? `Uploaded by: Staff - ${record.uploaded_by_user.name}`
+            : 'Uploaded by: Staff';
+    }, []);
+
+    const loadDoctorPrescriptions = React.useCallback(async (doctor: DoctorItem) => {
+        if (!patient?.patient_id || !doctor?.doctor_id) {
+            Alert.alert('Unavailable', 'Prescription history is not available for this doctor.');
+            return;
+        }
+
+        setPrescriptionVisible(true);
+        setPrescriptionLoading(true);
+        setPrescriptionError('');
+        try {
+            const data = await listPrescriptions({
+                patient_id: patient.patient_id,
+                doctor_id: doctor.doctor_id,
+            });
+            setPrescriptionRecords((data?.prescriptions || []) as PrescriptionRecordItem[]);
+        } catch (error: any) {
+            console.error(error);
+            setPrescriptionError(getPrescriptionErrorMessage(error, 'Failed to load prescriptions'));
+        } finally {
+            setPrescriptionLoading(false);
+        }
+    }, [patient?.patient_id]);
+
+    const appendPrescriptionFiles = React.useCallback((nextFiles: PrescriptionUploadFile[]) => {
+        setPrescriptionUploadFiles((prev) => mergePrescriptionUploadFiles(prev, nextFiles));
+    }, []);
+
+    const pickPrescriptionFromCamera = React.useCallback(async () => {
+        const result = await pickPrescriptionImagesFromCamera();
+        if (!result.ok) {
+            Alert.alert('Permission required', result.error);
+            return;
+        }
+        if (result.files.length === 0) return;
+        appendPrescriptionFiles(result.files);
+    }, [appendPrescriptionFiles]);
+
+    const pickPrescriptionFromGallery = React.useCallback(async () => {
+        const remainingSlots = Math.max(0, PRESCRIPTION_MAX_PAGE_COUNT - prescriptionUploadFiles.length);
+        const result = await pickPrescriptionImagesFromLibrary(remainingSlots);
+        if (!result.ok) {
+            Alert.alert(
+                remainingSlots <= 0 ? 'Page limit reached' : 'Permission required',
+                result.error
+            );
+            return;
+        }
+        if (result.files.length === 0) return;
+        appendPrescriptionFiles(result.files);
+    }, [appendPrescriptionFiles, prescriptionUploadFiles.length]);
+
+    const submitPrescriptionUpload = React.useCallback(async () => {
+        if (!patient?.patient_id || !historyDoctor?.doctor_id) {
+            Alert.alert('Error', 'Doctor context is missing for this prescription upload.');
+            return;
+        }
+
+        if (!historyDoctor?.doctor_id) {
+            Alert.alert('Wrong doctor context', 'Prescription upload is only allowed inside the selected doctor context.');
+            return;
+        }
+
+        if (prescriptionUploadFiles.length === 0) {
+            Alert.alert('Add prescription', 'Please add at least one prescription image.');
+            return;
+        }
+
+        setPrescriptionUploadLoading(true);
+
+        try {
+            const latestDoctorAppointment = latestBookedAppointmentByDoctor.get(historyDoctor.doctor_id);
+            await createPrescriptionUpload({
+                patient_id: patient.patient_id,
+                doctor_id: historyDoctor.doctor_id,
+                appointment_id: latestDoctorAppointment?.appointment_id ?? null,
+                clinic_id: latestDoctorAppointment?.clinic?.clinic_id ?? null,
+                note: prescriptionUploadNote.trim() || null,
+            }, prescriptionUploadFiles);
+
+            setPrescriptionUploadFiles([]);
+            setPrescriptionUploadNote('');
+            await loadDoctorPrescriptions(historyDoctor);
+        } catch (error: any) {
+            Alert.alert(
+                'Upload failed',
+                `${getPrescriptionErrorMessage(error, 'Failed to upload prescription.')}\n\nPlease retry from this same doctor card so the prescription stays attached to the correct doctor.`
+            );
+        } finally {
+            setPrescriptionUploadLoading(false);
+        }
+    }, [historyDoctor, latestBookedAppointmentByDoctor, loadDoctorPrescriptions, patient?.patient_id, prescriptionUploadFiles, prescriptionUploadNote]);
+
+    const handleDeletePrescription = React.useCallback((record: PrescriptionRecordItem) => {
+        if (!historyDoctor || !patient?.patient_id) return;
+
+        Alert.alert(
+            'Delete prescription',
+            'Delete this prescription and all of its uploaded pages?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await deletePrescriptionRecord({
+                                prescription_id: record.prescription_id,
+                                patient_id: patient.patient_id,
+                                doctor_id: historyDoctor.doctor_id,
+                            });
+
+                            if (selectedPrescription?.prescription_id === record.prescription_id) {
+                                closePrescriptionViewer();
+                            }
+
+                            await loadDoctorPrescriptions(historyDoctor);
+                        } catch (error: any) {
+                            Alert.alert('Delete failed', getPrescriptionErrorMessage(error, 'Failed to delete prescription.'));
+                        }
+                    },
+                },
+            ]
+        );
+    }, [closePrescriptionViewer, historyDoctor, loadDoctorPrescriptions, patient?.patient_id, selectedPrescription?.prescription_id]);
 
     const handleOpenLiveQueue = React.useCallback(async (doctor: DoctorItem) => {
         const queueData = liveQueueByDoctor.get(doctor.doctor_id);
@@ -1215,19 +1438,30 @@ export default function PatientHomeScreen() {
                     <View className="flex-1 justify-end bg-black/40">
                         <View className="bg-white rounded-t-3xl p-5 max-h-[80%]">
                             <View className="flex-row items-center justify-between mb-4">
-                            <View>
-                                <Text className="text-xs text-gray-400">Appointment History</Text>
-                                <Text className="text-lg font-bold text-gray-800">
-                                    {formatDoctorName(historyDoctor?.doctor_name)}
-                                </Text>
+                                <View>
+                                    <Text className="text-xs text-gray-400">Appointment History</Text>
+                                    <Text className="text-lg font-bold text-gray-800">
+                                        {formatDoctorName(historyDoctor?.doctor_name)}
+                                    </Text>
+                                </View>
+                                <View className="flex-row items-center">
+                                    <TouchableOpacity
+                                        onPress={() => {
+                                            if (!historyDoctor) return;
+                                            void loadDoctorPrescriptions(historyDoctor);
+                                        }}
+                                        className="bg-blue-50 border border-blue-100 rounded-full p-2 mr-2"
+                                    >
+                                        <FileText size={18} color="#2563eb" />
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        onPress={() => setHistoryVisible(false)}
+                                        className="bg-gray-100 rounded-full px-3 py-2"
+                                    >
+                                        <Text className="text-gray-600 text-xs font-semibold">Close</Text>
+                                    </TouchableOpacity>
+                                </View>
                             </View>
-                            <TouchableOpacity
-                                onPress={() => setHistoryVisible(false)}
-                                className="bg-gray-100 rounded-full px-3 py-2"
-                            >
-                                <Text className="text-gray-600 text-xs font-semibold">Close</Text>
-                            </TouchableOpacity>
-                        </View>
 
                         <View className="flex-row flex-wrap mb-4">
                             {([
@@ -1385,6 +1619,140 @@ export default function PatientHomeScreen() {
                         </View>
                     </View>
                 </Modal>
+
+                <Modal visible={prescriptionVisible} transparent animationType="slide" onRequestClose={resetPrescriptionFlow}>
+                    <View className="flex-1 justify-end bg-black/45">
+                        <View className="bg-white rounded-t-3xl p-5 max-h-[86%]">
+                            <View className="flex-row items-center justify-between mb-4">
+                                <View className="flex-1 pr-3">
+                                    <Text className="text-xs text-gray-400">Prescriptions</Text>
+                                    <Text className="text-lg font-bold text-gray-800">
+                                        {formatDoctorName(historyDoctor?.doctor_name)}
+                                    </Text>
+                                </View>
+                                <TouchableOpacity
+                                    onPress={resetPrescriptionFlow}
+                                    className="bg-gray-100 rounded-full px-3 py-2"
+                                >
+                                    <Text className="text-gray-600 text-xs font-semibold">Close</Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            <ScrollView showsVerticalScrollIndicator={false}>
+                                <View className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4 mb-4">
+                                    <View className="flex-row items-center justify-between">
+                                        <Text className="text-sm font-bold text-gray-800">Upload Prescription</Text>
+                                        <Text className="text-[11px] font-semibold text-gray-400">Up to 5 pages</Text>
+                                    </View>
+                                    <View className="flex-row mt-4" style={{ gap: 10 }}>
+                                        <TouchableOpacity
+                                            onPress={() => { void pickPrescriptionFromCamera(); }}
+                                            className="flex-1 rounded-xl border border-gray-200 bg-white px-4 py-3 items-center"
+                                            disabled={prescriptionUploadLoading}
+                                        >
+                                            <Camera size={16} color="#374151" />
+                                            <Text className="text-sm font-semibold text-gray-700 mt-1.5">Camera</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            onPress={() => { void pickPrescriptionFromGallery(); }}
+                                            className="flex-1 rounded-xl border border-gray-200 bg-white px-4 py-3 items-center"
+                                            disabled={prescriptionUploadLoading}
+                                        >
+                                            <ImagePlus size={16} color="#374151" />
+                                            <Text className="text-sm font-semibold text-gray-700 mt-1.5">Gallery</Text>
+                                        </TouchableOpacity>
+                                    </View>
+
+                                    <View className="mt-4 rounded-2xl border border-gray-100 bg-white overflow-hidden">
+                                        <PrescriptionUploadPreviewGrid
+                                            files={prescriptionUploadFiles}
+                                            onRemove={(index) => setPrescriptionUploadFiles((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}
+                                            removeDisabled={prescriptionUploadLoading}
+                                        />
+                                    </View>
+
+                                    <View className="mt-4">
+                                        <Text className="text-sm font-bold text-gray-700 mb-2">Note (Optional)</Text>
+                                        <TextInput
+                                            className="bg-white border border-gray-200 rounded-xl px-4 py-3.5 text-gray-800 text-base"
+                                            value={prescriptionUploadNote}
+                                            onChangeText={setPrescriptionUploadNote}
+                                            placeholder="Add a short note"
+                                            editable={!prescriptionUploadLoading}
+                                            multiline
+                                            maxLength={500}
+                                        />
+                                    </View>
+
+                                    <TouchableOpacity
+                                        onPress={() => { void submitPrescriptionUpload(); }}
+                                        className={`mt-4 rounded-2xl items-center justify-center py-3.5 ${prescriptionUploadLoading ? 'bg-blue-300' : 'bg-blue-600'}`}
+                                        disabled={prescriptionUploadLoading}
+                                    >
+                                        {prescriptionUploadLoading ? (
+                                            <View className="flex-row items-center">
+                                                <ActivityIndicator color="#fff" size="small" />
+                                                <Text className="text-white font-bold ml-3 text-sm">Uploading...</Text>
+                                            </View>
+                                        ) : (
+                                            <Text className="text-white font-extrabold text-sm tracking-wide">Upload Prescription</Text>
+                                        )}
+                                    </TouchableOpacity>
+                                </View>
+
+                                {prescriptionLoading ? (
+                                    <View className="items-center py-10">
+                                        <ActivityIndicator size="small" color="#2563eb" />
+                                        <Text className="text-sm text-gray-500 mt-3">Loading prescriptions...</Text>
+                                    </View>
+                                ) : prescriptionError ? (
+                                    <View className="rounded-2xl border border-red-100 bg-red-50 px-4 py-4">
+                                        <Text className="text-sm font-semibold text-red-700">{prescriptionError}</Text>
+                                        <TouchableOpacity
+                                            onPress={() => {
+                                                if (historyDoctor) {
+                                                    void loadDoctorPrescriptions(historyDoctor);
+                                                }
+                                            }}
+                                            className="self-start mt-3 rounded-full bg-white px-3 py-2 border border-red-200"
+                                        >
+                                            <Text className="text-xs font-semibold text-red-700">Retry</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                ) : prescriptionRecords.length === 0 ? (
+                                    <View className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-6">
+                                        <Text className="text-base font-semibold text-gray-700">No prescriptions uploaded yet.</Text>
+                                    </View>
+                                ) : (
+                                    prescriptionRecords.map((record, index) => (
+                                        <View
+                                            key={record.prescription_id}
+                                            className={index > 0 ? 'mt-3' : ''}
+                                        >
+                                            <PrescriptionHistoryCard
+                                                record={record}
+                                                uploaderLabel={formatPrescriptionUploader(record)}
+                                                onView={() => {
+                                                    setSelectedPrescription(record);
+                                                    setSelectedPrescriptionPageIndex(0);
+                                                    setPrescriptionZoomScale(1);
+                                                    setPrescriptionViewerVisible(true);
+                                                }}
+                                                onDelete={() => handleDeletePrescription(record)}
+                                            />
+                                        </View>
+                                    ))
+                                )}
+                            </ScrollView>
+                        </View>
+                    </View>
+                </Modal>
+
+                <PrescriptionImageViewerModal
+                    visible={prescriptionViewerVisible}
+                    prescription={selectedPrescription}
+                    onClose={closePrescriptionViewer}
+                />
 
                 <Modal visible={Boolean(selectedLiveQueue)} transparent animationType="slide" onRequestClose={() => setSelectedLiveQueue(null)}>
                     <View className="flex-1 justify-end bg-black/40">

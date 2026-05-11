@@ -11,7 +11,8 @@ import {
     Alert,
     RefreshControl,
     KeyboardAvoidingView,
-    Platform
+    Platform,
+    Image
 } from 'react-native';
 import {
     Activity,
@@ -29,9 +30,13 @@ import {
     Eraser,
     Download,
     Pencil,
+    Trash2,
+    Camera,
+    ImagePlus,
 } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getAppointments, createAppointment, updateAppointment, deleteAppointment } from '../api/appointments';
+import { createPrescriptionUpload, deletePrescriptionRecord, listPrescriptions, type PrescriptionUploadFile } from '../api/prescriptions';
 import { updatePatient } from '../api/patients';
 import { getClinics } from '../api/clinics';
 import { getAvailableDates, getSlots } from '../api/slots';
@@ -40,11 +45,21 @@ import { useFocusEffect, useIsFocused, useNavigation, useRoute } from '@react-na
 import { FlashList } from '@shopify/flash-list';
 import { getChatNotifications, type IncomingNotificationMessage } from '../api/notifications';
 import IncomingMessageBubble from '../components/IncomingMessageBubble';
+import PrescriptionHistoryCard from '../components/PrescriptionHistoryCard';
+import PrescriptionImageViewerModal from '../components/PrescriptionImageViewerModal';
+import PrescriptionUploadPreviewGrid from '../components/PrescriptionUploadPreviewGrid';
 import { io, type Socket } from 'socket.io-client';
 import { API_URL, SOCKET_URL } from '../config/env';
 import { useAuthSession } from '../context/AuthSessionContext';
 import { getToken } from '../api/token';
 import * as FileSystem from 'expo-file-system';
+import {
+    appendPrescriptionUploadFiles as mergePrescriptionUploadFiles,
+    pickPrescriptionImagesFromCamera,
+    pickPrescriptionImagesFromLibrary,
+    PRESCRIPTION_MAX_PAGE_COUNT,
+} from '../lib/prescriptionImageUpload';
+import { getPrescriptionErrorMessage } from '../lib/prescriptionErrors';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -232,6 +247,46 @@ interface AppointmentPatientDetails {
     phone?: string | null;
     age?: number | null;
     gender?: string | null;
+}
+
+interface PrescriptionPageItem {
+    prescription_page_id: number;
+    page_number: number;
+    storage_key: string;
+    file_url: string;
+    mime_type: string | null;
+    original_file_name: string | null;
+    file_size_bytes: number | null;
+    width: number | null;
+    height: number | null;
+    created_at: string;
+}
+
+interface PrescriptionRecordItem {
+    prescription_id: number;
+    patient_id: number;
+    doctor_id: number;
+    clinic_id: number | null;
+    appointment_id: number | null;
+    uploaded_by_role: 'PATIENT' | 'DOCTOR' | 'STAFF';
+    uploaded_by_user_id: number | null;
+    uploaded_by_patient_id: number | null;
+    note: string | null;
+    page_count: number;
+    status: 'ACTIVE' | 'ARCHIVED' | 'DELETED';
+    created_at: string;
+    updated_at: string;
+    pages: PrescriptionPageItem[];
+    uploaded_by_user?: {
+        user_id: number;
+        name?: string | null;
+        email?: string | null;
+    } | null;
+    uploaded_by_patient?: {
+        patient_id: number;
+        full_name?: string | null;
+        phone?: string | null;
+    } | null;
 }
 
 const ClinicDropdown = ({ clinics, selectedId, onSelect }: ClinicDropdownProps) => {
@@ -488,6 +543,33 @@ const AppointmentsScreen = () => {
     const [patientEditAge, setPatientEditAge] = useState('');
     const [patientEditGender, setPatientEditGender] = useState('');
     const [savingPatientEdit, setSavingPatientEdit] = useState(false);
+    const [prescriptionUploadVisible, setPrescriptionUploadVisible] = useState(false);
+    const [prescriptionUploadLoading, setPrescriptionUploadLoading] = useState(false);
+    const [prescriptionUploadNote, setPrescriptionUploadNote] = useState('');
+    const [prescriptionUploadFiles, setPrescriptionUploadFiles] = useState<PrescriptionUploadFile[]>([]);
+    const [prescriptionUploadTarget, setPrescriptionUploadTarget] = useState<{
+        appointment_id: number;
+        patient_id: number;
+        doctor_id: number;
+        clinic_id?: number | null;
+        patient_name?: string | null;
+    } | null>(null);
+    const [prescriptionListVisible, setPrescriptionListVisible] = useState(false);
+    const [prescriptionListLoading, setPrescriptionListLoading] = useState(false);
+    const [prescriptionListError, setPrescriptionListError] = useState('');
+    const [prescriptionListTarget, setPrescriptionListTarget] = useState<{
+        patient_id: number;
+        doctor_id: number;
+        appointment_id?: number | null;
+        clinic_id?: number | null;
+        patient_name?: string | null;
+    } | null>(null);
+    const [prescriptionListMode, setPrescriptionListMode] = useState<'list' | 'upload'>('list');
+    const [prescriptionRecords, setPrescriptionRecords] = useState<PrescriptionRecordItem[]>([]);
+    const [prescriptionViewerVisible, setPrescriptionViewerVisible] = useState(false);
+    const [selectedPrescription, setSelectedPrescription] = useState<PrescriptionRecordItem | null>(null);
+    const [selectedPrescriptionPageIndex, setSelectedPrescriptionPageIndex] = useState(0);
+    const [prescriptionZoomScale, setPrescriptionZoomScale] = useState(1);
 
     useEffect(() => {
         fetchAppointments();
@@ -914,10 +996,14 @@ const AppointmentsScreen = () => {
     }, []);
 
     const getApiErrorMessage = useCallback((error: any, fallbackMessage: string) => {
+        const prescriptionMessage = getPrescriptionErrorMessage(error, '');
+        if (prescriptionMessage) {
+            return prescriptionMessage;
+        }
         if (error?.response?.status === 403) {
             return 'You do not have permission to perform this action.';
         }
-        return error?.response?.data?.error || fallbackMessage;
+        return error?.response?.data?.error || error?.message || fallbackMessage;
     }, []);
 
     const closePatientEdit = useCallback(() => {
@@ -928,6 +1014,319 @@ const AppointmentsScreen = () => {
         setPatientEditGender('');
         setSavingPatientEdit(false);
     }, []);
+
+    const resetPrescriptionUploadFlow = useCallback(() => {
+        setPrescriptionUploadVisible(false);
+        setPrescriptionUploadLoading(false);
+        setPrescriptionUploadNote('');
+        setPrescriptionUploadFiles([]);
+        setPrescriptionUploadTarget(null);
+    }, []);
+
+    const closePrescriptionViewer = useCallback(() => {
+        setPrescriptionViewerVisible(false);
+        setSelectedPrescription(null);
+        setSelectedPrescriptionPageIndex(0);
+        setPrescriptionZoomScale(1);
+    }, []);
+
+    const closePrescriptionList = useCallback(() => {
+        closePrescriptionViewer();
+        setPrescriptionListVisible(false);
+        setPrescriptionListLoading(false);
+        setPrescriptionListError('');
+        setPrescriptionListTarget(null);
+        setPrescriptionListMode('list');
+        setPrescriptionRecords([]);
+    }, [closePrescriptionViewer]);
+
+    const openPrescriptionUploadFlow = useCallback((appointment: any) => {
+        const patientId = Number(appointment?.patient_id ?? appointment?.patient?.patient_id ?? 0);
+        const doctorId = Number(appointment?.doctor_id ?? appointment?.doctor?.doctor_id ?? staff_doctor_id ?? 0);
+        const appointmentId = Number(appointment?.appointment_id ?? 0);
+        if (!patientId || !doctorId || !appointmentId) {
+            Alert.alert('Unavailable', 'Prescription upload is unavailable because the patient or doctor context is missing.');
+            return;
+        }
+
+        setPrescriptionUploadTarget({
+            appointment_id: appointmentId,
+            patient_id: patientId,
+            doctor_id: doctorId,
+            clinic_id: appointment?.clinic_id ?? appointment?.clinic?.clinic_id ?? null,
+            patient_name: appointment?.patient?.full_name ?? null,
+        });
+        setPrescriptionUploadNote('');
+        setPrescriptionUploadFiles([]);
+        setPrescriptionUploadVisible(true);
+    }, [staff_doctor_id]);
+
+    const preparePrescriptionUploadTarget = useCallback((target: {
+        patient_id: number;
+        doctor_id: number;
+        appointment_id?: number | null;
+        clinic_id?: number | null;
+        patient_name?: string | null;
+    }) => {
+        setPrescriptionUploadTarget({
+            appointment_id: Number(target.appointment_id ?? 0),
+            patient_id: Number(target.patient_id ?? 0),
+            doctor_id: Number(target.doctor_id ?? 0),
+            clinic_id: target.clinic_id ?? null,
+            patient_name: target.patient_name ?? null,
+        });
+        setPrescriptionUploadNote('');
+        setPrescriptionUploadFiles([]);
+    }, []);
+
+    const formatPrescriptionUploader = useCallback((record: PrescriptionRecordItem) => {
+        if (record.uploaded_by_role === 'PATIENT') {
+            return record.uploaded_by_patient?.full_name
+                ? `Uploaded by: Patient - ${record.uploaded_by_patient.full_name}`
+                : 'Uploaded by: Patient';
+        }
+
+        if (record.uploaded_by_role === 'DOCTOR') {
+            return record.uploaded_by_user?.name
+                ? `Uploaded by: Doctor - ${record.uploaded_by_user.name}`
+                : 'Uploaded by: Doctor';
+        }
+
+        return record.uploaded_by_user?.name
+            ? `Uploaded by: Staff - ${record.uploaded_by_user.name}`
+            : 'Uploaded by: Staff';
+    }, []);
+
+    const openPrescriptionViewer = useCallback((record: PrescriptionRecordItem) => {
+        setSelectedPrescription(record);
+        setSelectedPrescriptionPageIndex(0);
+        setPrescriptionZoomScale(1);
+        setPrescriptionViewerVisible(true);
+    }, []);
+
+    const loadPrescriptionList = useCallback(async (target: {
+        patient_id: number;
+        doctor_id: number;
+        appointment_id?: number | null;
+        clinic_id?: number | null;
+        patient_name?: string | null;
+    }) => {
+        setPrescriptionListLoading(true);
+        setPrescriptionListError('');
+        setPrescriptionListTarget(target);
+        setPrescriptionListVisible(true);
+        setPrescriptionListMode('list');
+        try {
+            const data = await listPrescriptions({
+                patient_id: target.patient_id,
+                doctor_id: target.doctor_id,
+            });
+            setPrescriptionRecords((data?.prescriptions || []) as PrescriptionRecordItem[]);
+        } catch (error: any) {
+            console.error(error);
+            setPrescriptionListError(getApiErrorMessage(error, 'Failed to load prescriptions'));
+        } finally {
+            setPrescriptionListLoading(false);
+        }
+    }, [getApiErrorMessage]);
+
+    const openPrescriptionHistoryForAppointment = useCallback((appointment: any) => {
+        const patientId = Number(appointment?.patient_id ?? appointment?.patient?.patient_id ?? 0);
+        const doctorId = Number(appointment?.doctor_id ?? appointment?.doctor?.doctor_id ?? staff_doctor_id ?? 0);
+        if (!patientId || !doctorId) {
+            Alert.alert('Unavailable', 'Prescription history is not available for this appointment.');
+            return;
+        }
+
+        void loadPrescriptionList({
+            patient_id: patientId,
+            doctor_id: doctorId,
+            appointment_id: appointment?.appointment_id ?? null,
+            clinic_id: appointment?.clinic_id ?? appointment?.clinic?.clinic_id ?? null,
+            patient_name: appointment?.patient?.full_name ?? 'Patient',
+        });
+    }, [loadPrescriptionList, staff_doctor_id]);
+
+    const redirectPrescriptionUploadToPatientsTab = useCallback((target: {
+        patient_id: number;
+        doctor_id: number;
+        patient_name?: string | null;
+    }) => {
+        const patientId = Number(target.patient_id || 0);
+        const doctorId = Number(target.doctor_id || 0);
+        const patientName = target.patient_name ?? 'Patient';
+        if (!patientId || !doctorId) {
+            Alert.alert('Unavailable', 'Prescription actions are not available for this appointment.');
+            return;
+        }
+
+        closePrescriptionList();
+        navigation.navigate('Patients', {
+            openPrescriptionPatientId: patientId,
+            openPrescriptionDoctorId: doctorId,
+            openPrescriptionPatientName: patientName,
+            openPrescriptionRequestKey: `${patientId}:${doctorId}:${Date.now()}`,
+        });
+    }, [closePrescriptionList, navigation]);
+
+    const appendPrescriptionFiles = useCallback((nextFiles: PrescriptionUploadFile[]) => {
+        setPrescriptionUploadFiles((prev) => mergePrescriptionUploadFiles(prev, nextFiles));
+    }, []);
+
+    const removePrescriptionFileAt = useCallback((index: number) => {
+        setPrescriptionUploadFiles((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
+    }, []);
+
+    const pickPrescriptionFromCamera = useCallback(async () => {
+        const result = await pickPrescriptionImagesFromCamera();
+        if (!result.ok) {
+            Alert.alert('Permission required', result.error);
+            return;
+        }
+        if (result.files.length === 0) return;
+        appendPrescriptionFiles(result.files);
+    }, [appendPrescriptionFiles]);
+
+    const pickPrescriptionFromGallery = useCallback(async () => {
+        const remainingSlots = Math.max(0, PRESCRIPTION_MAX_PAGE_COUNT - prescriptionUploadFiles.length);
+        const result = await pickPrescriptionImagesFromLibrary(remainingSlots);
+        if (!result.ok) {
+            Alert.alert(
+                remainingSlots <= 0 ? 'Page limit reached' : 'Permission required',
+                result.error
+            );
+            return;
+        }
+        if (result.files.length === 0) return;
+        appendPrescriptionFiles(result.files);
+    }, [appendPrescriptionFiles, prescriptionUploadFiles.length]);
+
+    const submitPrescriptionUpload = useCallback(async () => {
+        if (!prescriptionUploadTarget) {
+            Alert.alert('Error', 'Missing prescription upload context.');
+            return;
+        }
+
+        if (!prescriptionUploadTarget.patient_id || !prescriptionUploadTarget.doctor_id) {
+            Alert.alert('Wrong doctor context', 'Prescription upload is only allowed inside the correct patient-doctor context. Please reopen this appointment and retry.');
+            return;
+        }
+
+        if (prescriptionUploadFiles.length === 0) {
+            Alert.alert('Add prescription', 'Please add at least one prescription image or tap Skip.');
+            return;
+        }
+
+        setPrescriptionUploadLoading(true);
+
+        try {
+            await createPrescriptionUpload({
+                patient_id: prescriptionUploadTarget.patient_id,
+                doctor_id: prescriptionUploadTarget.doctor_id,
+                clinic_id: prescriptionUploadTarget.clinic_id ?? null,
+                appointment_id: prescriptionUploadTarget.appointment_id,
+                note: prescriptionUploadNote.trim() || null,
+            }, prescriptionUploadFiles);
+
+            Alert.alert('Uploaded', 'Prescription uploaded successfully.');
+            resetPrescriptionUploadFlow();
+        } catch (error: any) {
+            Alert.alert(
+                'Upload failed',
+                `${getApiErrorMessage(error, 'Appointment is already marked visited. You can retry the prescription upload or skip for now.')}\n\nThe appointment remains marked as visited. You can retry this upload now or skip and add it later.`
+            );
+        } finally {
+            setPrescriptionUploadLoading(false);
+        }
+    }, [
+        getApiErrorMessage,
+        prescriptionUploadFiles,
+        prescriptionUploadNote,
+        prescriptionUploadTarget,
+        resetPrescriptionUploadFlow,
+    ]);
+
+    const submitPrescriptionUploadFromList = useCallback(async () => {
+        if (!prescriptionUploadTarget || !prescriptionListTarget) {
+            Alert.alert('Error', 'Missing prescription upload context.');
+            return;
+        }
+
+        if (!prescriptionUploadTarget.patient_id || !prescriptionUploadTarget.doctor_id) {
+            Alert.alert('Wrong doctor context', 'Prescription upload is only allowed inside the correct patient-doctor context. Please reopen this appointment and retry.');
+            return;
+        }
+
+        if (prescriptionUploadFiles.length === 0) {
+            Alert.alert('Add prescription', 'Please add at least one prescription image before uploading.');
+            return;
+        }
+
+        setPrescriptionUploadLoading(true);
+
+        try {
+            await createPrescriptionUpload({
+                patient_id: prescriptionUploadTarget.patient_id,
+                doctor_id: prescriptionUploadTarget.doctor_id,
+                clinic_id: prescriptionUploadTarget.clinic_id ?? null,
+                appointment_id: prescriptionUploadTarget.appointment_id,
+                note: prescriptionUploadNote.trim() || null,
+            }, prescriptionUploadFiles);
+
+            Alert.alert('Uploaded', 'Prescription uploaded successfully.');
+            setPrescriptionUploadNote('');
+            setPrescriptionUploadFiles([]);
+            setPrescriptionListMode('list');
+            await loadPrescriptionList(prescriptionListTarget);
+        } catch (error: any) {
+            Alert.alert(
+                'Upload failed',
+                `${getApiErrorMessage(error, 'Failed to upload prescription. Please retry.')}\n\nThe appointment remains unchanged. You can retry this upload now or go back to the prescription list.`
+            );
+        } finally {
+            setPrescriptionUploadLoading(false);
+        }
+    }, [
+        getApiErrorMessage,
+        loadPrescriptionList,
+        prescriptionListTarget,
+        prescriptionUploadFiles,
+        prescriptionUploadNote,
+        prescriptionUploadTarget,
+    ]);
+
+    const handleDeletePrescriptionRecord = useCallback((record: PrescriptionRecordItem) => {
+        if (!prescriptionListTarget) return;
+
+        Alert.alert(
+            'Delete prescription',
+            'Delete this prescription and all of its uploaded pages?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await deletePrescriptionRecord({
+                                prescription_id: record.prescription_id,
+                                patient_id: prescriptionListTarget.patient_id,
+                                doctor_id: prescriptionListTarget.doctor_id,
+                            });
+
+                            if (selectedPrescription?.prescription_id === record.prescription_id) {
+                                closePrescriptionViewer();
+                            }
+
+                            await loadPrescriptionList(prescriptionListTarget);
+                        } catch (error: any) {
+                            Alert.alert('Delete failed', getApiErrorMessage(error, 'Failed to delete prescription.'));
+                        }
+                    },
+                },
+            ]
+        );
+    }, [closePrescriptionViewer, getApiErrorMessage, loadPrescriptionList, prescriptionListTarget, selectedPrescription?.prescription_id]);
 
     const openPatientDetails = useCallback((item?: any) => {
         setOpenCardMenuId(null);
@@ -1116,7 +1515,7 @@ const AppointmentsScreen = () => {
         return `${hh}:${mm}`;
     };
 
-    const handleStatusChange = async (appointmentId: number, status: 'CANCELLED' | 'COMPLETED' | 'PENDING') => {
+    const handleStatusChange = useCallback(async (appointmentId: number, status: 'CANCELLED' | 'COMPLETED' | 'PENDING') => {
         if (!canManageAppointments) {
             showPermissionDenied();
             return;
@@ -1125,11 +1524,17 @@ const AppointmentsScreen = () => {
             const extra = status === 'CANCELLED' ? { cancelled_by: 'DOCTOR' } : {};
             await updateAppointment({ appointmentId, status, ...extra });
             setAppointments((prev) => prev.map((a) => a.appointment_id === appointmentId ? { ...a, status, ...extra } : a));
+            if (isClinicStaff && status === 'COMPLETED') {
+                const appointment = appointments.find((item) => item.appointment_id === appointmentId);
+                if (appointment) {
+                    openPrescriptionUploadFlow(appointment);
+                }
+            }
         } catch (error: any) {
             console.error(error);
             Alert.alert('Error', getApiErrorMessage(error, 'Failed to update appointment'));
         }
-    };
+    }, [appointments, canManageAppointments, getApiErrorMessage, isClinicStaff, openPrescriptionUploadFlow, showPermissionDenied]);
 
     const confirmStatusChange = (appointmentId: number, status: 'CANCELLED' | 'COMPLETED' | 'PENDING') => {
         const actionTitle = status === 'CANCELLED'
@@ -1279,6 +1684,69 @@ const AppointmentsScreen = () => {
         });
     }, [appointments, dateFrom, dateTo, searchQuery, statusFilter]);
 
+    const renderPrescriptionUploadContent = useCallback(() => (
+        <>
+            {prescriptionListMode !== 'upload' ? (
+                <View className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-4">
+                    <Text className="text-sm font-semibold text-blue-900">
+                        The appointment is already marked as visited.
+                    </Text>
+                </View>
+            ) : null}
+
+            <View className={prescriptionListMode !== 'upload' ? 'mt-5' : undefined}>
+                <Text className="text-sm font-bold text-gray-700 mb-2">Add Pages</Text>
+                <View className="flex-row" style={{ gap: 10 }}>
+                    <TouchableOpacity
+                        onPress={pickPrescriptionFromCamera}
+                        className="flex-1 rounded-xl border border-gray-200 bg-white px-4 py-3 items-center"
+                        disabled={prescriptionUploadLoading}
+                    >
+                        <Camera size={16} color="#374151" />
+                        <Text className="text-sm font-semibold text-gray-700 mt-1.5">Camera</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        onPress={pickPrescriptionFromGallery}
+                        className="flex-1 rounded-xl border border-gray-200 bg-white px-4 py-3 items-center"
+                        disabled={prescriptionUploadLoading}
+                    >
+                        <ImagePlus size={16} color="#374151" />
+                        <Text className="text-sm font-semibold text-gray-700 mt-1.5">Gallery</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+
+            <View className="mt-4 rounded-2xl border border-gray-100 bg-gray-50 overflow-hidden">
+                <PrescriptionUploadPreviewGrid
+                    files={prescriptionUploadFiles}
+                    onRemove={removePrescriptionFileAt}
+                    removeDisabled={prescriptionUploadLoading}
+                />
+            </View>
+
+            <View className="mt-5">
+                <Text className="text-sm font-bold text-gray-700 mb-2">Note (Optional)</Text>
+                <TextInput
+                    className="bg-white border border-gray-200 rounded-xl px-4 py-3.5 text-gray-800 text-base"
+                    value={prescriptionUploadNote}
+                    onChangeText={setPrescriptionUploadNote}
+                    placeholder="Add a short note"
+                    editable={!prescriptionUploadLoading}
+                    multiline
+                    maxLength={500}
+                />
+            </View>
+        </>
+    ), [
+        pickPrescriptionFromCamera,
+        pickPrescriptionFromGallery,
+        prescriptionListMode,
+        prescriptionUploadFiles,
+        prescriptionUploadLoading,
+        prescriptionUploadNote,
+        removePrescriptionFileAt,
+    ]);
+
     const renderItem = useCallback(({ item }: { item: any }) => {
         const statusUpper = String(item?.status || '').toUpperCase();
         const canUpdate = canManageAppointments && statusUpper !== 'COMPLETED' && statusUpper !== 'CANCELLED' && statusUpper !== 'PENDING';
@@ -1308,9 +1776,14 @@ const AppointmentsScreen = () => {
                             ) : null}
                         </TouchableOpacity>
                         <View className="flex-1">
-                            <Text className="text-gray-900 font-bold text-sm" numberOfLines={1}>
-                                {item.patient?.full_name || 'Unknown Patient'}
-                            </Text>
+                            <TouchableOpacity
+                                onPress={() => openPrescriptionHistoryForAppointment(item)}
+                                activeOpacity={0.75}
+                            >
+                                <Text className="font-bold text-sm text-gray-900" numberOfLines={1}>
+                                    {item.patient?.full_name || 'Unknown Patient'}
+                                </Text>
+                            </TouchableOpacity>
                             <Text className="text-gray-500 text-xs mt-0.5" numberOfLines={1}>
                                 {item.clinic?.clinic_name || 'N/A'}
                             </Text>
@@ -1431,7 +1904,7 @@ const AppointmentsScreen = () => {
                 )}
             </View>
         );
-    }, [canManageAppointments, canUseChat, confirmStatusChange, handleDeleteAppointment, highlightedPairKey, incomingMessage, navigation, openCardMenuId, openPatientDetails, openReschedule]);
+    }, [canManageAppointments, canUseChat, confirmStatusChange, handleDeleteAppointment, highlightedPairKey, incomingMessage, isClinicStaff, navigation, openCardMenuId, openPatientDetails, openPrescriptionHistoryForAppointment, openReschedule]);
 
     if (loading) {
         return (
@@ -1886,6 +2359,253 @@ const AppointmentsScreen = () => {
                     </View>
                 </View>
             </Modal>
+
+            <Modal
+                animationType="slide"
+                transparent
+                visible={prescriptionUploadVisible}
+                onRequestClose={resetPrescriptionUploadFlow}
+            >
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
+                    className="flex-1"
+                >
+                    <View className="flex-1 justify-end bg-black/50">
+                        <TouchableOpacity
+                            className="flex-1"
+                            activeOpacity={1}
+                            onPress={resetPrescriptionUploadFlow}
+                        />
+                        <View className="bg-white rounded-t-3xl px-6 pt-5 pb-8 h-[88%]">
+                            <View className="flex-row items-start justify-between">
+                                <View className="flex-1 pr-4">
+                                    <Text className="text-xl font-bold text-gray-900">Upload Prescription</Text>
+                                    <Text className="text-sm text-gray-500 mt-1">
+                                        {prescriptionUploadTarget?.patient_name
+                                            ? `Add prescription pages for ${prescriptionUploadTarget.patient_name}.`
+                                            : 'Add prescription pages for this visited patient.'}
+                                    </Text>
+                                </View>
+                                <TouchableOpacity
+                                    onPress={resetPrescriptionUploadFlow}
+                                    className="bg-gray-100 p-2 rounded-full"
+                                    disabled={prescriptionUploadLoading}
+                                >
+                                    <X size={18} color="#374151" />
+                                </TouchableOpacity>
+                            </View>
+
+                            <ScrollView
+                                className="mt-5 flex-1"
+                                showsVerticalScrollIndicator={false}
+                                keyboardShouldPersistTaps="handled"
+                                contentContainerStyle={{ paddingBottom: 12 }}
+                            >
+                                <View className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-4">
+                                    <Text className="text-sm font-semibold text-blue-900">
+                                        Appointment marked as visited
+                                    </Text>
+                                </View>
+
+                                <View className="mt-5">
+                                        <Text className="text-sm font-bold text-gray-700 mb-2">Add Pages</Text>
+                                    <View className="flex-row" style={{ gap: 10 }}>
+                                        <TouchableOpacity
+                                            onPress={pickPrescriptionFromCamera}
+                                            className="flex-1 rounded-xl border border-gray-200 bg-white px-4 py-3 items-center"
+                                            disabled={prescriptionUploadLoading}
+                                        >
+                                            <Camera size={16} color="#374151" />
+                                            <Text className="text-sm font-semibold text-gray-700 mt-1.5">Camera</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            onPress={pickPrescriptionFromGallery}
+                                            className="flex-1 rounded-xl border border-gray-200 bg-white px-4 py-3 items-center"
+                                            disabled={prescriptionUploadLoading}
+                                        >
+                                            <ImagePlus size={16} color="#374151" />
+                                            <Text className="text-sm font-semibold text-gray-700 mt-1.5">Gallery</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+
+                                <View className="mt-4 rounded-2xl border border-gray-100 bg-gray-50 overflow-hidden">
+                                    <PrescriptionUploadPreviewGrid
+                                        files={prescriptionUploadFiles}
+                                        onRemove={removePrescriptionFileAt}
+                                        removeDisabled={prescriptionUploadLoading}
+                                    />
+                                </View>
+
+                                <View className="mt-5">
+                                    <Text className="text-sm font-bold text-gray-700 mb-2">Note (Optional)</Text>
+                                    <TextInput
+                                        className="bg-white border border-gray-200 rounded-xl px-4 py-3.5 text-gray-800 text-base"
+                                        value={prescriptionUploadNote}
+                                        onChangeText={setPrescriptionUploadNote}
+                                        placeholder="Add a short note"
+                                        editable={!prescriptionUploadLoading}
+                                        multiline
+                                        maxLength={500}
+                                    />
+                                </View>
+                            </ScrollView>
+
+                            <View className="mt-5 flex-row" style={{ gap: 10 }}>
+                                <TouchableOpacity
+                                    onPress={resetPrescriptionUploadFlow}
+                                    className="flex-1 rounded-xl border border-gray-200 bg-white px-4 py-3 items-center"
+                                    disabled={prescriptionUploadLoading}
+                                >
+                                    <Text className="text-sm font-semibold text-gray-700">Skip</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={submitPrescriptionUpload}
+                                    className="flex-1 rounded-xl bg-blue-600 px-4 py-3 items-center"
+                                    disabled={prescriptionUploadLoading}
+                                >
+                                    {prescriptionUploadLoading ? (
+                                        <ActivityIndicator size="small" color="#ffffff" />
+                                    ) : (
+                                            <Text className="text-sm font-semibold text-white">Upload Prescription</Text>
+                                    )}
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    </View>
+                </KeyboardAvoidingView>
+            </Modal>
+
+            <Modal
+                animationType="slide"
+                transparent
+                visible={prescriptionListVisible}
+                onRequestClose={closePrescriptionList}
+            >
+                <View className="flex-1 justify-end bg-black/45">
+                    <TouchableOpacity className="flex-1" activeOpacity={1} onPress={closePrescriptionList} />
+                    <View className="bg-white rounded-t-3xl px-6 pt-5 pb-8 max-h-[85%]">
+                        <View className="flex-row items-start justify-between">
+                            <View className="flex-1 pr-4">
+                                <Text className="text-xl font-bold text-gray-900">
+                                    {prescriptionListMode === 'upload' ? 'Upload Prescription' : 'Prescriptions'}
+                                </Text>
+                                <Text className="text-sm text-gray-500 mt-1">
+                                    {prescriptionListTarget?.patient_name
+                                        ? `${prescriptionListTarget.patient_name}'s prescription history`
+                                        : 'Prescription history'}
+                                </Text>
+                            </View>
+                            <View className="flex-row items-center" style={{ gap: 10 }}>
+                                {isClinicStaff && canManageAppointments && prescriptionListTarget && prescriptionListMode === 'list' ? (
+                                    <TouchableOpacity
+                                        onPress={() => {
+                                            preparePrescriptionUploadTarget(prescriptionListTarget);
+                                            setPrescriptionListMode('upload');
+                                        }}
+                                        className="rounded-full border border-blue-200 bg-blue-50 px-3 py-2 flex-row items-center"
+                                        style={{ gap: 6 }}
+                                    >
+                                        <PlusCircle size={14} color="#1d4ed8" />
+                                        <Text className="text-xs font-semibold text-blue-700">Upload Prescription</Text>
+                                    </TouchableOpacity>
+                                ) : null}
+                                {!isClinicStaff && prescriptionListTarget ? (
+                                    <TouchableOpacity
+                                        onPress={() => redirectPrescriptionUploadToPatientsTab(prescriptionListTarget)}
+                                        className="rounded-full border border-blue-200 bg-blue-50 px-3 py-2 flex-row items-center"
+                                        style={{ gap: 6 }}
+                                    >
+                                        <PlusCircle size={14} color="#1d4ed8" />
+                                        <Text className="text-xs font-semibold text-blue-700">Upload Prescription</Text>
+                                    </TouchableOpacity>
+                                ) : null}
+                                <TouchableOpacity onPress={closePrescriptionList} className="bg-gray-100 p-2 rounded-full">
+                                    <X size={18} color="#374151" />
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+
+                        <ScrollView className="mt-5" showsVerticalScrollIndicator={false}>
+                              {prescriptionListMode === 'upload' ? (
+                                renderPrescriptionUploadContent()
+                              ) : prescriptionListLoading ? (
+                                <View className="items-center py-10">
+                                    <ActivityIndicator size="small" color="#2563eb" />
+                                    <Text className="text-sm text-gray-500 mt-3">Loading prescriptions...</Text>
+                                </View>
+                              ) : prescriptionListError ? (
+                                  <View className="rounded-2xl border border-red-100 bg-red-50 px-4 py-4">
+                                      <Text className="text-sm font-semibold text-red-700">{prescriptionListError}</Text>
+                                      <TouchableOpacity
+                                          onPress={() => {
+                                              if (prescriptionListTarget) {
+                                                  void loadPrescriptionList(prescriptionListTarget);
+                                              }
+                                          }}
+                                          className="self-start mt-3 rounded-full bg-white px-3 py-2 border border-red-200"
+                                      >
+                                          <Text className="text-xs font-semibold text-red-700">Retry</Text>
+                                      </TouchableOpacity>
+                                  </View>
+                              ) : prescriptionRecords.length === 0 ? (
+                                <View className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-6">
+                                    <Text className="text-base font-semibold text-gray-700">No prescriptions uploaded yet.</Text>
+                                </View>
+                            ) : (
+                                prescriptionRecords.map((record, index) => (
+                                    <View
+                                        key={record.prescription_id}
+                                        className={index > 0 ? 'mt-3' : ''}
+                                    >
+                                        <PrescriptionHistoryCard
+                                            record={record}
+                                            uploaderLabel={formatPrescriptionUploader(record)}
+                                            onView={() => openPrescriptionViewer(record)}
+                                            onDelete={() => handleDeletePrescriptionRecord(record)}
+                                        />
+                                    </View>
+                                ))
+                            )}
+                        </ScrollView>
+                        {prescriptionListMode === 'upload' ? (
+                            <View className="mt-5 flex-row" style={{ gap: 10 }}>
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        setPrescriptionListMode('list');
+                                        setPrescriptionUploadLoading(false);
+                                        setPrescriptionUploadNote('');
+                                        setPrescriptionUploadFiles([]);
+                                        setPrescriptionUploadTarget(null);
+                                    }}
+                                    className="flex-1 rounded-xl border border-gray-200 bg-white px-4 py-3 items-center"
+                                    disabled={prescriptionUploadLoading}
+                                >
+                                    <Text className="text-sm font-semibold text-gray-700">Back</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={submitPrescriptionUploadFromList}
+                                    className="flex-1 rounded-xl bg-blue-600 px-4 py-3 items-center"
+                                    disabled={prescriptionUploadLoading}
+                                >
+                                    {prescriptionUploadLoading ? (
+                                        <ActivityIndicator size="small" color="#ffffff" />
+                                    ) : (
+                                        <Text className="text-sm font-semibold text-white">Upload Prescription</Text>
+                                    )}
+                                </TouchableOpacity>
+                            </View>
+                        ) : null}
+                    </View>
+                </View>
+            </Modal>
+
+            <PrescriptionImageViewerModal
+                visible={prescriptionViewerVisible}
+                prescription={selectedPrescription}
+                onClose={closePrescriptionViewer}
+            />
 
             {/* Export Modal */}
             <Modal

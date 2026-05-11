@@ -9,7 +9,12 @@ export type MainTabParamList = {
     prefillKey?: string;
   } | undefined;
   Clinics: undefined;
-  Patients: undefined;
+  Patients: {
+    openPrescriptionPatientId?: number;
+    openPrescriptionDoctorId?: number;
+    openPrescriptionPatientName?: string;
+    openPrescriptionRequestKey?: string;
+  } | undefined;
   CalendarView: undefined;
 };
 
