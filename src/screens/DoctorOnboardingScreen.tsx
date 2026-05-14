@@ -785,6 +785,18 @@ export default function DoctorOnboardingScreen() {
                             <View className="flex-row items-center mb-2">
                                 <Users size={22} color="#2563eb" />
                                 <Text className="text-xl font-extrabold text-slate-800 ml-2">Staff Setup</Text>
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        Alert.alert(
+                                            'Staff Setup',
+                                            'Staff accounts are for receptionists or assistants who help manage appointments, live queue, and clinic work based on the access role you choose.'
+                                        );
+                                    }}
+                                    className="ml-2 h-6 w-6 rounded-full bg-blue-50 items-center justify-center"
+                                    activeOpacity={0.8}
+                                >
+                                    <Info size={15} color="#2563eb" />
+                                </TouchableOpacity>
                             </View>
                             <View className="flex-row items-center justify-between bg-blue-50 rounded-2xl px-4 py-3 mb-5">
                                 <View className="flex-1 pr-4">

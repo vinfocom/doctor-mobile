@@ -36,6 +36,7 @@ import {
     Mail,
     MapPin,
     Phone,
+    Plus,
     RefreshCw,
     ShieldCheck,
     Stethoscope,
@@ -312,7 +313,7 @@ export default function DoctorSignupScreen() {
                 return;
             }
 
-            Alert.alert('Profile Submitted', 'We will review your profile.', [
+            Alert.alert('Profile Submitted', 'Thank you, Doctor. Your profile has been submitted and will be reviewed shortly.', [
                 {
                     text: 'OK',
                     onPress: () => navigation.replace('Login'),
@@ -1089,7 +1090,7 @@ export default function DoctorSignupScreen() {
                                                 <Phone size={20} color="#64748b" />
                                                 <TextInput
                                                     className="flex-1 px-3 text-base text-slate-800 py-4"
-                                                    placeholder="+91 9876543210"
+                                                    placeholder="9876543210"
                                                     placeholderTextColor="#9ca3af"
                                                     value={value}
                                                     onChangeText={(text) => {
@@ -1103,10 +1104,10 @@ export default function DoctorSignupScreen() {
                                                     onPress={() => {
                                                         setWhatsappNumbers((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
                                                     }}
-                                                    className="ml-2 px-3 py-3 rounded-2xl bg-red-50"
+                                                    className="ml-2 h-12 w-12 items-center justify-center rounded-2xl bg-red-50"
                                                     activeOpacity={0.8}
                                                 >
-                                                    <Text className="text-red-500 font-semibold">Remove</Text>
+                                                    <X size={18} color="#ef4444" />
                                                 </TouchableOpacity>
                                             ) : null}
                                         </View>
@@ -1114,10 +1115,13 @@ export default function DoctorSignupScreen() {
 
                                     <TouchableOpacity
                                         onPress={() => setWhatsappNumbers((prev) => [...prev, ''])}
-                                        className="mt-2 self-start rounded-2xl bg-blue-50 px-4 py-2.5"
+                                        className="mt-2 self-start flex-row items-center rounded-2xl bg-blue-50 px-4 py-2.5"
                                         activeOpacity={0.8}
                                     >
-                                        <Text className="text-blue-600 font-semibold">Add another WhatsApp number</Text>
+                                        <View className="mr-2 h-6 w-6 items-center justify-center rounded-full bg-blue-600">
+                                            <Plus size={14} color="#ffffff" />
+                                        </View>
+                                        <Text className="text-blue-600 font-semibold">Add Another</Text>
                                     </TouchableOpacity>
                                 </View>
 
