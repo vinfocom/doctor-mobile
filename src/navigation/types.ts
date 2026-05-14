@@ -32,6 +32,8 @@ export type PatientTabParamList = {
 export type RootStackParamList = {
   Login: undefined;
   Signup: undefined;
+  DoctorSignup: undefined;
+  DoctorOnboarding: undefined;
   PatientOtp: {
     phone: string;
     purpose: 'SET_PASSWORD_FIRST_TIME' | 'RESET_PASSWORD';

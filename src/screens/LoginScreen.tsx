@@ -20,6 +20,7 @@ import { RootStackParamList } from '../navigation/types';
 import {
     checkPatientLoginAvailability,
     getLoginChallenge,
+    getProfile,
     login,
     patientLogin,
     saveDoctorPushToken,
@@ -32,6 +33,7 @@ import { registerForPushNotificationsAsync } from '../hooks/usePushNotifications
 import { Stethoscope, Mail, Lock, Eye, EyeOff, ArrowRight, ShieldCheck, RefreshCw, Calculator, Check, UserPlus, Phone } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp, ZoomIn } from 'react-native-reanimated';
 import { API_URL } from '../config/env';
+import { doctorNeedsSetup } from '../lib/doctorOnboarding';
 
 type LoginScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Login'>;
 const pushDebug = (...args: unknown[]) => {
@@ -312,7 +314,16 @@ const LoginScreen = () => {
                         await registerPushTokenForRole('DOCTOR', response.token);
                     }
                     await refreshSession();
-                    navigation.replace('DoctorMain');
+                    if (userRole === 'DOCTOR') {
+                        try {
+                            const profile = await getProfile();
+                            navigation.replace(doctorNeedsSetup(profile) ? 'DoctorOnboarding' : 'DoctorMain');
+                        } catch {
+                            navigation.replace('DoctorMain');
+                        }
+                    } else {
+                        navigation.replace('DoctorMain');
+                    }
                 } else {
                     Alert.alert('Error', 'Login failed: Invalid doctor or clinic staff session');
                 }
@@ -929,6 +940,21 @@ const LoginScreen = () => {
                                     </View>
                                 )}
                             </TouchableOpacity>
+                            ) : null}
+
+                            {mode === 'DOCTOR' ? (
+                                <TouchableOpacity
+                                    onPress={() => navigation.navigate('DoctorSignup')}
+                                    activeOpacity={0.8}
+                                    className={`rounded-2xl items-center justify-center border border-blue-200 bg-white ${
+                                        isVeryCompactScreen ? 'py-3 mt-3' : 'py-3.5 mt-3'
+                                    }`}
+                                >
+                                    <View className="flex-row items-center">
+                                        <UserPlus size={18} color="#2563eb" />
+                                        <Text className="text-blue-600 font-bold ml-2 text-base">New doctor? Create account</Text>
+                                    </View>
+                                </TouchableOpacity>
                             ) : null}
 
                             {mode === 'PATIENT' ? (

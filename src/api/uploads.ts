@@ -2,6 +2,12 @@ import { API_URL } from '../config/env';
 import { getToken } from './token';
 
 type UploadKind = 'profile_pic' | 'document';
+type UploadedFileResponse = {
+    url: string;
+    name?: string;
+    mimeType?: string;
+    size?: number;
+};
 
 export async function uploadDoctorFile(params: {
     uri: string;
@@ -35,7 +41,7 @@ export async function uploadDoctorFile(params: {
         throw new Error(data?.error || 'Upload failed');
     }
 
-    return data as { url: string };
+    return data as UploadedFileResponse;
 }
 
 export async function uploadClinicBarcode(params: { uri: string; name: string; mimeType: string }) {
@@ -65,4 +71,64 @@ export async function uploadClinicBarcode(params: { uri: string; name: string; m
     }
 
     return data as { url: string };
+}
+
+export async function uploadDoctorSignupDocument(params: {
+    uri: string;
+    name: string;
+    mimeType: string;
+    challengeId: string;
+    challengeVerificationToken: string;
+}) {
+    const formData = new FormData();
+    formData.append('challengeId', params.challengeId);
+    formData.append('challengeVerificationToken', params.challengeVerificationToken);
+    formData.append('uploadType', 'document');
+    formData.append('file', {
+        uri: params.uri,
+        name: params.name,
+        type: params.mimeType,
+    } as any);
+
+    const response = await fetch(`${API_URL}/doctor-auth/upload`, {
+        method: 'POST',
+        body: formData,
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+        throw new Error(data?.error || 'Upload failed');
+    }
+
+    return data as UploadedFileResponse;
+}
+
+export async function uploadDoctorSignupProfilePicture(params: {
+    uri: string;
+    name: string;
+    mimeType: string;
+    challengeId: string;
+    challengeVerificationToken: string;
+}) {
+    const formData = new FormData();
+    formData.append('challengeId', params.challengeId);
+    formData.append('challengeVerificationToken', params.challengeVerificationToken);
+    formData.append('uploadType', 'profile_pic');
+    formData.append('file', {
+        uri: params.uri,
+        name: params.name,
+        type: params.mimeType,
+    } as any);
+
+    const response = await fetch(`${API_URL}/doctor-auth/upload`, {
+        method: 'POST',
+        body: formData,
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+        throw new Error(data?.error || 'Upload failed');
+    }
+
+    return data as UploadedFileResponse;
 }

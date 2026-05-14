@@ -5,6 +5,8 @@ import { RootStackParamList } from './types';
 // Import all screens
 import LoginScreen from '../screens/LoginScreen';
 import SignupScreen from '../screens/SignupScreen';
+import DoctorSignupScreen from '../screens/DoctorSignupScreen';
+import DoctorOnboardingScreen from '../screens/DoctorOnboardingScreen';
 import PatientOtpScreen from '../screens/PatientOtpScreen';
 import PatientResetPasswordScreen from '../screens/PatientResetPasswordScreen';
 import TabNavigator from './TabNavigator';
@@ -41,6 +43,18 @@ const AppNavigator = ({ initialRouteName }: { initialRouteName: keyof RootStackP
                 name="Signup"
                 component={SignupScreen}
                 options={{ animation: 'slide_from_right' }}
+            />
+
+            <Stack.Screen
+                name="DoctorSignup"
+                component={DoctorSignupScreen}
+                options={{ animation: 'slide_from_right' }}
+            />
+
+            <Stack.Screen
+                name="DoctorOnboarding"
+                component={DoctorOnboardingScreen}
+                options={{ animation: 'slide_from_right', gestureEnabled: false }}
             />
 
             <Stack.Screen

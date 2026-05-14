@@ -7,7 +7,8 @@ import { AuthSessionProvider } from './src/context/AuthSessionContext';
 import AppNavigator from './src/navigation';
 import type { RootStackParamList } from './src/navigation/types';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { getMe, getPatientProfile } from './src/api/auth';
+import { getMe, getPatientProfile, getProfile } from './src/api/auth';
+import { doctorNeedsSetup } from './src/lib/doctorOnboarding';
 // import { Alert } from 'react-native';
 
 import type * as NotificationsType from 'expo-notifications';
@@ -70,7 +71,14 @@ export default function App() {
       }
       if (token && role === 'PATIENT') {
         setInitialRouteName('PatientMain');
-      } else if (token && (role === 'DOCTOR' || role === 'CLINIC_STAFF')) {
+      } else if (token && role === 'DOCTOR') {
+        try {
+          const profile = await getProfile();
+          setInitialRouteName(doctorNeedsSetup(profile) ? 'DoctorOnboarding' : 'DoctorMain');
+        } catch {
+          setInitialRouteName('DoctorMain');
+        }
+      } else if (token && role === 'CLINIC_STAFF') {
         setInitialRouteName('DoctorMain');
       } else {
         setInitialRouteName('Login');
