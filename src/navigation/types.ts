@@ -44,6 +44,14 @@ export type RootStackParamList = {
     verificationToken: string;
     purpose: 'SET_PASSWORD_FIRST_TIME' | 'RESET_PASSWORD';
   };
+  DoctorForgotPasswordOtp: {
+    email: string;
+    resendAfterSeconds?: number;
+  };
+  DoctorResetPassword: {
+    email: string;
+    verificationToken: string;
+  };
   DoctorMain: NavigatorScreenParams<MainTabParamList> | undefined;
   PatientMain: NavigatorScreenParams<PatientTabParamList> | undefined;
   Chat: { patientId: number; doctorId: number; patientName: string; viewer?: 'DOCTOR' | 'PATIENT'; profilePicUrl?: string | null };

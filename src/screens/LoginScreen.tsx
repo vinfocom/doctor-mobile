@@ -23,6 +23,7 @@ import {
     getProfile,
     login,
     patientLogin,
+    sendUserForgotPasswordOtp,
     saveDoctorPushToken,
     savePatientPushToken,
     verifyLoginChallenge,
@@ -44,6 +45,21 @@ const pushDebug = (...args: unknown[]) => {
 const pushWarn = (...args: unknown[]) => {
     console.warn(...args);
 };
+
+function isValidEmail(value: string) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+}
+
+function getDoctorForgotPasswordErrorMessage(error: any) {
+    const status = error?.response?.status;
+    const responseMessage = error?.response?.data?.error || '';
+
+    if (status === 404) return 'Account not found.';
+    if (status === 403) return 'Account not allowed.';
+    if (status === 429) return 'Wait before resending OTP.';
+    if (!status) return 'Check your internet connection.';
+    return responseMessage || 'Unable to send OTP.';
+}
 
 async function registerPushTokenForRole(role: 'DOCTOR' | 'PATIENT', authToken?: string) {
     try {
@@ -76,6 +92,7 @@ const LoginScreen = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
+    const [doctorForgotPasswordLoading, setDoctorForgotPasswordLoading] = useState(false);
     const [mode, setMode] = useState<'DOCTOR' | 'PATIENT'>('DOCTOR');
     const [patientIdentifier, setPatientIdentifier] = useState('');
     const [patientPassword, setPatientPassword] = useState('');
@@ -261,7 +278,33 @@ const LoginScreen = () => {
         }
     };
 
-    const handleForgotPassword = () => {
+    const handleForgotPassword = async () => {
+        if (mode === 'DOCTOR') {
+            const normalizedEmail = email.trim().toLowerCase();
+            if (!normalizedEmail) {
+                Alert.alert('Error', 'Please enter email');
+                return;
+            }
+            if (!isValidEmail(normalizedEmail)) {
+                Alert.alert('Error', 'Enter a valid email.');
+                return;
+            }
+
+            setDoctorForgotPasswordLoading(true);
+            try {
+                const response = await sendUserForgotPasswordOtp(normalizedEmail);
+                navigation.navigate('DoctorForgotPasswordOtp', {
+                    email: normalizedEmail,
+                    resendAfterSeconds: response?.resendAfterSeconds,
+                });
+            } catch (error: any) {
+                Alert.alert('Unable to Send OTP', getDoctorForgotPasswordErrorMessage(error));
+            } finally {
+                setDoctorForgotPasswordLoading(false);
+            }
+            return;
+        }
+
         setForgotPasswordMode(true);
         if (!patientIdentifier.trim()) {
             Alert.alert('Error', 'Please enter phone number');
@@ -526,9 +569,22 @@ const LoginScreen = () => {
 
                                     {/* Password */}
                                     <View className="mb-0.5">
-                                        <Text className="text-base font-bold text-gray-700 mb-2 ml-1">
-                                            Password
-                                        </Text>
+                                        <View className="flex-row items-center justify-between mb-2">
+                                            <Text className="text-base font-bold text-gray-700 ml-1">
+                                                Password
+                                            </Text>
+                                            <TouchableOpacity
+                                                onPress={() => { void handleForgotPassword(); }}
+                                                activeOpacity={0.8}
+                                                disabled={doctorForgotPasswordLoading}
+                                            >
+                                                {doctorForgotPasswordLoading ? (
+                                                    <ActivityIndicator size="small" color="#2563eb" />
+                                                ) : (
+                                                    <Text className="text-blue-600 font-semibold">Forgot Password?</Text>
+                                                )}
+                                            </TouchableOpacity>
+                                        </View>
                                         <View
                                             className={`flex-row items-center bg-white rounded-2xl px-4 border-2 ${passwordFocused ? 'border-blue-500' : 'border-gray-200'
                                                 }`}

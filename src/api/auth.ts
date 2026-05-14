@@ -39,6 +39,7 @@ export interface PatientLoginAvailability {
 }
 
 export type PatientOtpPurpose = 'SET_PASSWORD_FIRST_TIME' | 'RESET_PASSWORD';
+export type UserPasswordOtpPurpose = 'RESET_PASSWORD';
 
 export const getLoginChallenge = async (): Promise<LoginChallenge> => {
     const response = await client.get('/auth/login-challenge');
@@ -228,6 +229,48 @@ export const resetPasswordWithOtp = async (
         verificationToken,
     });
     return response.data;
+};
+
+export const sendUserForgotPasswordOtp = async (email: string) => {
+    const response = await client.post('/auth/forgot-password/send-otp', {
+        email,
+    });
+    return response.data as {
+        success: boolean;
+        message: string;
+        expiresInSeconds: number;
+        resendAfterSeconds: number;
+    };
+};
+
+export const verifyUserForgotPasswordOtp = async (email: string, otp: string) => {
+    const response = await client.post('/auth/forgot-password/verify-otp', {
+        email,
+        otp,
+    });
+    return response.data as {
+        success: boolean;
+        message: string;
+        verificationToken: string;
+    };
+};
+
+export const resetUserPasswordWithOtp = async (
+    email: string,
+    newPassword: string,
+    confirmPassword: string,
+    verificationToken: string
+) => {
+    const response = await client.post('/auth/forgot-password/reset-password', {
+        email,
+        newPassword,
+        confirmPassword,
+        verificationToken,
+    });
+    return response.data as {
+        success: boolean;
+        message: string;
+    };
 };
 
 export const getPatientProfile = async () => {

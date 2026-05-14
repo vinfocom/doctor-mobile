@@ -7,6 +7,8 @@ import LoginScreen from '../screens/LoginScreen';
 import SignupScreen from '../screens/SignupScreen';
 import DoctorSignupScreen from '../screens/DoctorSignupScreen';
 import DoctorOnboardingScreen from '../screens/DoctorOnboardingScreen';
+import DoctorForgotPasswordOtpScreen from '../screens/DoctorForgotPasswordOtpScreen';
+import DoctorResetPasswordScreen from '../screens/DoctorResetPasswordScreen';
 import PatientOtpScreen from '../screens/PatientOtpScreen';
 import PatientResetPasswordScreen from '../screens/PatientResetPasswordScreen';
 import TabNavigator from './TabNavigator';
@@ -66,6 +68,18 @@ const AppNavigator = ({ initialRouteName }: { initialRouteName: keyof RootStackP
             <Stack.Screen
                 name="PatientResetPassword"
                 component={PatientResetPasswordScreen}
+                options={{ animation: 'slide_from_right' }}
+            />
+
+            <Stack.Screen
+                name="DoctorForgotPasswordOtp"
+                component={DoctorForgotPasswordOtpScreen}
+                options={{ animation: 'slide_from_right' }}
+            />
+
+            <Stack.Screen
+                name="DoctorResetPassword"
+                component={DoctorResetPasswordScreen}
                 options={{ animation: 'slide_from_right' }}
             />
 
