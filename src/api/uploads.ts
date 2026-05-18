@@ -1,5 +1,6 @@
 import { API_URL } from '../config/env';
 import { getToken } from './token';
+import { getApiErrorFromResponse, parseApiResponse } from './responseParsing';
 
 type UploadKind = 'profile_pic' | 'document';
 type UploadedFileResponse = {
@@ -36,12 +37,16 @@ export async function uploadDoctorFile(params: {
         body: formData,
     });
 
-    const data = await response.json();
+    const parsed = await parseApiResponse(response);
     if (!response.ok) {
-        throw new Error(data?.error || 'Upload failed');
+        throw new Error(getApiErrorFromResponse(
+            response,
+            parsed,
+            'Unable to upload this file right now. Please try again.'
+        ));
     }
 
-    return data as UploadedFileResponse;
+    return parsed.data as UploadedFileResponse;
 }
 
 export async function uploadClinicBarcode(params: { uri: string; name: string; mimeType: string }) {
@@ -65,12 +70,16 @@ export async function uploadClinicBarcode(params: { uri: string; name: string; m
         body: formData,
     });
 
-    const data = await response.json();
+    const parsed = await parseApiResponse(response);
     if (!response.ok) {
-        throw new Error(data?.error || 'Upload failed');
+        throw new Error(getApiErrorFromResponse(
+            response,
+            parsed,
+            'Unable to upload this file right now. Please try again.'
+        ));
     }
 
-    return data as { url: string };
+    return parsed.data as { url: string };
 }
 
 export async function uploadDoctorSignupDocument(params: {
@@ -95,12 +104,16 @@ export async function uploadDoctorSignupDocument(params: {
         body: formData,
     });
 
-    const data = await response.json();
+    const parsed = await parseApiResponse(response);
     if (!response.ok) {
-        throw new Error(data?.error || 'Upload failed');
+        throw new Error(getApiErrorFromResponse(
+            response,
+            parsed,
+            'Unable to upload this file right now. Please try again.'
+        ));
     }
 
-    return data as UploadedFileResponse;
+    return parsed.data as UploadedFileResponse;
 }
 
 export async function uploadDoctorSignupProfilePicture(params: {
@@ -125,10 +138,14 @@ export async function uploadDoctorSignupProfilePicture(params: {
         body: formData,
     });
 
-    const data = await response.json();
+    const parsed = await parseApiResponse(response);
     if (!response.ok) {
-        throw new Error(data?.error || 'Upload failed');
+        throw new Error(getApiErrorFromResponse(
+            response,
+            parsed,
+            'Unable to upload this file right now. Please try again.'
+        ));
     }
 
-    return data as UploadedFileResponse;
+    return parsed.data as UploadedFileResponse;
 }

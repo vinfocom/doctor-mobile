@@ -2,7 +2,7 @@
   "expo": {
     "name": "Dapto",
     "slug": "Dapto",
-    "version": "1.2.0",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/daptao.png",
     "userInterfaceStyle": "light",
@@ -42,7 +42,7 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.singhaditya1627.doctormobile",
-      "versionCode": 10102
+      "versionCode": 20000
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -50,7 +50,15 @@
     },
     "plugins": [
       "@react-native-community/datetimepicker",
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Allow Dapto to capture prescription photos.",
+          "photosPermission": "Allow Dapto to select prescription photos from your library.",
+          "microphonePermission": false
+        }
+      ]
     ],
     "extra": {
       "apiUrl": "https://dapto.vinfocom.co.in/api",

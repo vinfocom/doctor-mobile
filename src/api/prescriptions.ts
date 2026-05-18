@@ -2,6 +2,7 @@ import { API_URL } from '../config/env';
 import { getToken } from './token';
 import client from './client';
 import { getPrescriptionErrorMessage } from '../lib/prescriptionErrors';
+import { getApiErrorFromResponse, parseApiResponse } from './responseParsing';
 
 export type PrescriptionUploadFile = {
     uri: string;
@@ -64,19 +65,16 @@ export const createPrescriptionUpload = async (
         body: formData,
     });
 
-    const responseText = await response.text();
-    let dataResponse: any = {};
-    if (responseText) {
-        try {
-            dataResponse = JSON.parse(responseText);
-        } catch {
-            dataResponse = {};
-        }
-    }
+    const parsed = await parseApiResponse(response);
+    const dataResponse = parsed.data || {};
     if (!response.ok) {
         throw new Error(getPrescriptionErrorMessage(
             { response: { status: response.status, data: dataResponse } },
-            'Upload failed'
+            getApiErrorFromResponse(
+                response,
+                parsed,
+                'Failed to upload prescription.'
+            )
         ));
     }
 
@@ -136,10 +134,14 @@ export const uploadPrescriptionPages = async (
         body: formData,
     });
 
-    const data = await response.json();
+    const parsed = await parseApiResponse(response);
     if (!response.ok) {
-        throw new Error(data?.detail || data?.error || 'Upload failed');
+        throw new Error(getApiErrorFromResponse(
+            response,
+            parsed,
+            'Failed to upload prescription.'
+        ));
     }
 
-    return data;
+    return parsed.data;
 };

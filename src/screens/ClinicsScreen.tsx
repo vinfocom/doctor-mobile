@@ -44,6 +44,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { getClinics, createClinic, updateClinic, deleteClinic } from '../api/clinics';
 import { getSchedule, createSchedule, updateSchedule, deleteSchedule } from '../api/schedule';
 import * as ImagePicker from 'expo-image-picker';
+import { prepareUploadFile } from '../lib/uploadFilePreparation';
 import { uploadClinicBarcode } from '../api/uploads';
 import { API_URL } from '../config/env';
 
@@ -675,10 +676,18 @@ const ClinicsScreen = () => {
         setBarcodeError(null);
         setBarcodeUploading(true);
         try {
-            const uri = asset.uri;
-            const name = uri.split('/').pop() || `barcode_${Date.now()}.jpg`;
-            const mimeType = (asset.mimeType || asset.type || 'image/jpeg') as string;
-            const uploaded = await uploadClinicBarcode({ uri, name, mimeType });
+            const file = await prepareUploadFile(asset, {
+                fallbackBaseName: `barcode_${Date.now()}`,
+                fallbackMimeType: 'image/jpeg',
+                optimizeImage: true,
+                maxLongEdgePx: 1600,
+                jpegQuality: 0.72,
+            });
+            const uploaded = await uploadClinicBarcode({
+                uri: file.uri,
+                name: file.name,
+                mimeType: file.mimeType,
+            });
             setClinicForm((prev) => ({ ...prev, barcode_url: uploaded.url }));
         } catch (e: any) {
             setBarcodeError(e?.message || 'Upload failed');

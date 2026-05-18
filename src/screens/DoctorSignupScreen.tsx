@@ -47,6 +47,7 @@ import {
 import Animated, { FadeInDown, FadeInUp, ZoomIn } from 'react-native-reanimated';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
+import { prepareUploadFile } from '../lib/uploadFilePreparation';
 
 import {
     doctorSignup,
@@ -431,11 +432,18 @@ export default function DoctorSignupScreen() {
 
         if (result.canceled || !result.assets?.length) return;
         const asset = result.assets[0];
+        const file = await prepareUploadFile(asset, {
+            fallbackBaseName: `degree-${Date.now()}`,
+            fallbackMimeType: 'image/jpeg',
+            optimizeImage: true,
+            maxLongEdgePx: 1600,
+            jpegQuality: 0.72,
+        });
         setUploadingDocumentSource('camera');
         await uploadSignupDocument({
-            uri: asset.uri,
-            name: asset.fileName || `degree-${Date.now()}.jpg`,
-            mimeType: asset.mimeType || 'image/jpeg',
+            uri: file.uri,
+            name: file.name,
+            mimeType: file.mimeType,
         });
     };
 
@@ -470,11 +478,18 @@ export default function DoctorSignupScreen() {
 
         if (result.canceled || !result.assets?.length) return;
         const asset = result.assets[0];
+        const file = await prepareUploadFile(asset, {
+            fallbackBaseName: `profile-${Date.now()}`,
+            fallbackMimeType: 'image/jpeg',
+            optimizeImage: true,
+            maxLongEdgePx: 1600,
+            jpegQuality: 0.72,
+        });
         setUploadingProfilePicSource('camera');
         await uploadSignupProfilePicture({
-            uri: asset.uri,
-            name: asset.fileName || `profile-${Date.now()}.jpg`,
-            mimeType: asset.mimeType || 'image/jpeg',
+            uri: file.uri,
+            name: file.name,
+            mimeType: file.mimeType,
         });
     };
 

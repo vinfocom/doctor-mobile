@@ -606,7 +606,7 @@ const Patients = () => {
     const handlePickPrescriptionFromCamera = useCallback(async () => {
         const result = await pickPrescriptionImagesFromCamera();
         if (!result.ok) {
-            Alert.alert('Permission required', result.error);
+            Alert.alert('Unable to open camera', result.error);
             return;
         }
         if (result.files.length === 0) return;

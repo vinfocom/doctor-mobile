@@ -46,6 +46,7 @@ import { RootStackParamList } from '../navigation/types';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import { prepareUploadFile } from '../lib/uploadFilePreparation';
 import { useAuthSession } from '../context/AuthSessionContext';
 import { APP_VERSION } from '../config/env';
 
@@ -352,10 +353,17 @@ const ProfileScreen = () => {
             }
 
             const asset = result.assets[0];
+            const file = await prepareUploadFile(asset, {
+                fallbackBaseName: `profile-${Date.now()}`,
+                fallbackMimeType: 'image/jpeg',
+                optimizeImage: true,
+                maxLongEdgePx: 1600,
+                jpegQuality: 0.72,
+            });
             const uploaded = await uploadDoctorFile({
-                uri: asset.uri,
-                name: asset.fileName || `profile-${Date.now()}.jpg`,
-                mimeType: asset.mimeType || 'image/jpeg',
+                uri: file.uri,
+                name: file.name,
+                mimeType: file.mimeType,
                 type: 'profile_pic',
             });
 

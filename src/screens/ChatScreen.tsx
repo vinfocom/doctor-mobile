@@ -11,6 +11,7 @@ import { useNotificationSound } from '../hooks/useNotificationSound';
 import { markPatientDoctorChatRead } from '../lib/mobileNotificationState';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import { prepareUploadFile } from '../lib/uploadFilePreparation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Chat'>;
 type ChatTimelineItem =
@@ -304,10 +305,17 @@ export default function ChatScreen({ route, navigation }: Props) {
         });
         if (result.canceled || !result.assets?.length) return;
         const asset = result.assets[0];
+        const file = await prepareUploadFile(asset, {
+            fallbackBaseName: `photo_${Date.now()}`,
+            fallbackMimeType: 'image/jpeg',
+            optimizeImage: true,
+            maxLongEdgePx: 1600,
+            jpegQuality: 0.72,
+        });
         await uploadAndSend({
-            uri: asset.uri,
-            name: asset.fileName || `photo_${Date.now()}.jpg`,
-            type: asset.mimeType || 'image/jpeg',
+            uri: file.uri,
+            name: file.name,
+            type: file.mimeType,
         });
     };
 
@@ -323,10 +331,17 @@ export default function ChatScreen({ route, navigation }: Props) {
         });
         if (result.canceled || !result.assets?.length) return;
         const asset = result.assets[0];
+        const file = await prepareUploadFile(asset, {
+            fallbackBaseName: `image_${Date.now()}`,
+            fallbackMimeType: 'image/jpeg',
+            optimizeImage: true,
+            maxLongEdgePx: 1600,
+            jpegQuality: 0.72,
+        });
         await uploadAndSend({
-            uri: asset.uri,
-            name: asset.fileName || `image_${Date.now()}.jpg`,
-            type: asset.mimeType || 'image/jpeg',
+            uri: file.uri,
+            name: file.name,
+            type: file.mimeType,
         });
     };
 

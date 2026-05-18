@@ -1,5 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
 import type { PrescriptionUploadFile } from '../api/prescriptions';
+import { prepareUploadFile } from './uploadFilePreparation';
 
 export const PRESCRIPTION_MAX_PAGE_COUNT = 5;
 export const PRESCRIPTION_COMPRESSION_QUALITY = 0.82;
@@ -8,17 +9,27 @@ type PickerResult =
     | { ok: true; files: PrescriptionUploadFile[] }
     | { ok: false; error: string };
 
-const toPrescriptionUploadFile = (
+const toPrescriptionUploadFile = async (
     asset: ImagePicker.ImagePickerAsset,
     index: number
-): PrescriptionUploadFile => ({
-    uri: asset.uri,
-    name: asset.fileName || `prescription_${Date.now()}_${index + 1}.jpg`,
-    type: asset.mimeType || 'image/jpeg',
-});
+): Promise<PrescriptionUploadFile> => {
+    const file = await prepareUploadFile(asset, {
+        fallbackBaseName: `prescription_${Date.now()}_${index + 1}`,
+        fallbackMimeType: 'image/jpeg',
+        optimizeImage: true,
+        maxLongEdgePx: 1600,
+        jpegQuality: 0.72,
+    });
 
-const normalizePickedAssets = (assets: ImagePicker.ImagePickerAsset[]) =>
-    assets.map((asset, index) => toPrescriptionUploadFile(asset, index));
+    return {
+        uri: file.uri,
+        name: file.name,
+        type: file.mimeType,
+    };
+};
+
+const normalizePickedAssets = async (assets: ImagePicker.ImagePickerAsset[]) =>
+    Promise.all(assets.map((asset, index) => toPrescriptionUploadFile(asset, index)));
 
 export const appendPrescriptionUploadFiles = (
     existingFiles: PrescriptionUploadFile[],
@@ -48,12 +59,15 @@ export const pickPrescriptionImagesFromCamera = async (): Promise<PickerResult> 
 
         return {
             ok: true,
-            files: normalizePickedAssets(result.assets.slice(0, 1)),
+            files: await normalizePickedAssets(result.assets.slice(0, 1)),
         };
-    } catch {
+    } catch (error: any) {
         return {
             ok: false,
-            error: 'Image preparation failed before upload. Please try again.',
+            error:
+                typeof error?.message === 'string' && error.message.trim().length > 0
+                    ? error.message
+                    : 'Unable to open the camera right now. Please try again.',
         };
     }
 };
@@ -92,12 +106,15 @@ export const pickPrescriptionImagesFromLibrary = async (
 
         return {
             ok: true,
-            files: normalizePickedAssets(result.assets.slice(0, remainingSlots)),
+            files: await normalizePickedAssets(result.assets.slice(0, remainingSlots)),
         };
-    } catch {
+    } catch (error: any) {
         return {
             ok: false,
-            error: 'Image preparation failed before upload. Please try again.',
+            error:
+                typeof error?.message === 'string' && error.message.trim().length > 0
+                    ? error.message
+                    : 'Unable to prepare the selected image right now. Please try again.',
         };
     }
 };

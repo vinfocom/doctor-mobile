@@ -1,6 +1,7 @@
 import client from './client';
 import { API_URL } from '../config/env';
 import { getToken } from './token';
+import { getApiErrorFromResponse, parseApiResponse } from './responseParsing';
 
 export const getChatMessages = async (patientId: number, doctorId: number) => {
     const response = await client.get(`/chat?patient_id=${patientId}&doctor_id=${doctorId}`);
@@ -44,10 +45,14 @@ export const uploadChatAttachment = async (
         body: formData,
     });
 
-    const data = await response.json();
+    const parsed = await parseApiResponse(response);
     if (!response.ok) {
-        throw new Error(data?.detail || data?.error || 'Upload failed');
+        throw new Error(getApiErrorFromResponse(
+            response,
+            parsed,
+            'Could not upload this file. Please try again.'
+        ));
     }
 
-    return data;
+    return parsed.data;
 };
