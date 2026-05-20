@@ -2063,6 +2063,7 @@ const AppointmentsScreen = () => {
                                                 setDateTo(d);
                                                 setShowQuickDatePicker(false);
                                             }}
+                                            minDate="1900-01-01"
                                         />
                                     </View>
                                 )}
