@@ -40,7 +40,7 @@ import {
     QrCode,
 } from 'lucide-react-native';
 import { SvgUri, SvgXml } from 'react-native-svg';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getClinics, createClinic, updateClinic, deleteClinic } from '../api/clinics';
 import { getSchedule, createSchedule, updateSchedule, deleteSchedule } from '../api/schedule';
 import * as ImagePicker from 'expo-image-picker';
@@ -530,6 +530,7 @@ const ScheduleTab = ({ onAdd, clinics, grouped, schedule, loading, handleEditSlo
 type Tab = 'clinics' | 'schedule';
 
 const ClinicsScreen = () => {
+    const insets = useSafeAreaInsets();
     const [activeTab, setActiveTab] = useState<Tab>('clinics');
 
     // ── Clinics state
@@ -978,7 +979,10 @@ const ClinicsScreen = () => {
 
             <Modal animationType="slide" transparent visible={isClinicModalVisible} onRequestClose={() => { setClinicModalVisible(false); setEditingClinicId(null); }}>
                 <View className="flex-1 justify-end bg-black/50">
-                    <View className="bg-white rounded-t-3xl p-6" style={{ maxHeight: '85%' }}>
+                    <View
+                        className="bg-white rounded-t-3xl p-6"
+                        style={{ maxHeight: '85%', paddingBottom: Math.max(insets.bottom, 16) + 8 }}
+                    >
                         <View className="flex-row justify-between items-center mb-6">
                             <Text className="text-2xl font-bold text-gray-800">{editingClinicId ? 'Edit Clinic' : 'Add New Clinic'}</Text>
                             <TouchableOpacity onPress={() => { setClinicModalVisible(false); setEditingClinicId(null); }} className="bg-gray-100 p-2 rounded-full"><X size={24} color="#4b5563" /></TouchableOpacity>
@@ -1028,7 +1032,10 @@ const ClinicsScreen = () => {
             {/* ── Schedule Modal ── */}
             <Modal animationType="slide" transparent visible={isScheduleModalVisible} onRequestClose={() => { setScheduleModalVisible(false); resetScheduleForm(); }}>
                 <View className="flex-1 justify-end bg-black/40">
-                    <View className="bg-white rounded-t-3xl px-5 pt-5" style={{ height: '88%' }}>
+                    <View
+                        className="bg-white rounded-t-3xl px-5 pt-5"
+                        style={{ height: '88%', paddingBottom: Math.max(insets.bottom, 16) + 8 }}
+                    >
                         <View className="flex-row justify-between items-center mb-5">
                             <Text className="text-xl font-bold text-gray-800">{editingScheduleId ? 'Edit Slot' : 'New Schedule Slot'}</Text>
                             <TouchableOpacity onPress={() => { setScheduleModalVisible(false); resetScheduleForm(); }} className="bg-gray-100 p-2 rounded-full"><X size={20} color="#6b7280" /></TouchableOpacity>

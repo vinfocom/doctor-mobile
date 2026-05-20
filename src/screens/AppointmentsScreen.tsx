@@ -34,7 +34,7 @@ import {
     Camera,
     ImagePlus,
 } from 'lucide-react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getAppointments, createAppointment, updateAppointment, deleteAppointment } from '../api/appointments';
 import { createPrescriptionUpload, deletePrescriptionRecord, listPrescriptions, type PrescriptionUploadFile } from '../api/prescriptions';
 import { updatePatient } from '../api/patients';
@@ -455,6 +455,7 @@ const CalendarPicker = ({ selectedDate, onSelect, minDate, enabledDates, loading
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 const AppointmentsScreen = () => {
+    const insets = useSafeAreaInsets();
     const navigation = useNavigation<any>();
     const route = useRoute<any>();
     const isFocused = useIsFocused();
@@ -2228,7 +2229,10 @@ const AppointmentsScreen = () => {
                             closePatientEdit();
                         }}
                     />
-                    <View className="bg-white rounded-t-3xl px-6 pt-5 pb-8">
+                    <View
+                        className="bg-white rounded-t-3xl px-6 pt-5"
+                        style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}
+                    >
                         <View className="flex-row items-start justify-between">
                             <Text className="text-xl font-bold text-gray-900">Patient Details</Text>
                             <View className="flex-row items-center" style={{ gap: 8 }}>
@@ -2377,7 +2381,10 @@ const AppointmentsScreen = () => {
                             activeOpacity={1}
                             onPress={resetPrescriptionUploadFlow}
                         />
-                        <View className="bg-white rounded-t-3xl px-6 pt-5 pb-8 h-[88%]">
+                        <View
+                            className="bg-white rounded-t-3xl px-6 pt-5 h-[88%]"
+                            style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}
+                        >
                             <View className="flex-row items-start justify-between">
                                 <View className="flex-1 pr-4">
                                     <Text className="text-xl font-bold text-gray-900">Upload Prescription</Text>
@@ -2615,7 +2622,10 @@ const AppointmentsScreen = () => {
                 onRequestClose={() => setExportModalVisible(false)}
             >
                 <View className="flex-1 justify-end bg-black/50">
-                    <View className="bg-white rounded-t-3xl p-6">
+                    <View
+                        className="bg-white rounded-t-3xl p-6"
+                        style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}
+                    >
                         <View className="flex-row justify-between items-center mb-4">
                             <Text className="text-xl font-bold text-gray-800">Download Appointments</Text>
                             <TouchableOpacity onPress={() => setExportModalVisible(false)} className="bg-gray-100 p-2 rounded-full">
@@ -2759,7 +2769,10 @@ const AppointmentsScreen = () => {
                     className="flex-1"
                 >
                     <View className="flex-1 justify-end bg-black/50">
-                        <View className="bg-white rounded-t-3xl p-6 max-h-[85%]">
+                        <View
+                            className="bg-white rounded-t-3xl p-6 max-h-[85%]"
+                            style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}
+                        >
                             <View className="flex-row justify-between items-center mb-4">
                                 <Text className="text-xl font-bold text-gray-800">Date Range Filter</Text>
                                 <TouchableOpacity onPress={() => { setFilterCalendarMode(null); setFilterModalVisible(false); }} className="bg-gray-100 p-2 rounded-full">
@@ -2840,7 +2853,10 @@ const AppointmentsScreen = () => {
                         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
                         className="flex-1 justify-end"
                     >
-                        <View className="bg-white rounded-t-3xl p-6 h-[92%]">
+                        <View
+                            className="bg-white rounded-t-3xl p-6 h-[92%]"
+                            style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}
+                        >
 
                             {/* Modal header */}
                             <View className="flex-row justify-between items-center mb-6">
@@ -3172,7 +3188,10 @@ const AppointmentsScreen = () => {
                 onRequestClose={() => setRescheduleModalVisible(false)}
             >
                 <View className="flex-1 justify-end bg-black/50">
-                    <View className="bg-white rounded-t-3xl p-6 h-[88%]">
+                    <View
+                        className="bg-white rounded-t-3xl p-6 h-[88%]"
+                        style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}
+                    >
                         <Text className="text-xl font-bold text-gray-800 mb-4">Reschedule Appointment</Text>
                         <ScrollView showsVerticalScrollIndicator={false}>
                             <View className="space-y-4 pb-6">

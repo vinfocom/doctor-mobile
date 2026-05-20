@@ -1310,7 +1310,10 @@ export default function PatientHomeScreen() {
 
                 <Modal visible={profileCompletionVisible} transparent animationType="fade" onRequestClose={() => undefined}>
                     <View className="flex-1 justify-end bg-black/50">
-                        <View className="bg-white rounded-t-3xl p-5 max-h-[88%]">
+                        <View
+                            className="bg-white rounded-t-3xl p-5 max-h-[88%]"
+                            style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}
+                        >
                             <View className="mb-4">
                                 <Text className="text-xs text-blue-500 font-semibold uppercase tracking-wider">Complete Profile</Text>
                                 <Text className="text-2xl font-bold text-gray-900 mt-1">
@@ -1410,7 +1413,10 @@ export default function PatientHomeScreen() {
                     }}
                 >
                     <View className="flex-1 justify-end bg-black/50">
-                        <View className="bg-white rounded-t-3xl p-5 max-h-[78%]">
+                        <View
+                            className="bg-white rounded-t-3xl p-5 max-h-[78%]"
+                            style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}
+                        >
                             <View className="flex-row items-center justify-between mb-4">
                                 <View>
                                     <Text className="text-xs text-gray-400">Select Date of Birth</Text>
@@ -1436,7 +1442,10 @@ export default function PatientHomeScreen() {
 
                 <Modal visible={historyVisible} transparent animationType="slide" onRequestClose={() => setHistoryVisible(false)}>
                     <View className="flex-1 justify-end bg-black/40">
-                        <View className="bg-white rounded-t-3xl p-5 max-h-[80%]">
+                        <View
+                            className="bg-white rounded-t-3xl p-5 max-h-[80%]"
+                            style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}
+                        >
                             <View className="flex-row items-center justify-between mb-4">
                                 <View>
                                     <Text className="text-xs text-gray-400">Appointment History</Text>
@@ -1622,7 +1631,10 @@ export default function PatientHomeScreen() {
 
                 <Modal visible={prescriptionVisible} transparent animationType="slide" onRequestClose={resetPrescriptionFlow}>
                     <View className="flex-1 justify-end bg-black/45">
-                        <View className="bg-white rounded-t-3xl p-5 max-h-[86%]">
+                        <View
+                            className="bg-white rounded-t-3xl p-5 max-h-[86%]"
+                            style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}
+                        >
                             <View className="flex-row items-center justify-between mb-4">
                                 <View className="flex-1 pr-3">
                                     <Text className="text-xs text-gray-400">Prescriptions</Text>

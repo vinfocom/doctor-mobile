@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, FlatList, Platform, ActivityIndicator, KeyboardAvoidingView, Image, Linking, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeft, Send, User, Paperclip, FileText } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
@@ -50,6 +50,7 @@ const getDateSeparatorLabel = (dateKey: string) => {
 
 export default function ChatScreen({ route, navigation }: Props) {
     const { patientId, doctorId, patientName, profilePicUrl, viewer = 'DOCTOR' } = route.params;
+    const insets = useSafeAreaInsets();
     const [messages, setMessages] = useState<any[]>([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
@@ -477,7 +478,10 @@ export default function ChatScreen({ route, navigation }: Props) {
                 )}
 
                 {/* Unified Input Section */}
-                <View className="px-4 pt-3 pb-10 bg-white border-t border-gray-100 flex-row items-center">
+                <View
+                    className="px-4 pt-3 bg-white border-t border-gray-100 flex-row items-center"
+                    style={{ paddingBottom: Math.max(insets.bottom, 10) }}
+                >
                     <TouchableOpacity
                         onPress={handleAttach}
                         disabled={uploadingAttachment}

@@ -12,7 +12,7 @@ import {
     StatusBar,
     Image,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { CalendarPlus, Clock3, History, User, MoreVertical, Search, X, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -126,6 +126,7 @@ const formatClinicAddress = (value?: string | null) => String(value || '').trim(
 
 export default function PatientAppointmentsScreen() {
     type BookingFor = 'SELF' | 'OTHER';
+    const insets = useSafeAreaInsets();
     const navigation = useNavigation<any>();
     const route = useRoute<RouteProp<PatientTabParamList, 'PatientAppointments'>>();
     const listRef = useRef<any>(null);
@@ -803,7 +804,10 @@ export default function PatientAppointmentsScreen() {
 
             <Modal visible={open} transparent animationType="slide" onRequestClose={handleCloseModal}>
                 <View className="flex-1 justify-end bg-black/50">
-                    <View className="bg-white rounded-t-3xl p-6 h-[86%]">
+                    <View
+                        className="bg-white rounded-t-3xl p-6 h-[86%]"
+                        style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}
+                    >
                         <Text className="text-2xl font-bold text-gray-800 mb-4">
                             {selectedAppointment ? 'Reschedule Slot' : 'Book Slot'}
                         </Text>
@@ -1049,7 +1053,10 @@ export default function PatientAppointmentsScreen() {
             {/* Doctor Search Modal */}
             <Modal visible={showDoctorSearch} transparent animationType="slide" onRequestClose={() => setShowDoctorSearch(false)}>
                 <View className="flex-1 justify-end bg-black/50">
-                    <View className="bg-white rounded-t-3xl p-6 h-[80%]">
+                    <View
+                        className="bg-white rounded-t-3xl p-6 h-[80%]"
+                        style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}
+                    >
                         <View className="flex-row items-center justify-between mb-4">
                             <Text className="text-xl font-bold text-gray-800">Select Doctor</Text>
                             <TouchableOpacity onPress={() => setShowDoctorSearch(false)} className="bg-gray-100 p-2 rounded-full">
@@ -1119,7 +1126,10 @@ export default function PatientAppointmentsScreen() {
 
             <Modal visible={showClinicSelect} transparent animationType="slide" onRequestClose={() => setShowClinicSelect(false)}>
                 <View className="flex-1 justify-end bg-black/40">
-                    <View className="bg-white rounded-t-3xl p-5 max-h-[75%]">
+                    <View
+                        className="bg-white rounded-t-3xl p-5 max-h-[75%]"
+                        style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}
+                    >
                         <View className="flex-row items-center justify-between mb-4">
                             <Text className="text-lg font-bold text-gray-800">Select Clinic</Text>
                             <TouchableOpacity onPress={() => setShowClinicSelect(false)} className="bg-gray-100 rounded-full px-3 py-2">

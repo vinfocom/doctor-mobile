@@ -25,7 +25,7 @@ import {
     Clock,
     MoreVertical,
 } from 'lucide-react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getSchedule, createSchedule, updateSchedule, deleteSchedule } from '../api/schedule';
 import { getClinics } from '../api/clinics';
 
@@ -371,6 +371,7 @@ const GroupCard = ({
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 const ScheduleScreen = () => {
+    const insets = useSafeAreaInsets();
     const [schedule, setSchedule] = useState<ScheduleItem[]>([]);
     const [grouped, setGrouped] = useState<GroupedSchedule[]>([]);
     const [loading, setLoading] = useState(true);
@@ -591,7 +592,10 @@ const ScheduleScreen = () => {
                 onRequestClose={() => { setModalVisible(false); resetForm(); }}
             >
                 <View className="flex-1 justify-end bg-black/40">
-                    <View className="bg-white rounded-t-3xl px-5 pt-5 h-[88%]">
+                    <View
+                        className="bg-white rounded-t-3xl px-5 pt-5 h-[88%]"
+                        style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}
+                    >
                         <View className="flex-row justify-between items-center mb-5">
                             <Text className="text-xl font-bold text-gray-800">
                                 {editingScheduleId ? 'Edit Slot' : 'New Schedule Slot'}
