@@ -52,7 +52,7 @@ import { io, type Socket } from 'socket.io-client';
 import { API_URL, SOCKET_URL } from '../config/env';
 import { useAuthSession } from '../context/AuthSessionContext';
 import { getToken } from '../api/token';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import {
     appendPrescriptionUploadFiles as mergePrescriptionUploadFiles,
     pickPrescriptionImagesFromCamera,
@@ -868,6 +868,20 @@ const AppointmentsScreen = () => {
     };
 
     const handleExportDownload = async () => {
+        const getReadableExportError = (error: unknown) => {
+            if (error instanceof Error && error.message) {
+                const message = error.message.trim();
+                if (/already exists/i.test(message)) {
+                    return 'A report with the same file name already exists in the selected folder. Please rename it, choose another folder, or retry.';
+                }
+                return message;
+            }
+            if (typeof error === 'string' && error.trim()) {
+                return error.trim();
+            }
+            return 'Failed to download export.';
+        };
+
         setExportError('');
         if (exportPreset === 'CUSTOM' && !exportFrom) {
             setExportError('Please select a From date.');
@@ -885,6 +899,35 @@ const AppointmentsScreen = () => {
 
         setExporting(true);
         try {
+            const createAndroidExportFile = async (
+                directoryUri: string,
+                baseFilename: string,
+                mimeType: string
+            ) => {
+                try {
+                    return await FileSystem.StorageAccessFramework.createFileAsync(
+                        directoryUri,
+                        baseFilename,
+                        mimeType
+                    );
+                } catch (error) {
+                    const readable = getReadableExportError(error);
+                    if (!/already exists/i.test(readable)) {
+                        throw error;
+                    }
+
+                    const dotIndex = baseFilename.lastIndexOf('.');
+                    const name = dotIndex > 0 ? baseFilename.slice(0, dotIndex) : baseFilename;
+                    const ext = dotIndex > 0 ? baseFilename.slice(dotIndex + 1) : '';
+                    const uniqueFilename = `${name}_${Date.now()}${ext ? `.${ext}` : ''}`;
+                    return await FileSystem.StorageAccessFramework.createFileAsync(
+                        directoryUri,
+                        uniqueFilename,
+                        mimeType
+                    );
+                }
+            };
+
             const token = await getToken();
             if (!token) {
                 setExportError('Unauthorized. Please log in again.');
@@ -932,7 +975,7 @@ const AppointmentsScreen = () => {
                         format === 'excel'
                             ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                             : 'application/pdf';
-                    const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
+                    const fileUri = await createAndroidExportFile(
                         perm.directoryUri,
                         filename,
                         mimeType
@@ -953,7 +996,8 @@ const AppointmentsScreen = () => {
 
             setExportModalVisible(false);
         } catch (e) {
-            setExportError('Failed to download export.');
+            console.error('Failed to download export:', e);
+            setExportError(__DEV__ ? getReadableExportError(e) : 'Failed to download export.');
         } finally {
             setExporting(false);
         }
