@@ -2,7 +2,7 @@
   "expo": {
     "name": "Dapto",
     "slug": "Dapto",
-    "version": "2.0.1",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/daptao.png",
     "userInterfaceStyle": "light",
@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.singhaditya1627.doctormobile",
+      "bundleIdentifier": "com.vinfocom.dapto",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Allow access to camera to send photos in chat.",
@@ -41,8 +41,8 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.singhaditya1627.doctormobile",
-      "versionCode": 20001
+      "package": "com.vinfocom.dapto",
+      "versionCode": 10000
     },
     "web": {
       "favicon": "./assets/favicon.png",

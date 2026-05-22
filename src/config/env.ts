@@ -1,13 +1,15 @@
 import Constants from 'expo-constants';
 
+const hasHttpProtocol = (url: string) => /^https?:\/\//i.test(url);
+const isHttpUrl = (url: string) => /^http:\/\//i.test(url);
+const RELEASE_DEFAULT_API_URL = 'https://dapto.vinfocom.co.in/api';
+const RELEASE_DEFAULT_SOCKET_URL = 'https://dapto.vinfocom.co.in';
+
 const ensureHttpProtocol = (url: string) => {
     const trimmed = url.trim();
     if (!trimmed) return trimmed;
 
-    if (/^https?:\/\//i.test(trimmed)) {
-        if (!__DEV__ && /^http:\/\//i.test(trimmed)) {
-            throw new Error('[env] In release builds, API and socket URLs must use HTTPS.');
-        }
+    if (hasHttpProtocol(trimmed)) {
         return trimmed;
     }
 
@@ -45,24 +47,51 @@ const getEnvValue = (name: PublicEnvName) => {
     return undefined;
 };
 
-const readConfigValue = (envName: PublicEnvName, extraName: keyof ExpoExtra) => {
-    const envValue = getEnvValue(envName);
-    if (envValue) return envValue;
-
+const readConfigValue = (
+    envName: PublicEnvName,
+    extraName: keyof ExpoExtra,
+    releaseFallback?: string
+) => {
+    const envValue = getEnvValue(envName)?.trim();
     const extraValue = getExpoExtra()[extraName]?.trim();
-    if (extraValue) return extraValue;
+
+    if (__DEV__) {
+        if (envValue) return envValue;
+        if (extraValue) return extraValue;
+    } else {
+        const releaseCandidates = [envValue, extraValue].filter((value): value is string => Boolean(value));
+        const secureCandidate = releaseCandidates.find((value) => !isHttpUrl(value));
+
+        if (secureCandidate) {
+            return secureCandidate;
+        }
+
+        if (releaseFallback) {
+            console.warn(
+                `[env] ${envName} resolved to an insecure release URL. Falling back to the bundled production value.`
+            );
+            return releaseFallback;
+        }
+    }
 
     const modeHint = __DEV__
         ? `Set ${envName} in your local env or set expo.extra.${extraName} in app.json.`
         : `Release build is missing ${envName}. Set EAS env or expo.extra.${extraName} in app.json.`;
 
+    if (releaseFallback) {
+        console.warn(`[env] Missing ${envName} in release build. Falling back to the bundled production value.`);
+        return releaseFallback;
+    }
+
     throw new Error(`[env] Missing required configuration: ${envName}. ${modeHint}`);
 };
 
-const rawApiUrl = ensureHttpProtocol(readConfigValue('EXPO_PUBLIC_API_URL', 'apiUrl'));
+const rawApiUrl = ensureHttpProtocol(
+    readConfigValue('EXPO_PUBLIC_API_URL', 'apiUrl', RELEASE_DEFAULT_API_URL)
+);
 const normalized = rawApiUrl.replace(/\/+$/, "");
 export const API_URL = normalized.endsWith("/api") ? normalized : `${normalized}/api`;
-const rawSocketUrl = readConfigValue('EXPO_PUBLIC_SOCKET_URL', 'socketUrl');
+const rawSocketUrl = readConfigValue('EXPO_PUBLIC_SOCKET_URL', 'socketUrl', RELEASE_DEFAULT_SOCKET_URL);
 export const SOCKET_URL = ensureHttpProtocol(rawSocketUrl).replace(/\/+$/, "");
 export const APP_VERSION =
     (getEnvValue('EXPO_PUBLIC_APP_VERSION') || '').trim() ||

@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
+const FIXED_ANDROID_VERSION_CODE = 10000;
+
 const parseVersionCode = (version) => {
   const semverMatch = version.match(/(\d+)\.(\d+)\.(\d+)/);
   if (semverMatch) {
@@ -41,10 +43,7 @@ module.exports = ({ config }) => {
   const androidConfig = config.android || {};
   const { googleServicesFile: _ignoredGoogleServicesFile, ...androidWithoutGoogleServices } =
     androidConfig;
-  const androidVersionCode =
-    typeof androidWithoutGoogleServices.versionCode === 'number'
-      ? androidWithoutGoogleServices.versionCode
-      : computedVersionCode;
+  const androidVersionCode = FIXED_ANDROID_VERSION_CODE || computedVersionCode;
 
   return {
     ...config,

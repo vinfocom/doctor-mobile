@@ -1,7 +1,7 @@
 {
   "cli": {
     "version": ">= 18.0.3",
-    "appVersionSource": "remote"
+    "appVersionSource": "local"
   },
   "build": {
     "development": {
@@ -12,7 +12,7 @@
       "distribution": "internal"
     },
     "production": {
-      "autoIncrement": true,
+      "autoIncrement": false,
       "env": {
         "EXPO_PUBLIC_API_URL": "https://dapto.vinfocom.co.in/api",
         "EXPO_PUBLIC_SOCKET_URL": "https://dapto.vinfocom.co.in"
