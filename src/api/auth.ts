@@ -40,6 +40,7 @@ export interface PatientLoginAvailability {
 
 export type PatientOtpPurpose = 'SET_PASSWORD_FIRST_TIME' | 'RESET_PASSWORD';
 export type UserPasswordOtpPurpose = 'RESET_PASSWORD';
+export type DoctorSignupOtpChannel = 'EMAIL' | 'PHONE';
 
 export const getLoginChallenge = async (): Promise<LoginChallenge> => {
     const response = await client.get('/auth/login-challenge');
@@ -73,20 +74,47 @@ export const doctorSignup = async (data: {
     doctor_name: string;
     phone: string;
     num_clinics: number;
-    whatsapp_number: string;
+    whatsapp_number?: string;
     whatsapp_numbers?: string[];
     specialization: string;
     registration_no: string;
-    education: string;
-    document_url: string;
+    education?: string;
+    document_url?: string;
     profile_pic_url?: string;
     address: string;
     gst_number: string;
     pan_number: string;
-    challengeId: string;
-    challengeVerificationToken: string;
+    verificationChannel: DoctorSignupOtpChannel;
+    verificationTarget: string;
+    verificationToken: string;
 }) => {
     const response = await client.post('/doctor-auth/signup', data);
+    return response.data;
+};
+
+export const sendDoctorSignupOtp = async (
+    channel: DoctorSignupOtpChannel,
+    target: string,
+    context?: { email?: string; phone?: string }
+) => {
+    const response = await client.post('/doctor-auth/signup-otp/send', {
+        channel,
+        target,
+        ...context,
+    });
+    return response.data;
+};
+
+export const verifyDoctorSignupOtp = async (
+    channel: DoctorSignupOtpChannel,
+    target: string,
+    otp: string
+) => {
+    const response = await client.post('/doctor-auth/signup-otp/verify', {
+        channel,
+        target,
+        otp,
+    });
     return response.data;
 };
 

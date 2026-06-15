@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     View,
     Text,
@@ -13,6 +13,7 @@ import {
     Platform,
     ScrollView,
     StatusBar,
+    Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -21,7 +22,6 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
     ArrowLeft,
     ArrowRight,
-    Calculator,
     Camera,
     Check,
     ChevronDown,
@@ -37,7 +37,6 @@ import {
     MapPin,
     Phone,
     Plus,
-    RefreshCw,
     ShieldCheck,
     Stethoscope,
     Upload,
@@ -51,17 +50,53 @@ import { prepareUploadFile } from '../lib/uploadFilePreparation';
 
 import {
     doctorSignup,
-    getLoginChallenge,
-    verifyLoginChallenge,
+    sendDoctorSignupOtp,
+    verifyDoctorSignupOtp,
 } from '../api/auth';
+import type { DoctorSignupOtpChannel } from '../api/auth';
 import { uploadDoctorSignupDocument, uploadDoctorSignupProfilePicture } from '../api/uploads';
 import type { RootStackParamList } from '../navigation/types';
 
 type DoctorSignupScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'DoctorSignup'>;
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const SIGNUP_OTP_LENGTH = 6;
 type SignupUploadFile = { uri: string; name: string; mimeType: string };
-type UploadReverificationTarget = 'profile' | 'document' | null;
+type SignupVerification = {
+    channel: DoctorSignupOtpChannel;
+    target: string;
+    token: string;
+};
+
+function normalizePhoneDigits(value: string) {
+    return String(value || '').replace(/\D/g, '');
+}
+
+function normalizeUppercaseText(value: string) {
+    return String(value || '').toUpperCase();
+}
+
+function getTermsAndConditionsUrl() {
+    const apiUrl = String(process.env.EXPO_PUBLIC_API_URL || '').trim();
+    if (!apiUrl) {
+        return 'https://dapto.vinfocom.co.in/terms-and-conditions';
+    }
+
+    return apiUrl.replace(/\/api\/?$/i, '') + '/terms-and-conditions';
+}
+
+function maskEmail(value: string) {
+    const [name = '', domain = ''] = String(value || '').split('@');
+    if (!name || !domain) return value;
+    const visible = name.length <= 2 ? name[0] || '' : name.slice(0, 2);
+    return `${visible}${'*'.repeat(Math.max(2, name.length - visible.length))}@${domain}`;
+}
+
+function maskPhone(value: string) {
+    const digits = normalizePhoneDigits(value);
+    if (digits.length <= 4) return digits || value;
+    return `${digits.slice(0, 2)}${'*'.repeat(Math.max(2, digits.length - 4))}${digits.slice(-2)}`;
+}
 
 export default function DoctorSignupScreen() {
     const navigation = useNavigation<DoctorSignupScreenNavigationProp>();
@@ -69,7 +104,9 @@ export default function DoctorSignupScreen() {
     const allowedDocumentMimeTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
     const allowedProfilePicMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
 
-    const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+    const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);
+    const otpInputRef = useRef<TextInput | null>(null);
+    const addressInputRef = useRef<TextInput | null>(null);
     const [email, setEmail] = useState('');
     const [doctorName, setDoctorName] = useState('');
     const [phone, setPhone] = useState('');
@@ -98,101 +135,58 @@ export default function DoctorSignupScreen() {
     const [loading, setLoading] = useState(false);
     const [uploadingDocumentSource, setUploadingDocumentSource] = useState<'camera' | 'file' | null>(null);
     const [uploadingProfilePicSource, setUploadingProfilePicSource] = useState<'camera' | 'file' | null>(null);
-    const [uploadReverificationTarget, setUploadReverificationTarget] = useState<UploadReverificationTarget>(null);
-    const [pendingDocumentUpload, setPendingDocumentUpload] = useState<SignupUploadFile | null>(null);
-    const [pendingProfilePicUpload, setPendingProfilePicUpload] = useState<SignupUploadFile | null>(null);
-    const [challengeQuestion, setChallengeQuestion] = useState('');
-    const [challengeId, setChallengeId] = useState('');
-    const [challengeAnswer, setChallengeAnswer] = useState('');
-    const [challengeVerificationToken, setChallengeVerificationToken] = useState('');
-    const [challengeVerified, setChallengeVerified] = useState(false);
-    const [challengeLoading, setChallengeLoading] = useState(false);
-    const [verifyingChallenge, setVerifyingChallenge] = useState(false);
-    const [challengeStatus, setChallengeStatus] = useState<'idle' | 'success'>('idle');
-    const [uploadAnswerInputActive, setUploadAnswerInputActive] = useState(false);
+    const [signupOtpChannel, setSignupOtpChannel] = useState<DoctorSignupOtpChannel | null>(null);
+    const [signupOtpTarget, setSignupOtpTarget] = useState('');
+    const [signupOtpValue, setSignupOtpValue] = useState('');
+    const [signupOtpInputFocused, setSignupOtpInputFocused] = useState(false);
+    const [signupOtpSent, setSignupOtpSent] = useState(false);
+    const [signupOtpLoading, setSignupOtpLoading] = useState(false);
+    const [signupOtpVerified, setSignupOtpVerified] = useState(false);
+    const [signupOtpMessage, setSignupOtpMessage] = useState('');
+    const [signupOtpResendCountdown, setSignupOtpResendCountdown] = useState(0);
+    const [signupVerification, setSignupVerification] = useState<SignupVerification | null>(null);
+    const lastSubmittedSignupOtpRef = useRef('');
     const passwordsMatch = confirmPassword.length > 0 && password === confirmPassword;
     const passwordsMismatch = confirmPassword.length > 0 && password !== confirmPassword;
-    const hasWhatsappNumber = whatsappNumbers.some((value) => value.trim().length > 0);
     const normalizedEmail = email.trim().toLowerCase();
+    const normalizedPhone = normalizePhoneDigits(phone);
     const hasValidEmail = EMAIL_REGEX.test(normalizedEmail);
     const showEmailFormatError = emailTouched && normalizedEmail.length > 0 && !hasValidEmail;
 
     const canContinue = useMemo(
-        () => Boolean(hasValidEmail && password && confirmPassword && challengeAnswer.trim() && passwordsMatch),
-        [challengeAnswer, confirmPassword, hasValidEmail, password, passwordsMatch]
+        () => Boolean(hasValidEmail && password && confirmPassword && passwordsMatch),
+        [confirmPassword, hasValidEmail, password, passwordsMatch]
     );
 
-    const canContinueStep2 = useMemo(() => Boolean(doctorName.trim() && phone.trim()), [doctorName, phone]);
+    const canContinueStep2 = useMemo(
+        () => Boolean(doctorName.trim() && normalizedPhone.length === 10),
+        [doctorName, normalizedPhone]
+    );
 
-    const canContinueStep3 = useMemo(() => hasWhatsappNumber, [hasWhatsappNumber]);
+    const canContinueStep3 = true;
 
     const canContinueStep4 = useMemo(
         () =>
             Boolean(
                 specialization.trim() &&
-                registrationNo.trim() &&
-                education.trim() &&
-                documentUrl.trim()
+                registrationNo.trim()
             ),
-        [documentUrl, education, registrationNo, specialization]
+        [registrationNo, specialization]
     );
 
     const canSubmit = useMemo(() => Boolean(address.trim()), [address]);
-
-    const loadLoginChallenge = async (clearAnswer = true) => {
-        setChallengeLoading(true);
-        setChallengeVerified(false);
-        setChallengeVerificationToken('');
-        setChallengeStatus('idle');
-        try {
-            const challenge = await getLoginChallenge();
-            setChallengeQuestion(challenge.question);
-            setChallengeId(challenge.challengeId);
-            if (clearAnswer) {
-                setChallengeAnswer('');
-            }
-        } catch {
-            setChallengeQuestion('');
-            setChallengeId('');
-        } finally {
-            setChallengeLoading(false);
-        }
-    };
-
-    const handleVerifyChallenge = async (answer: string) => {
-        if (!challengeId || !answer.trim() || challengeVerified) return;
-
-        setVerifyingChallenge(true);
-        setChallengeVerified(false);
-        setChallengeVerificationToken('');
-        setChallengeStatus('idle');
-
-        try {
-            const response = await verifyLoginChallenge(challengeId, answer.trim());
-            setChallengeVerificationToken(response?.verificationToken || '');
-            setChallengeVerified(true);
-            setChallengeStatus('success');
-        } catch {
-            setChallengeVerified(false);
-        } finally {
-            setVerifyingChallenge(false);
-        }
-    };
-
-    const isChallengeProofError = (error: any) => {
-        const message = String(error?.message || error?.response?.data?.error || '').toLowerCase();
-        return message.includes('calculation expired') || message.includes('verify the calculation') || message.includes('verified calculation');
-    };
-
-    const requestUploadReverification = async (target: Exclude<UploadReverificationTarget, null>) => {
-        setUploadReverificationTarget(target);
-        setUploadAnswerInputActive(false);
-        await loadLoginChallenge();
-    };
-
-    useEffect(() => {
-        void loadLoginChallenge();
-    }, []);
+    const currentSignupOtpTarget = signupOtpChannel === 'EMAIL' ? normalizedEmail : normalizedPhone;
+    const isSignupVerificationCurrent = Boolean(
+        signupVerification &&
+            signupVerification.channel === signupOtpChannel &&
+            signupVerification.target === currentSignupOtpTarget
+    );
+    const canVerifySignupOtp = Boolean(
+        signupOtpSent &&
+            !signupOtpVerified &&
+            !signupOtpLoading &&
+            signupOtpValue.trim().length === SIGNUP_OTP_LENGTH
+    );
 
     useEffect(() => {
         const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -207,22 +201,189 @@ export default function DoctorSignupScreen() {
     }, []);
 
     useEffect(() => {
-        if (challengeVerified) {
-            setChallengeVerified(false);
-            setChallengeVerificationToken('');
-            setChallengeStatus('idle');
-        }
-    }, [challengeAnswer]);
-
-    useEffect(() => {
-        if (!challengeAnswer.trim() || !challengeId || challengeLoading || challengeVerified) return;
+        if (signupOtpResendCountdown <= 0) return;
 
         const timer = setTimeout(() => {
-            void handleVerifyChallenge(challengeAnswer);
-        }, 250);
+            setSignupOtpResendCountdown((current) => Math.max(0, current - 1));
+        }, 1000);
 
         return () => clearTimeout(timer);
-    }, [challengeAnswer, challengeId, challengeLoading, challengeVerified]);
+    }, [signupOtpResendCountdown]);
+
+    useEffect(() => {
+        if (!signupVerification) return;
+
+        const verifiedTarget = signupVerification.channel === 'EMAIL' ? normalizedEmail : normalizedPhone;
+        if (signupVerification.target === verifiedTarget) return;
+
+        setSignupVerification(null);
+        setSignupOtpVerified(false);
+        setSignupOtpValue('');
+        setSignupOtpMessage('Signup details changed. Please verify again.');
+    }, [normalizedEmail, normalizedPhone, signupVerification]);
+
+    useEffect(() => {
+        if (!signupOtpChannel || !signupOtpSent || !signupOtpTarget) return;
+
+        const currentTarget = signupOtpChannel === 'EMAIL' ? normalizedEmail : normalizedPhone;
+        if (signupOtpTarget === currentTarget) return;
+
+        resetSignupOtpState(true);
+        setSignupOtpMessage('Signup details changed. Please request a new OTP.');
+    }, [normalizedEmail, normalizedPhone, signupOtpChannel, signupOtpSent, signupOtpTarget]);
+
+    useEffect(() => {
+        const currentOtp = signupOtpValue.trim();
+        if (
+            !signupOtpSent ||
+            signupOtpVerified ||
+            signupOtpLoading ||
+            currentOtp.length !== SIGNUP_OTP_LENGTH ||
+            currentOtp === lastSubmittedSignupOtpRef.current
+        ) {
+            return;
+        }
+
+        lastSubmittedSignupOtpRef.current = currentOtp;
+        void handleVerifySignupOtp(currentOtp);
+    }, [signupOtpSent, signupOtpValue, signupOtpVerified, signupOtpLoading]);
+
+    useEffect(() => {
+        if (step !== 5) return;
+
+        const focusTimer = setTimeout(() => {
+            addressInputRef.current?.focus();
+        }, 120);
+
+        return () => clearTimeout(focusTimer);
+    }, [step]);
+
+    const resetSignupOtpState = (keepChannel = false) => {
+        if (!keepChannel) setSignupOtpChannel(null);
+        setSignupOtpTarget('');
+        setSignupOtpValue('');
+        setSignupOtpInputFocused(false);
+        lastSubmittedSignupOtpRef.current = '';
+        setSignupOtpSent(false);
+        setSignupOtpLoading(false);
+        setSignupOtpVerified(false);
+        setSignupOtpMessage('');
+        setSignupOtpResendCountdown(0);
+        setSignupVerification(null);
+    };
+
+    const getSignupOtpTarget = (channel: DoctorSignupOtpChannel) => {
+        return channel === 'EMAIL' ? normalizedEmail : normalizedPhone;
+    };
+
+    const getSignupOtpDisplayTarget = (channel: DoctorSignupOtpChannel) => {
+        return channel === 'EMAIL' ? maskEmail(normalizedEmail) : maskPhone(normalizedPhone);
+    };
+
+    const handleOpenTermsAndConditions = async () => {
+        const url = getTermsAndConditionsUrl();
+
+        try {
+            const supported = await Linking.canOpenURL(url);
+            if (!supported) {
+                Alert.alert('Unable to Open', 'Terms & Conditions link is not available right now.');
+                return;
+            }
+
+            await Linking.openURL(url);
+        } catch {
+            Alert.alert('Unable to Open', 'Terms & Conditions link is not available right now.');
+        }
+    };
+
+    const focusSignupOtpInput = () => {
+        setSignupOtpInputFocused(true);
+        otpInputRef.current?.blur();
+        setTimeout(() => {
+            otpInputRef.current?.focus();
+        }, 40);
+    };
+
+    const handleSendSignupOtp = async (channel: DoctorSignupOtpChannel) => {
+        const target = getSignupOtpTarget(channel);
+        if (!target) {
+            Alert.alert('Error', channel === 'EMAIL' ? 'Please enter a valid email address' : 'Please enter phone number');
+            return;
+        }
+
+        if (channel === 'EMAIL' && !hasValidEmail) {
+            Alert.alert('Error', 'Please enter a valid email address');
+            return;
+        }
+
+        setSignupOtpChannel(channel);
+        setSignupOtpLoading(true);
+        setSignupOtpValue('');
+        lastSubmittedSignupOtpRef.current = '';
+        setSignupOtpVerified(false);
+        setSignupVerification(null);
+        setSignupOtpMessage(channel === 'EMAIL' ? 'Sending OTP to email...' : 'Sending OTP to phone...');
+
+        try {
+            const response = await sendDoctorSignupOtp(channel, target, {
+                email: normalizedEmail,
+                phone: normalizedPhone,
+            });
+            setSignupOtpSent(true);
+            setSignupOtpTarget(target);
+            setSignupOtpResendCountdown(Number(response?.resendAfterSeconds || 30));
+            setSignupOtpMessage(
+                channel === 'EMAIL'
+                    ? 'OTP sent to your email. Check spam or promotions if it is not in your inbox.'
+                    : 'OTP sent to your phone. Enter it below to continue.'
+            );
+            setTimeout(focusSignupOtpInput, 120);
+        } catch (error: any) {
+            const status = error?.response?.status;
+            const resendAfterSeconds = Number(error?.response?.data?.resendAfterSeconds || 0);
+            if (status === 429 && resendAfterSeconds > 0) {
+                setSignupOtpSent(true);
+                setSignupOtpTarget(target);
+                setSignupOtpResendCountdown(resendAfterSeconds);
+            }
+            const message = error?.response?.data?.error || 'Unable to send OTP right now.';
+            setSignupOtpMessage(message);
+            Alert.alert('Unable to Send OTP', message);
+        } finally {
+            setSignupOtpLoading(false);
+        }
+    };
+
+    const handleVerifySignupOtp = async (providedOtp?: string) => {
+        if (!signupOtpChannel) return;
+        const target = getSignupOtpTarget(signupOtpChannel);
+        const otp = String(providedOtp || signupOtpValue).trim();
+        if (!target || otp.length !== SIGNUP_OTP_LENGTH) return;
+
+        setSignupOtpLoading(true);
+        setSignupOtpMessage('Verifying OTP...');
+        try {
+            const response = await verifyDoctorSignupOtp(signupOtpChannel, target, otp);
+            const token = String(response?.verificationToken || '');
+            if (!token) {
+                throw new Error('Verification token missing');
+            }
+            setSignupVerification({ channel: signupOtpChannel, target, token });
+            setSignupOtpVerified(true);
+            setSignupOtpMessage('OTP verified successfully.');
+        } catch (error: any) {
+            setSignupOtpVerified(false);
+            const message = error?.response?.data?.error || error?.message || 'Unable to verify OTP.';
+            setSignupOtpMessage(message);
+            if (/invalid otp/i.test(message)) {
+                setSignupOtpMessage('Invalid OTP. Please try again.');
+            } else {
+                Alert.alert('OTP Verification Failed', message);
+            }
+        } finally {
+            setSignupOtpLoading(false);
+        }
+    };
 
     const handleContinue = () => {
         if (!normalizedEmail) {
@@ -245,11 +406,6 @@ export default function DoctorSignupScreen() {
             return;
         }
 
-        if (!challengeId || !challengeVerified || !challengeVerificationToken) {
-            Alert.alert('Verification Required', 'Please solve and verify the calculation before continuing.');
-            return;
-        }
-
         setStep(2);
     };
 
@@ -268,7 +424,7 @@ export default function DoctorSignupScreen() {
 
             const primaryWhatsappNumber = whatsappNumbers.find((value) => value.trim())?.trim() || '';
 
-            if (!primaryWhatsappNumber || !specialization.trim() || !registrationNo.trim() || !education.trim() || !documentUrl.trim() || !address.trim()) {
+            if (!specialization.trim() || !registrationNo.trim() || !address.trim()) {
                 Alert.alert('Error', 'Please fill all mandatory doctor details');
                 return;
             }
@@ -283,8 +439,9 @@ export default function DoctorSignupScreen() {
                 return;
             }
 
-            if (!challengeId || !challengeVerified || !challengeVerificationToken) {
-                Alert.alert('Verification Required', 'Please solve and verify the calculation before signing up.');
+            if (!signupVerification || !isSignupVerificationCurrent) {
+                Alert.alert('Verification Required', 'Please verify your email or phone number before submitting.');
+                setStep(6);
                 return;
             }
 
@@ -293,20 +450,21 @@ export default function DoctorSignupScreen() {
                 password,
                 confirmPassword,
                 doctor_name: doctorName.trim(),
-                phone: phone.trim(),
+                phone: normalizedPhone,
                 num_clinics: numClinics,
                 whatsapp_number: primaryWhatsappNumber,
                 whatsapp_numbers: whatsappNumbers.map((value) => value.trim()).filter(Boolean),
                 specialization: specialization.trim(),
-                registration_no: registrationNo.trim(),
-                education: education.trim(),
+                registration_no: normalizeUppercaseText(registrationNo).trim(),
+                education: normalizeUppercaseText(education).trim(),
                 document_url: documentUrl.trim(),
                 profile_pic_url: profilePicUrl.trim(),
                 address: address.trim(),
                 gst_number: gstNumber.trim(),
                 pan_number: panNumber.trim(),
-                challengeId,
-                challengeVerificationToken,
+                verificationChannel: signupVerification.channel,
+                verificationTarget: signupVerification.target,
+                verificationToken: signupVerification.token,
             });
 
             if (!response?.review_required) {
@@ -324,10 +482,7 @@ export default function DoctorSignupScreen() {
             const status = error?.response?.status;
             let message = error?.response?.data?.error || 'Signup failed. Please try again.';
 
-            if (status === 400) {
-                setChallengeVerified(false);
-                await loadLoginChallenge();
-            } else if (status === 409) {
+            if (status === 409) {
                 message = error?.response?.data?.error || 'This email is already in use.';
             } else if (status === 500) {
                 message = 'Server error. Please try again later.';
@@ -342,13 +497,6 @@ export default function DoctorSignupScreen() {
     };
 
     const uploadSignupDocument = async (file: SignupUploadFile) => {
-        if (!challengeId || !challengeVerified || !challengeVerificationToken) {
-            setUploadingDocumentSource(null);
-            setPendingDocumentUpload(file);
-            await requestUploadReverification('document');
-            return;
-        }
-
         if (!allowedDocumentMimeTypes.includes(file.mimeType)) {
             setUploadingDocumentSource(null);
             Alert.alert('Unsupported File', 'Only PDF, JPG, PNG, and WEBP files are allowed.');
@@ -360,19 +508,10 @@ export default function DoctorSignupScreen() {
                 uri: file.uri,
                 name: file.name,
                 mimeType: file.mimeType,
-                challengeId,
-                challengeVerificationToken,
             });
             setDocumentUrl(uploaded.url);
             setDocumentMimeType(uploaded.mimeType || file.mimeType);
-            setPendingDocumentUpload(null);
-            setUploadReverificationTarget((current) => (current === 'document' ? null : current));
         } catch (error: any) {
-            if (isChallengeProofError(error)) {
-                setPendingDocumentUpload(file);
-                await requestUploadReverification('document');
-                return;
-            }
             Alert.alert('Upload Failed', error?.message || 'Unable to upload degree document.');
         } finally {
             setUploadingDocumentSource(null);
@@ -380,13 +519,6 @@ export default function DoctorSignupScreen() {
     };
 
     const uploadSignupProfilePicture = async (file: SignupUploadFile) => {
-        if (!challengeId || !challengeVerified || !challengeVerificationToken) {
-            setUploadingProfilePicSource(null);
-            setPendingProfilePicUpload(file);
-            await requestUploadReverification('profile');
-            return;
-        }
-
         if (!allowedProfilePicMimeTypes.includes(file.mimeType)) {
             setUploadingProfilePicSource(null);
             Alert.alert('Unsupported File', 'Only JPG, PNG, and WEBP files are allowed.');
@@ -398,20 +530,11 @@ export default function DoctorSignupScreen() {
                 uri: file.uri,
                 name: file.name,
                 mimeType: file.mimeType,
-                challengeId,
-                challengeVerificationToken,
             });
             setProfilePicUrl(uploaded.url);
             setProfilePicMimeType(uploaded.mimeType || file.mimeType);
             setProfilePicPreviewLoading(true);
-            setPendingProfilePicUpload(null);
-            setUploadReverificationTarget((current) => (current === 'profile' ? null : current));
         } catch (error: any) {
-            if (isChallengeProofError(error)) {
-                setPendingProfilePicUpload(file);
-                await requestUploadReverification('profile');
-                return;
-            }
             Alert.alert('Upload Failed', error?.message || 'Unable to upload profile picture.');
         } finally {
             setUploadingProfilePicSource(null);
@@ -538,40 +661,37 @@ export default function DoctorSignupScreen() {
         setProfilePicPreviewLoading(false);
     };
 
-    const retryPendingDocumentUpload = async () => {
-        if (!pendingDocumentUpload) return;
-        setUploadingDocumentSource('file');
-        await uploadSignupDocument(pendingDocumentUpload);
-    };
-
-    const retryPendingProfilePicUpload = async () => {
-        if (!pendingProfilePicUpload) return;
-        setUploadingProfilePicSource('file');
-        await uploadSignupProfilePicture(pendingProfilePicUpload);
-    };
-
     const renderInput = (
         label: string,
         value: string,
         onChangeText: (text: string) => void,
         placeholder: string,
         icon?: React.ReactNode,
-        keyboardType: 'default' | 'email-address' | 'phone-pad' = 'default'
+        keyboardType: 'default' | 'email-address' | 'phone-pad' = 'default',
+        helperText?: string,
+        options?: {
+            autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+            maxLength?: number;
+            inputRef?: React.RefObject<TextInput | null>;
+        }
     ) => (
         <View className="mb-3">
             <Text className="text-base font-bold text-gray-700 mb-2 ml-1">{label}</Text>
             <View className="flex-row items-center bg-white rounded-2xl px-4 border-2 border-gray-200">
                 {icon}
                 <TextInput
+                    ref={options?.inputRef}
                     className="flex-1 px-3 text-base text-slate-800 py-4"
                     placeholder={placeholder}
                     placeholderTextColor="#9ca3af"
                     value={value}
                     onChangeText={onChangeText}
                     keyboardType={keyboardType}
-                    autoCapitalize="none"
+                    autoCapitalize={options?.autoCapitalize ?? 'none'}
+                    maxLength={options?.maxLength}
                 />
             </View>
+            {helperText ? <Text className="mt-1 ml-1 text-xs text-slate-500">{helperText}</Text> : null}
         </View>
     );
 
@@ -592,7 +712,7 @@ export default function DoctorSignupScreen() {
             <TouchableOpacity
                 onPress={onBack}
                 activeOpacity={0.8}
-                className="flex-1 rounded-2xl items-center justify-center py-3.5 bg-gray-100"
+                className="min-w-[96px] rounded-2xl items-center justify-center py-3.5 px-4 bg-gray-100"
             >
                 <Text className="text-gray-700 font-bold text-base">Back</Text>
             </TouchableOpacity>
@@ -600,7 +720,7 @@ export default function DoctorSignupScreen() {
                 onPress={onContinue}
                 disabled={continueDisabled}
                 activeOpacity={0.8}
-                className={`flex-1 rounded-2xl items-center justify-center py-3.5 ${
+                className={`flex-[1.55] rounded-2xl items-center justify-center py-3.5 px-3 ${
                     continueDisabled ? 'bg-blue-300' : 'bg-blue-600'
                 }`}
                 style={{
@@ -617,8 +737,15 @@ export default function DoctorSignupScreen() {
                         <Text className="text-white font-bold ml-3 text-base">Creating...</Text>
                     </View>
                 ) : (
-                    <View className="flex-row items-center">
-                        <Text className="text-white font-extrabold mr-2 tracking-wide text-base">{continueLabel}</Text>
+                    <View className="flex-row items-center justify-center">
+                        <Text
+                            className="text-white font-extrabold mr-2 text-base text-center flex-shrink"
+                            numberOfLines={2}
+                            adjustsFontSizeToFit
+                            minimumFontScale={0.82}
+                        >
+                            {continueLabel}
+                        </Text>
                         <ArrowRight size={18} color="#fff" />
                     </View>
                 )}
@@ -626,109 +753,274 @@ export default function DoctorSignupScreen() {
         </View>
     );
 
-    const renderUploadReverification = ({
-        target,
-        onRetry,
-        retryDisabled,
-    }: {
-        target: Exclude<UploadReverificationTarget, null>;
-        onRetry: () => void;
-        retryDisabled: boolean;
-    }) => {
-        if (uploadReverificationTarget !== target) return null;
-
+    const renderSignupOtpOption = (
+        channel: DoctorSignupOtpChannel,
+        title: string,
+        target: string,
+        icon: React.ReactNode
+    ) => {
+        const isSelected = signupOtpChannel === channel;
+        const isSendingThisMethod = signupOtpLoading && isSelected && !signupOtpSent;
         return (
-            <View className="mt-4 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3">
-                <View className="flex-row items-center justify-between mb-2">
-                    <Text className="text-sm font-extrabold text-orange-700">Re-verify calculation</Text>
-                    <TouchableOpacity
-                        onPress={() => {
-                            void loadLoginChallenge();
-                        }}
-                        disabled={challengeLoading || verifyingChallenge}
-                        activeOpacity={0.85}
-                        className="h-8 w-8 items-center justify-center rounded-full bg-white"
-                    >
-                        <RefreshCw size={14} color="#ea580c" />
-                    </TouchableOpacity>
-                </View>
-
-                <View className="flex-row items-center rounded-2xl bg-white px-3 py-2">
-                    <Calculator size={18} color="#ea580c" />
-                    <View className="ml-3 flex-1 flex-row items-center">
-                        {challengeLoading ? (
-                            <Text className="text-slate-700 font-bold text-lg">Loading...</Text>
-                        ) : challengeQuestion ? (
-                            <>
-                                <Text className="text-slate-800 font-bold text-xl mr-2">
-                                    {challengeQuestion.replace('?', '')}
-                                </Text>
-                                {challengeAnswer === '' && !uploadAnswerInputActive && !challengeVerified ? (
-                                    <TouchableOpacity
-                                        activeOpacity={0.9}
-                                        onPress={() => setUploadAnswerInputActive(true)}
-                                        className="bg-white items-center justify-center px-2 rounded-xl border border-orange-200"
-                                        style={{ width: 72, height: 42 }}
-                                    >
-                                        <Text className="font-bold text-gray-400" style={{ fontSize: 20 }}>?</Text>
-                                    </TouchableOpacity>
-                                ) : (
-                                    <TextInput
-                                        autoFocus={uploadAnswerInputActive && !challengeVerified}
-                                        className="bg-white text-center font-bold text-slate-800 px-2 rounded-xl border border-orange-200"
-                                        placeholder="?"
-                                        placeholderTextColor="#9ca3af"
-                                        value={challengeAnswer}
-                                        onChangeText={(text) => {
-                                            setChallengeAnswer(text);
-                                            if (text === '' && !challengeVerified) {
-                                                setUploadAnswerInputActive(false);
-                                            }
-                                        }}
-                                        onBlur={() => {
-                                            if (!challengeAnswer && !challengeVerified) {
-                                                setUploadAnswerInputActive(false);
-                                            }
-                                        }}
-                                        keyboardType="number-pad"
-                                        maxLength={4}
-                                        editable={!challengeLoading && !challengeVerified}
-                                        style={{
-                                            width: 72,
-                                            height: 42,
-                                            textAlign: 'center',
-                                            fontSize: 20,
-                                            lineHeight: 24,
-                                        }}
-                                    />
-                                )}
-                            </>
+            <TouchableOpacity
+                onPress={() => {
+                    void handleSendSignupOtp(channel);
+                }}
+                disabled={signupOtpLoading}
+                activeOpacity={0.88}
+                className={`rounded-[26px] border px-4 py-4 bg-white ${
+                    isSelected ? 'border-blue-400' : 'border-slate-200'
+                }`}
+            >
+                <View className="flex-row items-center">
+                    <View className={`mr-3 h-12 w-12 items-center justify-center rounded-2xl ${isSelected ? 'bg-blue-600' : 'bg-blue-50'}`}>
+                        {icon}
+                    </View>
+                    <View className="flex-1">
+                        <Text className="text-base font-extrabold text-slate-800">{title}</Text>
+                        <Text className="mt-1 text-sm text-slate-500">{target}</Text>
+                    </View>
+                    <View className="min-w-[82px] flex-row items-center justify-center rounded-2xl bg-blue-50 px-3 py-2">
+                        {isSendingThisMethod ? (
+                            <ActivityIndicator size="small" color="#2563eb" />
                         ) : (
-                            <Text className="text-slate-700 font-bold text-lg">Unavailable</Text>
+                            <Text className="text-xs font-bold text-blue-700">Send OTP</Text>
                         )}
                     </View>
-                    <View className="ml-2 h-8 w-8 items-center justify-center">
-                        {verifyingChallenge ? (
-                            <ActivityIndicator color="#ea580c" size="small" />
-                        ) : challengeStatus === 'success' ? (
-                            <Animated.View entering={ZoomIn.duration(220)} className="h-8 w-8 rounded-xl bg-emerald-500 items-center justify-center">
-                                <Check size={16} color="#ffffff" />
-                            </Animated.View>
-                        ) : null}
+                </View>
+            </TouchableOpacity>
+        );
+    };
+
+    const renderSignupOtpBoxes = () => (
+        <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={focusSignupOtpInput}
+            className="flex-row items-center justify-between"
+        >
+            {Array.from({ length: SIGNUP_OTP_LENGTH }).map((_, index) => {
+                const digit = signupOtpValue[index] ?? '';
+                const isActive =
+                    !signupOtpVerified &&
+                    signupOtpInputFocused &&
+                    (index === signupOtpValue.length ||
+                        (signupOtpValue.length === SIGNUP_OTP_LENGTH && index === SIGNUP_OTP_LENGTH - 1));
+                return (
+                    <View
+                        key={index}
+                        className={`h-14 rounded-2xl border-2 items-center justify-center ${
+                            signupOtpVerified
+                                ? 'bg-emerald-50 border-emerald-300'
+                                : isActive
+                                    ? 'bg-white border-blue-500'
+                                    : digit
+                                    ? 'bg-white border-blue-300'
+                                    : 'bg-slate-50 border-slate-200'
+                        }`}
+                        style={{ width: 44 }}
+                    >
+                        {digit ? (
+                            <Text className="text-xl font-extrabold text-slate-800">{digit}</Text>
+                        ) : isActive ? (
+                            <View className="h-6 w-[2px] rounded-full bg-blue-500" />
+                        ) : (
+                            <Text className="text-xl font-extrabold text-slate-300">*</Text>
+                        )}
                     </View>
+                );
+            })}
+        </TouchableOpacity>
+    );
+
+    const renderVerificationStep = () => {
+        const selectedTarget = signupOtpChannel ? getSignupOtpDisplayTarget(signupOtpChannel) : '';
+        const showMethodPicker = !signupOtpChannel || !signupOtpSent;
+        const signupOtpInvalid = /invalid otp/i.test(signupOtpMessage);
+
+        return (
+            <>
+                <View className="mb-4 rounded-[28px] border border-blue-100 bg-white px-4 py-5">
+                    <View className="mb-4 flex-row items-center">
+                        <View className="mr-3 h-12 w-12 items-center justify-center rounded-2xl bg-blue-50">
+                            <ShieldCheck size={24} color="#2563eb" />
+                        </View>
+                        <View className="flex-1">
+                            <Text className="text-xl font-extrabold text-slate-900">Verify Account</Text>
+                            <Text className="mt-1 text-sm leading-5 text-slate-500">
+                                Choose one method to verify your doctor account.
+                            </Text>
+                        </View>
+                    </View>
+
+                    {showMethodPicker ? (
+                        <View>
+                            {renderSignupOtpOption(
+                                'EMAIL',
+                                'Email',
+                                maskEmail(normalizedEmail),
+                                <Mail size={21} color={signupOtpChannel === 'EMAIL' ? '#ffffff' : '#2563eb'} />
+                            )}
+
+                            <View className="my-3 flex-row items-center">
+                                <View className="h-px flex-1 bg-slate-200" />
+                                <Text className="mx-3 text-xs font-bold text-slate-400">OR</Text>
+                                <View className="h-px flex-1 bg-slate-200" />
+                            </View>
+
+                            {renderSignupOtpOption(
+                                'PHONE',
+                                'Phone',
+                                maskPhone(normalizedPhone),
+                                <Phone size={21} color={signupOtpChannel === 'PHONE' ? '#ffffff' : '#2563eb'} />
+                            )}
+                        </View>
+                    ) : (
+                        <View>
+                            <View className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-4">
+                                <View className="flex-row items-center">
+                                    <View className="mr-3 h-10 w-10 items-center justify-center rounded-2xl bg-white">
+                                        {signupOtpChannel === 'EMAIL' ? <Mail size={19} color="#2563eb" /> : <Phone size={19} color="#2563eb" />}
+                                    </View>
+                                    <View className="flex-1">
+                                        <Text className="text-sm font-bold text-slate-800">OTP sent to</Text>
+                                        <Text className="mt-0.5 text-sm text-slate-500">{selectedTarget}</Text>
+                                    </View>
+                                </View>
+                                {signupOtpMessage && !signupOtpInvalid ? (
+                                    <Text className="mt-3 text-xs leading-5 text-blue-900">{signupOtpMessage}</Text>
+                                ) : null}
+                            </View>
+
+                            <View className="mt-5 rounded-[24px] border border-slate-200 bg-white px-4 py-5">
+                                <Text className="mb-2 text-lg font-extrabold text-slate-800">Enter OTP</Text>
+                                <Text className="mb-4 text-sm text-slate-500">{`Enter the ${SIGNUP_OTP_LENGTH}-digit code.`}</Text>
+
+                                {renderSignupOtpBoxes()}
+
+                                {signupOtpInvalid ? (
+                                    <View className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
+                                        <Text className="text-sm font-semibold text-red-700">Invalid OTP. Please try again.</Text>
+                                    </View>
+                                ) : null}
+
+                                <TextInput
+                                    ref={otpInputRef}
+                                    value={signupOtpValue}
+                                    onChangeText={(text) => {
+                                        const nextValue = text.replace(/\D/g, '').slice(0, SIGNUP_OTP_LENGTH);
+                                        setSignupOtpValue(nextValue);
+                                        if (nextValue.length < SIGNUP_OTP_LENGTH) {
+                                            lastSubmittedSignupOtpRef.current = '';
+                                        }
+                                        if (signupOtpVerified) {
+                                            setSignupOtpVerified(false);
+                                            setSignupVerification(null);
+                                        }
+                                    }}
+                                    keyboardType="number-pad"
+                                    maxLength={SIGNUP_OTP_LENGTH}
+                                    editable={!signupOtpVerified}
+                                    caretHidden
+                                    showSoftInputOnFocus
+                                    autoFocus
+                                    onFocus={() => setSignupOtpInputFocused(true)}
+                                    onBlur={() => setSignupOtpInputFocused(false)}
+                                    textContentType="oneTimeCode"
+                                    autoComplete="sms-otp"
+                                    style={{
+                                        position: 'absolute',
+                                        width: 1,
+                                        height: 1,
+                                        opacity: 0.01,
+                                        color: 'transparent',
+                                        left: 0,
+                                        top: 0,
+                                    }}
+                                />
+
+                                {!signupOtpVerified ? (
+                                    <TouchableOpacity
+                                        onPress={() => {
+                                            void handleVerifySignupOtp();
+                                        }}
+                                        disabled={!canVerifySignupOtp}
+                                        activeOpacity={0.85}
+                                        className={`mt-5 flex-row items-center justify-center rounded-2xl py-4 ${
+                                            canVerifySignupOtp ? 'bg-blue-600' : 'bg-blue-300'
+                                        }`}
+                                    >
+                                        {signupOtpLoading ? (
+                                            <View className="flex-row items-center">
+                                                <ActivityIndicator size="small" color="#ffffff" />
+                                                <Text className="ml-3 text-base font-bold text-white">Verifying OTP...</Text>
+                                            </View>
+                                        ) : (
+                                            <>
+                                                <Text className="mr-2 text-base font-extrabold text-white">Verify OTP</Text>
+                                                <ArrowRight size={19} color="#ffffff" />
+                                            </>
+                                        )}
+                                    </TouchableOpacity>
+                                ) : (
+                                    <View className="mt-5 flex-row items-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                                        <Animated.View entering={ZoomIn.duration(220)} className="mr-3 h-9 w-9 items-center justify-center rounded-xl bg-emerald-500">
+                                            <Check size={18} color="#ffffff" />
+                                        </Animated.View>
+                                        <View className="flex-1">
+                                            <Text className="font-semibold text-emerald-700">Verified successfully.</Text>
+                                            <Text className="mt-1 text-xs text-emerald-600">Your account is ready to submit for review.</Text>
+                                        </View>
+                                    </View>
+                                )}
+
+                                <View className="mt-4 flex-row items-center justify-between">
+                                    <Text className="text-sm text-slate-500">
+                                        {signupOtpResendCountdown > 0 ? `Resend in ${signupOtpResendCountdown}s` : "Didn't receive the OTP?"}
+                                    </Text>
+                                    <TouchableOpacity
+                                        onPress={() => {
+                                            if (signupOtpChannel) void handleSendSignupOtp(signupOtpChannel);
+                                        }}
+                                        disabled={signupOtpLoading || signupOtpResendCountdown > 0}
+                                        activeOpacity={0.85}
+                                    >
+                                        <Text className={`font-semibold ${signupOtpLoading || signupOtpResendCountdown > 0 ? 'text-slate-400' : 'text-blue-600'}`}>
+                                            Resend OTP
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                <TouchableOpacity
+                                    onPress={() => resetSignupOtpState()}
+                                    disabled={signupOtpLoading}
+                                    activeOpacity={0.85}
+                                    className="mt-4 items-center rounded-2xl bg-slate-100 py-3"
+                                >
+                                    <Text className="font-semibold text-slate-700">Change method</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    )}
                 </View>
 
-                <TouchableOpacity
-                    onPress={onRetry}
-                    disabled={retryDisabled || !challengeVerified || !challengeVerificationToken}
-                    activeOpacity={0.85}
-                    className={`mt-3 items-center rounded-2xl py-3 ${
-                        retryDisabled || !challengeVerified || !challengeVerificationToken ? 'bg-orange-200' : 'bg-orange-500'
-                    }`}
-                >
-                    <Text className="text-sm font-extrabold text-white">Retry upload</Text>
-                </TouchableOpacity>
-            </View>
+                <View className="mb-3 px-1">
+                    <Text className="text-center text-xs leading-5 text-slate-500">
+                        By submitting, you agree to{' '}
+                        <Text className="font-semibold text-blue-600" onPress={() => void handleOpenTermsAndConditions()}>
+                            Terms &amp; Conditions
+                        </Text>
+                        .
+                    </Text>
+                </View>
+
+                {renderContinueBackButtons({
+                    onBack: () => setStep(5),
+                    onContinue: handleSignup,
+                    continueDisabled: loading || !isSignupVerificationCurrent,
+                    continueLabel: 'Submit for Review',
+                    continueLoading: loading,
+                })}
+            </>
         );
     };
 
@@ -843,9 +1135,11 @@ export default function DoctorSignupScreen() {
                     >
                         <View className="items-center mb-4">
                             <View className="rounded-full bg-blue-50 px-3 py-1 mb-2">
-                                <Text className="text-xs font-bold text-blue-700">{`Step ${step} of 5`}</Text>
+                                <Text className="text-xs font-bold text-blue-700">{`Step ${step} of 6`}</Text>
                             </View>
-                            <Text className="font-extrabold text-slate-800 mb-1 text-[28px]">Create Account</Text>
+                            <Text className="font-extrabold text-slate-800 mb-1 text-[28px]">
+                                {step === 6 ? 'Verify Account' : 'Create Account'}
+                            </Text>
                         </View>
 
                         {step === 1 ? (
@@ -917,69 +1211,6 @@ export default function DoctorSignupScreen() {
                                     </View>
                                 </View>
 
-                                <View className="mb-1">
-                                    <View className="flex-row items-center justify-between mb-2">
-                                        <Text className="text-base font-bold text-gray-700 ml-1">Quick Verification</Text>
-                                        <TouchableOpacity
-                                            onPress={() => {
-                                                void loadLoginChallenge();
-                                            }}
-                                            disabled={challengeLoading || verifyingChallenge}
-                                            className="flex-row items-center"
-                                        >
-                                            <RefreshCw size={14} color="#2563eb" />
-                                        </TouchableOpacity>
-                                    </View>
-
-                                    <View className="bg-white border border-blue-100 rounded-2xl px-4 py-2.5 mb-2">
-                                        <View className="flex-row items-center pl-3">
-                                            <Calculator size={22} color="#2563eb" />
-                                            <View className="flex-1 min-w-0 flex-row items-center flex-wrap ml-4">
-                                                {challengeLoading ? (
-                                                    <Text className="text-slate-800 font-bold text-2xl mr-2 shrink">Loading...</Text>
-                                                ) : challengeQuestion ? (
-                                                    <>
-                                                        <Text className="text-slate-800 font-bold text-[28px] mr-2 shrink">
-                                                            {challengeQuestion.replace('?', '')}
-                                                        </Text>
-                                                        <TextInput
-                                                            className="bg-white text-center font-bold text-slate-800 ml-2 px-2 rounded-2xl border border-blue-200 shrink-0"
-                                                            placeholder="?"
-                                                            placeholderTextColor="#9ca3af"
-                                                            value={challengeAnswer}
-                                                            onChangeText={setChallengeAnswer}
-                                                            keyboardType="number-pad"
-                                                            maxLength={4}
-                                                            editable={!challengeLoading && !challengeVerified}
-                                                            style={{
-                                                                width: 96,
-                                                                height: 56,
-                                                                textAlign: 'center',
-                                                                fontSize: 28,
-                                                                lineHeight: 32,
-                                                            }}
-                                                        />
-                                                    </>
-                                                ) : (
-                                                    <Text className="text-slate-800 font-bold text-2xl mr-2 shrink">Unavailable</Text>
-                                                )}
-                                            </View>
-                                            <View className="ml-3 w-9 h-9 items-center justify-center shrink-0">
-                                                {verifyingChallenge ? (
-                                                    <ActivityIndicator color="#2563eb" size="small" />
-                                                ) : challengeStatus === 'success' ? (
-                                                    <Animated.View
-                                                        entering={ZoomIn.duration(220)}
-                                                        className="w-9 h-9 rounded-xl bg-emerald-500 items-center justify-center"
-                                                    >
-                                                        <Check size={18} color="#fff" />
-                                                    </Animated.View>
-                                                ) : null}
-                                            </View>
-                                        </View>
-                                    </View>
-                                </View>
-
                                 {renderContinueBackButtons({
                                     onBack: () => navigation.goBack(),
                                     onContinue: handleContinue,
@@ -989,7 +1220,16 @@ export default function DoctorSignupScreen() {
                         ) : step === 2 ? (
                             <>
                                 {renderInput('Doctor Name', doctorName, setDoctorName, 'Your Name', <User size={20} color="#64748b" />)}
-                                {renderInput('Appointment Phone Number', phone, setPhone, '9876543210', <Phone size={20} color="#64748b" />, 'phone-pad')}
+                                {renderInput(
+                                    'Appointment Phone Number',
+                                    phone,
+                                    (text) => setPhone(normalizePhoneDigits(text).slice(0, 10)),
+                                    '9876543210',
+                                    <Phone size={20} color="#64748b" />,
+                                    'phone-pad',
+                                    undefined,
+                                    { maxLength: 10 }
+                                )}
 
                                 <View className="mb-4 overflow-hidden rounded-[26px] border border-blue-100 bg-white">
                                     <View className="bg-blue-600 px-4 py-3">
@@ -1078,13 +1318,6 @@ export default function DoctorSignupScreen() {
                                                 </TouchableOpacity>
                                             </View>
 
-                                            {renderUploadReverification({
-                                                target: 'profile',
-                                                onRetry: () => {
-                                                    void retryPendingProfilePicUpload();
-                                                },
-                                                retryDisabled: uploadingProfilePicSource !== null || !pendingProfilePicUpload,
-                                            })}
                                         </View>
                                     </View>
                                 </View>
@@ -1098,7 +1331,10 @@ export default function DoctorSignupScreen() {
                         ) : step === 3 ? (
                             <>
                                 <View className="mb-3">
-                                    <Text className="text-base font-bold text-gray-700 mb-2 ml-1">WhatsApp Number</Text>
+                                    <View className="mb-2 ml-1 flex-row items-center justify-between">
+                                        <Text className="text-base font-bold text-gray-700">WhatsApp Number</Text>
+                                        <Text className="text-[11px] text-gray-500">Optional</Text>
+                                    </View>
                                     {whatsappNumbers.map((value, index) => (
                                         <View key={index} className="mb-2 flex-row items-center">
                                             <View className="flex-1 flex-row items-center bg-white rounded-2xl px-4 border-2 border-gray-200">
@@ -1109,9 +1345,13 @@ export default function DoctorSignupScreen() {
                                                     placeholderTextColor="#9ca3af"
                                                     value={value}
                                                     onChangeText={(text) => {
-                                                        setWhatsappNumbers((prev) => prev.map((item, itemIndex) => (itemIndex === index ? text : item)));
+                                                        const normalizedValue = normalizePhoneDigits(text).slice(0, 10);
+                                                        setWhatsappNumbers((prev) =>
+                                                            prev.map((item, itemIndex) => (itemIndex === index ? normalizedValue : item))
+                                                        );
                                                     }}
                                                     keyboardType="phone-pad"
+                                                    maxLength={10}
                                                 />
                                             </View>
                                             {whatsappNumbers.length > 1 ? (
@@ -1186,15 +1426,30 @@ export default function DoctorSignupScreen() {
                         ) : step === 4 ? (
                             <>
                                 {renderInput('Specialization', specialization, setSpecialization, 'Cardiology', <Stethoscope size={20} color="#64748b" />)}
-                                {renderInput('Registration Number', registrationNo, setRegistrationNo, 'Medical registration number', <Hash size={20} color="#64748b" />)}
-                                {renderInput('Education', education, setEducation, 'MBBS, MD', <GraduationCap size={20} color="#64748b" />)}
+                                {renderInput(
+                                    'Medical Council Registration',
+                                    registrationNo,
+                                    (text) => setRegistrationNo(normalizeUppercaseText(text)),
+                                    'e.g. MMC - 12345',
+                                    <Hash size={20} color="#64748b" />,
+                                    'default',
+                                    'Enter council name with registration number',
+                                    { autoCapitalize: 'characters' }
+                                )}
+                                {renderInput(
+                                    'Education',
+                                    education,
+                                    (text) => setEducation(normalizeUppercaseText(text)),
+                                    'MBBS, MD',
+                                    <GraduationCap size={20} color="#64748b" />,
+                                    'default',
+                                    undefined,
+                                    { autoCapitalize: 'characters' }
+                                )}
 
                                 <View className="mb-4 overflow-hidden rounded-[26px] border border-blue-100 bg-white">
                                     <View className="bg-blue-600 px-4 py-3">
-                                        <Text className="text-white text-base font-extrabold">Education / Degree Proof</Text>
-                                        <Text className="mt-1 text-xs text-blue-100">
-                                            Upload a clear image or PDF of your degree certificate before continuing.
-                                        </Text>
+                                        <Text className="text-white text-base font-extrabold">Medical Council / Degree Proof</Text>
                                     </View>
 
                                     <View className="px-4 py-4">
@@ -1255,14 +1510,6 @@ export default function DoctorSignupScreen() {
                                                 </TouchableOpacity>
                                             </View>
 
-                                            {renderUploadReverification({
-                                                target: 'document',
-                                                onRetry: () => {
-                                                    void retryPendingDocumentUpload();
-                                                },
-                                                retryDisabled: uploadingDocumentSource !== null || !pendingDocumentUpload,
-                                            })}
-
                                             {documentUrl ? (
                                                 <TouchableOpacity
                                                     onPress={() => {
@@ -1284,20 +1531,30 @@ export default function DoctorSignupScreen() {
                                     continueDisabled: !canContinueStep4,
                                 })}
                             </>
-                        ) : (
+                        ) : step === 5 ? (
                             <>
-                                {renderInput('Address', address, setAddress, 'Clinic or residence address', <MapPin size={20} color="#64748b" />)}
+                                {renderInput(
+                                    'Address',
+                                    address,
+                                    setAddress,
+                                    'Clinic or residence address',
+                                    <MapPin size={20} color="#64748b" />,
+                                    'default',
+                                    undefined,
+                                    { inputRef: addressInputRef }
+                                )}
                                 {renderInput('GST Number (Optional)', gstNumber, setGstNumber, '22AAAAA0000A1Z5', <FileText size={20} color="#64748b" />)}
                                 {renderInput('PAN Number (Optional)', panNumber, setPanNumber, 'ABCDE1234F', <FileDigit size={20} color="#64748b" />)}
 
                                 {renderContinueBackButtons({
                                     onBack: () => setStep(4),
-                                    onContinue: handleSignup,
-                                    continueDisabled: loading || !canSubmit,
-                                    continueLabel: 'Submit Your Profile',
-                                    continueLoading: loading,
+                                    onContinue: () => setStep(6),
+                                    continueDisabled: !canSubmit,
+                                    continueLabel: 'Continue to Verification',
                                 })}
                             </>
+                        ) : (
+                            renderVerificationStep()
                         )}
 
                         <TouchableOpacity onPress={() => navigation.replace('Login')} className="mt-4 self-center" activeOpacity={0.8}>

@@ -86,12 +86,8 @@ export async function uploadDoctorSignupDocument(params: {
     uri: string;
     name: string;
     mimeType: string;
-    challengeId: string;
-    challengeVerificationToken: string;
 }) {
     const formData = new FormData();
-    formData.append('challengeId', params.challengeId);
-    formData.append('challengeVerificationToken', params.challengeVerificationToken);
     formData.append('uploadType', 'document');
     formData.append('file', {
         uri: params.uri,
@@ -120,12 +116,8 @@ export async function uploadDoctorSignupProfilePicture(params: {
     uri: string;
     name: string;
     mimeType: string;
-    challengeId: string;
-    challengeVerificationToken: string;
 }) {
     const formData = new FormData();
-    formData.append('challengeId', params.challengeId);
-    formData.append('challengeVerificationToken', params.challengeVerificationToken);
     formData.append('uploadType', 'profile_pic');
     formData.append('file', {
         uri: params.uri,
