@@ -40,7 +40,7 @@ import { getAllDoctors } from '../api/doctors';
 import { getLeaves, addLeave, deleteLeave } from '../api/leaves';
 import { removeToken } from '../api/token';
 import { uploadDoctorFile } from '../api/uploads';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -138,6 +138,15 @@ interface WhatsAppNumber {
     is_primary: boolean;
 }
 
+interface DoctorSmsService {
+    enabled: boolean;
+    status: 'DISABLED' | 'ACTIVE' | 'EXHAUSTED';
+    totalCredits: number;
+    usedCredits: number;
+    remainingCredits: number;
+    displayText: string;
+}
+
 interface DoctorProfile {
     doctor_id: number;
     doctor_name?: string | null;
@@ -156,18 +165,62 @@ interface DoctorProfile {
     document_url?: string | null;
     status?: string | null;
     num_clinics?: number | null;
+    sms_service?: DoctorSmsService | null;
+}
+
+function getSmsBadgeTone(sms?: DoctorSmsService | null) {
+    if (!sms?.enabled || sms.totalCredits <= 0) {
+        return {
+            container: 'bg-white/10',
+            label: 'text-blue-100',
+            value: 'text-white',
+            accent: 'text-slate-200',
+        };
+    }
+
+    if (sms.status === 'EXHAUSTED' || sms.remainingCredits <= 0) {
+        return {
+            container: 'bg-red-500/20 border border-red-300/35',
+            label: 'text-red-100',
+            value: 'text-white',
+            accent: 'text-red-100',
+        };
+    }
+
+    const lowPackThreshold = sms.totalCredits * 0.1;
+    if (sms.remainingCredits <= lowPackThreshold) {
+        return {
+            container: 'bg-amber-400/20 border border-amber-200/35',
+            label: 'text-amber-100',
+            value: 'text-white',
+            accent: 'text-amber-100',
+        };
+    }
+
+    return {
+        container: 'bg-emerald-400/20 border border-emerald-200/35',
+        label: 'text-emerald-100',
+        value: 'text-white',
+        accent: 'text-emerald-100',
+    };
 }
 
 const ProfileScreen = () => {
     const navigation = useNavigation<ProfileScreenNavigationProp>();
-    const { role, staff_role, staff_clinic_id, staff_doctor_id, name, email, isLoading: sessionLoading, clearSession } = useAuthSession();
+    const { role, staff_role, staff_clinic_id, staff_doctor_id, assigned_doctor_ids, name, email, isLoading: sessionLoading, clearSession } = useAuthSession();
     const isClinicStaff = role === 'CLINIC_STAFF';
+    const normalizedAssignedDoctorIds = React.useMemo(
+        () => Array.from(new Set((assigned_doctor_ids || []).map((doctorId) => Number(doctorId)).filter((doctorId) => Number.isFinite(doctorId) && doctorId > 0))),
+        [assigned_doctor_ids]
+    );
+    const isHospitalStaff = isClinicStaff && normalizedAssignedDoctorIds.length > 1;
     const [profile, setProfile] = useState<DoctorProfile | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [editing, setEditing] = useState(false);
     const [assignedClinicName, setAssignedClinicName] = useState('');
     const [linkedDoctorName, setLinkedDoctorName] = useState('');
+    const [assignedDoctorNames, setAssignedDoctorNames] = useState<string[]>([]);
 
     // Editable fields
     const [doctorName, setDoctorName] = useState('');
@@ -216,6 +269,13 @@ const ProfileScreen = () => {
         fetchLeaves();
     }, [isClinicStaff]);
 
+    useFocusEffect(
+        useCallback(() => {
+            if (isClinicStaff) return;
+            fetchProfile();
+        }, [isClinicStaff])
+    );
+
     useEffect(() => {
         if (!isClinicStaff) return;
 
@@ -238,13 +298,19 @@ const ProfileScreen = () => {
 
                 const matchedClinic = clinics.find((item: any) => Number(item?.clinic_id) === Number(staff_clinic_id));
                 const matchedDoctor = doctors.find((item: any) => Number(item?.doctor_id) === Number(staff_doctor_id));
+                const hospitalDoctors = doctors
+                    .filter((item: any) => normalizedAssignedDoctorIds.includes(Number(item?.doctor_id)))
+                    .map((item: any) => String(item?.doctor_name || '').trim())
+                    .filter(Boolean);
 
                 setAssignedClinicName(String(matchedClinic?.clinic_name || '').trim());
                 setLinkedDoctorName(String(matchedDoctor?.doctor_name || '').trim());
+                setAssignedDoctorNames(hospitalDoctors);
             } catch {
                 if (!active) return;
                 setAssignedClinicName('');
                 setLinkedDoctorName('');
+                setAssignedDoctorNames([]);
             }
         };
 
@@ -252,7 +318,7 @@ const ProfileScreen = () => {
         return () => {
             active = false;
         };
-    }, [isClinicStaff, staff_clinic_id, staff_doctor_id]);
+    }, [isClinicStaff, normalizedAssignedDoctorIds, staff_clinic_id, staff_doctor_id]);
 
     const fetchLeaves = async () => {
         try {
@@ -532,13 +598,15 @@ const ProfileScreen = () => {
                         </TouchableOpacity>
                         <View className="flex-row items-center justify-between mb-4">
                             <View className="flex-1">
-                                <Text className="text-blue-200 text-sm font-medium">Clinic Staff Profile</Text>
+                                <Text className="text-blue-200 text-sm font-medium">{isHospitalStaff ? 'Hospital Staff Profile' : 'Clinic Staff Profile'}</Text>
                                 <Text className="text-white text-3xl font-bold mt-1">
                                     {name || 'Clinic Staff'}
                                 </Text>
                                 <View className="self-start mt-3 bg-white/15 border border-white/20 rounded-full px-3 py-1.5">
                                     <Text className="text-white text-xs font-bold">
-                                        {staff_role ? String(staff_role).replace(/_/g, ' ') : 'Clinic Staff'}
+                                        {isHospitalStaff
+                                            ? `Hospital Staff | ${staff_role ? String(staff_role).replace(/_/g, ' ') : 'Have Access'}`
+                                            : (staff_role ? String(staff_role).replace(/_/g, ' ') : 'Clinic Staff')}
                                     </Text>
                                 </View>
                             </View>
@@ -574,7 +642,7 @@ const ProfileScreen = () => {
                                 <View className="mr-3 mt-0.5"><BadgeCheck size={20} color="#4b5563" /></View>
                                 <View className="flex-1">
                                     <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-0.5">Role</Text>
-                                    <Text className="text-base text-gray-800 font-medium">Clinic Staff</Text>
+                                    <Text className="text-base text-gray-800 font-medium">{isHospitalStaff ? 'Hospital Staff' : 'Clinic Staff'}</Text>
                                 </View>
                             </View>
                             <View className="bg-white rounded-2xl px-4 py-4 mb-3 flex-row items-start" style={{ elevation: 2 }}>
@@ -589,7 +657,9 @@ const ProfileScreen = () => {
                             <View className="bg-white rounded-2xl px-4 py-4 mb-3 flex-row items-start" style={{ elevation: 2 }}>
                                 <View className="mr-3 mt-0.5"><CalendarDays size={20} color="#4b5563" /></View>
                                 <View className="flex-1">
-                                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-0.5">Assigned Clinic Name</Text>
+                                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-0.5">
+                                        {isHospitalStaff ? 'Assigned Hospital Name' : 'Assigned Clinic Name'}
+                                    </Text>
                                     <Text className="text-base text-gray-800 font-medium">
                                         {staff_clinic_id ? (assignedClinicName || 'N/A') : 'All Clinics'}
                                     </Text>
@@ -598,9 +668,15 @@ const ProfileScreen = () => {
                             <View className="bg-white rounded-2xl px-4 py-4 mb-3 flex-row items-start" style={{ elevation: 2 }}>
                                 <View className="mr-3 mt-0.5"><MessageCircle size={20} color="#4b5563" /></View>
                                 <View className="flex-1">
-                                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-0.5">Linked Doctor Name</Text>
+                                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-0.5">
+                                        {isHospitalStaff ? 'Associated Doctors' : 'Linked Doctor Name'}
+                                    </Text>
                                     <Text className="text-base text-gray-800 font-medium">
-                                        {staff_doctor_id ? (linkedDoctorName ? `Dr. ${linkedDoctorName}` : 'N/A') : 'N/A'}
+                                        {isHospitalStaff
+                                            ? (assignedDoctorNames.length > 0
+                                                ? assignedDoctorNames.map((doctorName) => `Dr. ${doctorName}`).join(', ')
+                                                : 'N/A')
+                                            : (staff_doctor_id ? (linkedDoctorName ? `Dr. ${linkedDoctorName}` : 'N/A') : 'N/A')}
                                     </Text>
                                 </View>
                             </View>
@@ -641,6 +717,13 @@ const ProfileScreen = () => {
 
     const currentProfilePic = profilePicUrl || profile?.profile_pic_url || '';
     const currentDocumentUrl = documentUrl || profile?.document_url || '';
+    const smsTone = getSmsBadgeTone(profile?.sms_service);
+    const smsStatusText = profile?.sms_service?.status || 'DISABLED';
+    const isSmsExhausted = smsStatusText === 'EXHAUSTED';
+    const smsDisplayText = isSmsExhausted
+        ? 'EXHAUSTED'
+        : (profile?.sms_service?.displayText || '0/0 left');
+    const shouldShowSmsBadge = Boolean(profile?.sms_service?.enabled && profile?.sms_service?.status !== 'DISABLED');
 
     return (
         <SafeAreaView className="flex-1 bg-blue-700">
@@ -681,15 +764,37 @@ const ProfileScreen = () => {
                             </View>
                         </View>
                     </View>
-                    <View className="flex-row gap-2 flex-wrap mt-1">
-                        <View className="bg-white/15 px-3 py-2 rounded-2xl">
+                    <View className={`mt-1 flex-row gap-2 ${shouldShowSmsBadge ? 'items-stretch' : 'items-start'}`}>
+                        <View className="self-start rounded-2xl px-3 py-2 bg-white/15">
                             <Text className="text-blue-100 text-[11px] font-semibold uppercase">Status</Text>
                             <Text className="text-white text-sm font-bold mt-0.5">{profile?.status || 'N/A'}</Text>
                         </View>
-                        <View className="bg-white/15 px-3 py-2 rounded-2xl">
+                        <View className={`rounded-2xl px-3 py-2 bg-white/15 ${shouldShowSmsBadge ? 'flex-1' : 'self-start'}`}>
                             <Text className="text-blue-100 text-[11px] font-semibold uppercase">Allowed Clinics</Text>
                             <Text className="text-white text-sm font-bold mt-0.5">{profile?.num_clinics ?? 0}</Text>
                         </View>
+                        {shouldShowSmsBadge && (
+                            <View className={`flex-1 px-3 py-2 rounded-2xl ${smsTone.container}`}>
+                                <Text className={`text-[11px] font-semibold uppercase ${smsTone.label}`}>SMS Balance</Text>
+                                {isSmsExhausted ? (
+                                    <Text className={`mt-0.5 text-sm font-bold uppercase ${smsTone.value}`}>
+                                        {smsDisplayText}
+                                    </Text>
+                                ) : (
+                                    <View className="mt-0.5 flex-row items-center justify-between gap-2">
+                                        <Text
+                                            numberOfLines={1}
+                                            className={`flex-1 text-sm font-bold ${smsTone.value}`}
+                                        >
+                                            {smsDisplayText}
+                                        </Text>
+                                        <Text className={`shrink-0 text-[11px] font-extrabold uppercase ${smsTone.accent}`}>
+                                            {smsStatusText}
+                                        </Text>
+                                    </View>
+                                )}
+                            </View>
+                        )}
                     </View>
                     <View className="flex-row gap-2 mt-4">
                         {!editing ? (

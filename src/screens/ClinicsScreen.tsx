@@ -110,6 +110,19 @@ const decodeSvgDataUrl = (value?: string | null) => {
     }
 };
 
+const getHospitalGroupCode = (clinic?: any | null) => String(clinic?.hospital_group_code || '').trim();
+
+const getQrDownloadUrl = (clinic?: any | null) => {
+    if (!clinic) return '';
+    const hospitalGroupCode = getHospitalGroupCode(clinic);
+    if (hospitalGroupCode) {
+        return `${API_URL}/qr/hospital/generate/download?hospital_code=${encodeURIComponent(hospitalGroupCode)}`;
+    }
+
+    if (!clinic.doctor_id || !clinic.clinic_id) return '';
+    return `${API_URL}/qr/generate/download?doctor_id=${clinic.doctor_id}&clinic_id=${clinic.clinic_id}`;
+};
+
 // ─── Schedule types ───────────────────────────────────────────────────────────
 
 interface ScheduleItem {
@@ -602,13 +615,17 @@ const ClinicsScreen = () => {
         setQrPreviewSvgUri(null);
 
         try {
-            const previewRes = await fetch(`${API_URL}/qr/generate`, {
+            const hospitalGroupCode = getHospitalGroupCode(item);
+            const isHospitalClinic = Boolean(hospitalGroupCode);
+            const previewRes = await fetch(`${API_URL}${isHospitalClinic ? '/qr/hospital/generate' : '/qr/generate'}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    doctor_id: Number(item.doctor_id),
-                    clinic_id: Number(item.clinic_id),
-                }),
+                body: JSON.stringify(isHospitalClinic
+                    ? { hospital_code: hospitalGroupCode }
+                    : {
+                        doctor_id: Number(item.doctor_id),
+                        clinic_id: Number(item.clinic_id),
+                    }),
             });
 
             const previewData = await previewRes.json();
@@ -620,7 +637,9 @@ const ClinicsScreen = () => {
             setQrPreviewImage(dataUrl);
             setQrPreviewSvg(decodeSvgDataUrl(dataUrl));
             setQrPreviewSvgUri(null);
-            const url = `https://daptoservices.vinfocom.co.in/qr/generate/download?doctor_id=${item.doctor_id || ''}&clinic_id=${item.clinic_id}`;
+            const url = isHospitalClinic
+                ? `https://daptoservices.vinfocom.co.in/qr/hospital/generate/download?hospital_code=${encodeURIComponent(hospitalGroupCode)}`
+                : `https://daptoservices.vinfocom.co.in/qr/generate/download?doctor_id=${item.doctor_id || ''}&clinic_id=${item.clinic_id}`;
             await updateClinic(item.clinic_id, {
                 barcode_url: url,
                 qr_storage_url: previewData.qrStorageUrl || null,
@@ -962,12 +981,13 @@ const ClinicsScreen = () => {
                             </TouchableOpacity>
                             {qrPreviewMode === 'generate' && (
                                 <TouchableOpacity
-                                    disabled={!qrPreviewClinic?.doctor_id || !qrPreviewClinic?.clinic_id}
+                                    disabled={!getQrDownloadUrl(qrPreviewClinic)}
                                     onPress={() => {
-                                        if (!qrPreviewClinic?.doctor_id || !qrPreviewClinic?.clinic_id) return;
-                                        Linking.openURL(`${API_URL}/qr/generate/download?doctor_id=${qrPreviewClinic.doctor_id}&clinic_id=${qrPreviewClinic.clinic_id}`);
+                                        const downloadUrl = getQrDownloadUrl(qrPreviewClinic);
+                                        if (!downloadUrl) return;
+                                        Linking.openURL(downloadUrl);
                                     }}
-                                    className={`rounded-xl px-4 py-2.5 ${qrPreviewClinic?.doctor_id && qrPreviewClinic?.clinic_id ? 'bg-indigo-600' : 'bg-indigo-300'}`}
+                                    className={`rounded-xl px-4 py-2.5 ${getQrDownloadUrl(qrPreviewClinic) ? 'bg-indigo-600' : 'bg-indigo-300'}`}
                                 >
                                     <Text className="font-semibold text-white">Download</Text>
                                 </TouchableOpacity>

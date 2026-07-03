@@ -12,7 +12,9 @@ import {
     RefreshControl,
     KeyboardAvoidingView,
     Platform,
-    Image
+    Image,
+    Animated,
+    Easing,
 } from 'react-native';
 import {
     Activity,
@@ -33,12 +35,14 @@ import {
     Trash2,
     Camera,
     ImagePlus,
+    Stethoscope,
 } from 'lucide-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getAppointments, createAppointment, updateAppointment, deleteAppointment } from '../api/appointments';
 import { createPrescriptionUpload, deletePrescriptionRecord, listPrescriptions, type PrescriptionUploadFile } from '../api/prescriptions';
 import { updatePatient } from '../api/patients';
 import { getClinics } from '../api/clinics';
+import { getAllDoctors } from '../api/doctors';
 import { getAvailableDates, getSlots } from '../api/slots';
 import client from '../api/client';
 import { useFocusEffect, useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
@@ -52,6 +56,7 @@ import { io, type Socket } from 'socket.io-client';
 import { API_URL, SOCKET_URL } from '../config/env';
 import { useAuthSession } from '../context/AuthSessionContext';
 import { getToken } from '../api/token';
+import { useSwipeNavigationLock } from '../navigation/SwipeNavigationLockContext';
 import * as FileSystem from 'expo-file-system/legacy';
 import {
     appendPrescriptionUploadFiles as mergePrescriptionUploadFiles,
@@ -231,6 +236,12 @@ interface ClinicDropdownProps {
     onSelect: (id: string) => void;
 }
 
+interface DoctorDropdownProps {
+    doctors: any[];
+    selectedId: string;
+    onSelect: (id: string) => void;
+}
+
 type BookingFor = 'SELF' | 'OTHER';
 const GENDER_OPTIONS = ['Male', 'Female', 'Other', 'Prefer not to say'];
 
@@ -328,6 +339,55 @@ const ClinicDropdown = ({ clinics, selectedId, onSelect }: ClinicDropdownProps) 
                             >
                                 <Text className={`text-base ${isSelected ? 'text-blue-700 font-bold' : 'text-gray-700'}`}>
                                     {c.clinic_name}
+                                </Text>
+                                {isSelected && <Check size={16} color="#2563eb" />}
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
+            )}
+        </View>
+    );
+};
+
+const DoctorDropdown = ({ doctors, selectedId, onSelect }: DoctorDropdownProps) => {
+    const [open, setOpen] = useState(false);
+    const selectedDoctor = doctors.find((doctor) => String(doctor.doctor_id) === selectedId);
+
+    return (
+        <View style={{ zIndex: 110 }}>
+            <TouchableOpacity
+                onPress={() => setOpen((prev) => !prev)}
+                className={`bg-gray-50 border border-gray-200 px-4 py-3.5 flex-row items-center justify-between
+                    ${open ? 'rounded-t-xl border-blue-500' : 'rounded-xl'}`}
+            >
+                <Text className={`text-base ${selectedDoctor ? 'text-gray-800 font-medium' : 'text-gray-400'}`}>
+                    {selectedDoctor ? `Dr. ${selectedDoctor.doctor_name}` : 'Select a doctor'}
+                </Text>
+                <ChevronDown
+                    size={18}
+                    color="#9ca3af"
+                    style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }}
+                />
+            </TouchableOpacity>
+
+            {open && (
+                <View className="bg-white border border-t-0 border-gray-200 rounded-b-xl overflow-hidden shadow-md elevation-6">
+                    {doctors.map((doctor, index) => {
+                        const isSelected = String(doctor.doctor_id) === selectedId;
+                        return (
+                            <TouchableOpacity
+                                key={doctor.doctor_id}
+                                onPress={() => {
+                                    onSelect(String(doctor.doctor_id));
+                                    setOpen(false);
+                                }}
+                                className={`px-4 py-3.5 flex-row items-center justify-between
+                                    ${isSelected ? 'bg-blue-50' : 'bg-white'}
+                                    ${index < doctors.length - 1 ? 'border-b border-gray-100' : ''}`}
+                            >
+                                <Text className={`text-base ${isSelected ? 'text-blue-700 font-bold' : 'text-gray-700'}`}>
+                                    Dr. {doctor.doctor_name}
                                 </Text>
                                 {isSelected && <Check size={16} color="#2563eb" />}
                             </TouchableOpacity>
@@ -459,9 +519,15 @@ const AppointmentsScreen = () => {
     const navigation = useNavigation<any>();
     const route = useRoute<any>();
     const isFocused = useIsFocused();
-    const { role, staff_role, staff_doctor_id } = useAuthSession();
+    const { role, staff_role, staff_doctor_id, assigned_doctor_ids } = useAuthSession();
+    const { setSwipeLocked } = useSwipeNavigationLock();
     const isClinicStaff = role === 'CLINIC_STAFF';
     const isViewerStaff = isClinicStaff && String(staff_role || '').toUpperCase() === 'VIEWER';
+    const normalizedAssignedDoctorIds = useMemo(
+        () => Array.from(new Set((assigned_doctor_ids || []).map((doctorId) => Number(doctorId)).filter((doctorId) => Number.isFinite(doctorId) && doctorId > 0))),
+        [assigned_doctor_ids]
+    );
+    const isHospitalStaff = isClinicStaff && normalizedAssignedDoctorIds.length > 1;
     const canUseChat = role === 'DOCTOR';
     const canManageAppointments = role === 'DOCTOR' || (isClinicStaff && !isViewerStaff);
     const [appointments, setAppointments] = useState<any[]>([]);
@@ -481,6 +547,7 @@ const AppointmentsScreen = () => {
         patient_phone: '',
         patient_name: '',
         booking_for: 'SELF' as BookingFor,
+        doctor_id: '',
         clinic_id: '',
         date: '',
         time: '',
@@ -515,6 +582,11 @@ const AppointmentsScreen = () => {
     const [showSearch, setShowSearch] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const searchInputRef = useRef<TextInput>(null);
+    const [selectedDoctorFilter, setSelectedDoctorFilter] = useState<number | 'ALL'>('ALL');
+    const [doctorChipScrollX, setDoctorChipScrollX] = useState(0);
+    const [doctorChipViewportWidth, setDoctorChipViewportWidth] = useState(0);
+    const [doctorChipContentWidth, setDoctorChipContentWidth] = useState(0);
+    const [headerFiltersCollapsed, setHeaderFiltersCollapsed] = useState(false);
     const [filterModalVisible, setFilterModalVisible] = useState(false);
     const [dateFrom, setDateFrom] = useState(() => getISTTodayYMD());
     const [dateTo, setDateTo] = useState(() => getISTTodayYMD());
@@ -527,6 +599,7 @@ const AppointmentsScreen = () => {
     const [exportFormat, setExportFormat] = useState<'pdf' | 'excel'>('pdf');
     const [exportFrom, setExportFrom] = useState('');
     const [exportTo, setExportTo] = useState('');
+    const [exportSelectedDoctorId, setExportSelectedDoctorId] = useState<number | 'ALL'>('ALL');
     const [exporting, setExporting] = useState(false);
     const [exportError, setExportError] = useState('');
     const [exportCalendarMode, setExportCalendarMode] = useState<'FROM' | 'TO' | null>(null);
@@ -571,11 +644,84 @@ const AppointmentsScreen = () => {
     const [selectedPrescription, setSelectedPrescription] = useState<PrescriptionRecordItem | null>(null);
     const [selectedPrescriptionPageIndex, setSelectedPrescriptionPageIndex] = useState(0);
     const [prescriptionZoomScale, setPrescriptionZoomScale] = useState(1);
+    const [hospitalDoctors, setHospitalDoctors] = useState<any[]>([]);
+    const chipHintOpacity = useRef(new Animated.Value(0.35)).current;
+    const headerFiltersAnim = useRef(new Animated.Value(1)).current;
+    const availableDatesCacheRef = useRef<Map<string, string[]>>(new Map());
+    const slotCacheRef = useRef<Map<string, { slots: string[]; slotDuration: number }>>(new Map());
+    const activeDatesRequestKeyRef = useRef('');
+    const activeSlotsRequestKeyRef = useRef('');
 
     useEffect(() => {
         fetchAppointments();
         fetchClinicsData();
     }, []);
+
+    useEffect(() => {
+        const loop = Animated.loop(
+            Animated.sequence([
+                Animated.timing(chipHintOpacity, {
+                    toValue: 1,
+                    duration: 700,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(chipHintOpacity, {
+                    toValue: 0.35,
+                    duration: 700,
+                    useNativeDriver: true,
+                }),
+            ])
+        );
+        loop.start();
+        return () => {
+            loop.stop();
+        };
+    }, [chipHintOpacity]);
+
+    useEffect(() => {
+        Animated.timing(headerFiltersAnim, {
+            toValue: headerFiltersCollapsed ? 0 : 1,
+            duration: 240,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: false,
+        }).start();
+    }, [headerFiltersAnim, headerFiltersCollapsed]);
+
+    useEffect(() => {
+        if (!isHospitalStaff) {
+            setHospitalDoctors([]);
+            setSelectedDoctorFilter('ALL');
+            return;
+        }
+
+        let active = true;
+        getAllDoctors()
+            .then((response) => {
+                if (!active) return;
+                const doctors = Array.isArray(response) ? response : (response?.doctors || []);
+                const filteredDoctors = doctors
+                    .filter((doctor: any) => normalizedAssignedDoctorIds.includes(Number(doctor?.doctor_id)))
+                    .sort((a: any, b: any) => String(a?.doctor_name || '').localeCompare(String(b?.doctor_name || '')));
+                setHospitalDoctors(filteredDoctors);
+            })
+            .catch(() => {
+                if (!active) return;
+                setHospitalDoctors([]);
+            });
+
+        return () => {
+            active = false;
+        };
+    }, [isHospitalStaff, normalizedAssignedDoctorIds]);
+
+    useEffect(() => {
+        if (!isHospitalStaff) return;
+        if (selectedDoctorFilter === 'ALL') return;
+        const stillAssigned = hospitalDoctors.some((doctor: any) => Number(doctor?.doctor_id) === Number(selectedDoctorFilter));
+        if (!stillAssigned) {
+            setSelectedDoctorFilter('ALL');
+        }
+    }, [hospitalDoctors, isHospitalStaff, selectedDoctorFilter]);
 
     useEffect(() => {
         if (!isFocused) return;
@@ -584,6 +730,35 @@ const AppointmentsScreen = () => {
         }, 15000);
         return () => clearInterval(interval);
     }, [isFocused]);
+
+    const visibleCreateClinics = useMemo(() => {
+        if (!isHospitalStaff) return clinics;
+        if (!formData.doctor_id) return [];
+        return clinics.filter((clinic) => Number(clinic?.doctor_id) === Number(formData.doctor_id));
+    }, [clinics, formData.doctor_id, isHospitalStaff]);
+
+    const lockHorizontalSwipe = useCallback(() => {
+        setSwipeLocked(true);
+    }, [setSwipeLocked]);
+
+    const unlockHorizontalSwipe = useCallback(() => {
+        setSwipeLocked(false);
+    }, [setSwipeLocked]);
+
+    const handleAppointmentListScroll = useCallback((event: any) => {
+        const offsetY = Number(event?.nativeEvent?.contentOffset?.y || 0);
+        setHeaderFiltersCollapsed((prev) => {
+            if (offsetY > 40 && !prev) return true;
+            if (offsetY <= 12 && prev) return false;
+            return prev;
+        });
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            setSwipeLocked(false);
+        };
+    }, [setSwipeLocked]);
 
     useEffect(() => {
         const params = route?.params || {};
@@ -601,14 +776,19 @@ const AppointmentsScreen = () => {
             patient_phone: params.prefillPatientPhone || '',
             patient_name: params.prefillPatientName || '',
             booking_for: 'SELF',
-            clinic_id: prev.clinic_id || (clinics[0]?.clinic_id ? String(clinics[0].clinic_id) : ''),
+            doctor_id: isHospitalStaff && prev.doctor_id
+                ? prev.doctor_id
+                : (isHospitalStaff && selectedDoctorFilter !== 'ALL' ? String(selectedDoctorFilter) : ''),
+            clinic_id: isHospitalStaff
+                ? ''
+                : (prev.clinic_id || (clinics[0]?.clinic_id ? String(clinics[0].clinic_id) : '')),
             date: '',
             time: '',
         }));
         setShowCalendar(false);
         setModalVisible(true);
         setHeaderMenuVisible(false);
-    }, [canManageAppointments, route?.params, clinics]);
+    }, [canManageAppointments, clinics, isHospitalStaff, route?.params, selectedDoctorFilter]);
 
     const checkIncomingNotifications = React.useCallback(async () => {
         if (!canUseChat) return;
@@ -721,11 +901,6 @@ const AppointmentsScreen = () => {
     }, [appointments, canUseChat, socketEnabled]);
 
     useEffect(() => {
-        if (formData.clinic_id && formData.date) fetchSlotsData();
-        else setAvailableSlots([]);
-    }, [formData.clinic_id, formData.date]);
-
-    useEffect(() => {
         if (!rescheduleModalVisible || !rescheduleClinicId || !rescheduleDoctorId) {
             setRescheduleAvailableDates(new Set());
             return;
@@ -761,29 +936,114 @@ const AppointmentsScreen = () => {
         [clinics, formData.clinic_id]
     );
 
-    useEffect(() => {
-        const resolvedDoctorId = Number(selectedClinic?.doctor_id || staff_doctor_id || 0);
-        if (!formData.clinic_id || !resolvedDoctorId) {
+    const resolveCreateDoctorId = useCallback(() => {
+        return Number(
+            (isHospitalStaff ? formData.doctor_id : '') ||
+            selectedClinic?.doctor_id ||
+            staff_doctor_id ||
+            0
+        );
+    }, [formData.doctor_id, isHospitalStaff, selectedClinic?.doctor_id, staff_doctor_id]);
+
+    const loadAvailableDatesForCreate = useCallback(async (clinicIdValue: string, doctorIdValue: number) => {
+        const clinicIdNum = Number(clinicIdValue);
+        if (!clinicIdNum || !doctorIdValue) {
             setAvailableDates(new Set());
             setLoadingDates(false);
             return;
         }
 
+        const cacheKey = `${doctorIdValue}:${clinicIdNum}`;
+        const cachedDates = availableDatesCacheRef.current.get(cacheKey);
+        if (cachedDates) {
+            const nextDates = new Set(cachedDates);
+            setAvailableDates(nextDates);
+            setLoadingDates(false);
+            setFormData((prev) => {
+                if (!prev.date || nextDates.has(prev.date)) return prev;
+                return { ...prev, date: '', time: '' };
+            });
+            return;
+        }
+
+        activeDatesRequestKeyRef.current = cacheKey;
         setLoadingDates(true);
-        getAvailableDates(resolvedDoctorId, Number(formData.clinic_id))
-            .then((dates) => {
-                const nextDates = new Set(dates);
-                setAvailableDates(nextDates);
-                setFormData((prev) => {
-                    if (!prev.date || nextDates.has(prev.date)) return prev;
-                    return { ...prev, date: '', time: '' };
-                });
-            })
-            .catch(() => {
-                setAvailableDates(new Set());
-            })
-            .finally(() => setLoadingDates(false));
-    }, [formData.clinic_id, selectedClinic?.doctor_id, staff_doctor_id]);
+        try {
+            const dates = await getAvailableDates(doctorIdValue, clinicIdNum);
+            if (activeDatesRequestKeyRef.current !== cacheKey) return;
+            availableDatesCacheRef.current.set(cacheKey, dates);
+            const nextDates = new Set(dates);
+            setAvailableDates(nextDates);
+            setFormData((prev) => {
+                if (!prev.date || nextDates.has(prev.date)) return prev;
+                return { ...prev, date: '', time: '' };
+            });
+        } catch {
+            if (activeDatesRequestKeyRef.current !== cacheKey) return;
+            setAvailableDates(new Set());
+        } finally {
+            if (activeDatesRequestKeyRef.current === cacheKey) {
+                setLoadingDates(false);
+            }
+        }
+    }, []);
+
+    const loadSlotsForCreate = useCallback(async (dateValue: string, clinicIdValue: string, doctorIdValue: number) => {
+        const clinicIdNum = Number(clinicIdValue);
+        if (!dateValue || !clinicIdNum || !doctorIdValue) {
+            setAvailableSlots([]);
+            setLoadingSlots(false);
+            return;
+        }
+
+        const cacheKey = `${doctorIdValue}:${clinicIdNum}:${dateValue}`;
+        const cachedSlots = slotCacheRef.current.get(cacheKey);
+        if (cachedSlots) {
+            setAvailableSlots(cachedSlots.slots);
+            if (cachedSlots.slotDuration) setSlotDuration(cachedSlots.slotDuration);
+            setLoadingSlots(false);
+            return;
+        }
+
+        activeSlotsRequestKeyRef.current = cacheKey;
+        setLoadingSlots(true);
+        try {
+            const data = await getSlots(dateValue, clinicIdNum, doctorIdValue || undefined);
+            if (activeSlotsRequestKeyRef.current !== cacheKey) return;
+            const slots = data.slots || [];
+            const nextSlotDuration = Number(data.slot_duration || slotDuration || 30);
+            slotCacheRef.current.set(cacheKey, { slots, slotDuration: nextSlotDuration });
+            setAvailableSlots(slots);
+            if (data.slot_duration) setSlotDuration(data.slot_duration);
+        } catch {
+            if (activeSlotsRequestKeyRef.current !== cacheKey) return;
+            setAvailableSlots([]);
+        } finally {
+            if (activeSlotsRequestKeyRef.current === cacheKey) {
+                setLoadingSlots(false);
+            }
+        }
+    }, [slotDuration]);
+
+    useEffect(() => {
+        const resolvedDoctorId = resolveCreateDoctorId();
+        if (!formData.clinic_id || !resolvedDoctorId) {
+            setAvailableDates(new Set());
+            setLoadingDates(false);
+            return;
+        }
+        loadAvailableDatesForCreate(formData.clinic_id, resolvedDoctorId);
+    }, [formData.clinic_id, loadAvailableDatesForCreate, resolveCreateDoctorId]);
+
+    useEffect(() => {
+        const resolvedDoctorId = resolveCreateDoctorId();
+        if (formData.clinic_id && formData.date && resolvedDoctorId) {
+            loadSlotsForCreate(formData.date, formData.clinic_id, resolvedDoctorId);
+        } else {
+            setAvailableSlots([]);
+            setLoadingSlots(false);
+        }
+    }, [formData.clinic_id, formData.date, loadSlotsForCreate, resolveCreateDoctorId]);
 
     useEffect(() => {
         if (!isModalVisible) {
@@ -840,6 +1100,17 @@ const AppointmentsScreen = () => {
         return () => clearTimeout(timer);
     }, [showSearch]);
 
+    useEffect(() => {
+        if (!isHospitalStaff) return;
+        if (!formData.clinic_id) return;
+        const clinicStillValid = visibleCreateClinics.some((clinic) => String(clinic?.clinic_id) === String(formData.clinic_id));
+        if (!clinicStillValid) {
+            setFormData((prev) => ({ ...prev, clinic_id: '', date: '', time: '' }));
+            setAvailableDates(new Set());
+            setAvailableSlots([]);
+        }
+    }, [formData.clinic_id, isHospitalStaff, visibleCreateClinics]);
+
     const fetchAppointments = async () => {
         try {
             const data = await getAppointments();
@@ -891,6 +1162,14 @@ const AppointmentsScreen = () => {
             setExportError('To date cannot be earlier than From date.');
             return;
         }
+        if (
+            isHospitalStaff &&
+            exportSelectedDoctorId !== 'ALL' &&
+            !hospitalDoctors.some((doctor) => Number(doctor?.doctor_id) === Number(exportSelectedDoctorId))
+        ) {
+            setExportError('Please select a valid doctor.');
+            return;
+        }
         const { from, to } = getExportRange();
         if (!from || !to) {
             setExportError('Please choose a valid date range.');
@@ -937,7 +1216,15 @@ const AppointmentsScreen = () => {
             const format = exportFormat;
             const ext = format === 'excel' ? 'xlsx' : 'pdf';
             const filename = `appointments_${from.replaceAll('-', '')}_${to.replaceAll('-', '')}.${ext}`;
-            const url = `${API_URL}/appointments/export?dateFrom=${from}&dateTo=${to}&format=${format}`;
+            const exportParams = new URLSearchParams({
+                dateFrom: from,
+                dateTo: to,
+                format,
+            });
+            if (isHospitalStaff && exportSelectedDoctorId !== 'ALL') {
+                exportParams.append('doctorId', String(exportSelectedDoctorId));
+            }
+            const url = `${API_URL}/appointments/export?${exportParams.toString()}`;
 
             if (Platform.OS === 'web') {
                 const res = await fetch(url, {
@@ -1012,24 +1299,14 @@ const AppointmentsScreen = () => {
         }
     };
 
-    const fetchSlotsData = async () => {
-        setLoadingSlots(true);
-        try {
-            const data = await getSlots(formData.date, parseInt(formData.clinic_id));
-            setAvailableSlots(data.slots || []);
-            if (data.slot_duration) setSlotDuration(data.slot_duration);
-        } catch (e) {
-            console.error(e);
-            setAvailableSlots([]);
-        } finally {
-            setLoadingSlots(false);
-        }
-    };
-
     const resetForm = () => {
-        setFormData({ patient_phone: '', patient_name: '', booking_for: 'SELF', clinic_id: '', date: '', time: '' });
+        activeDatesRequestKeyRef.current = '';
+        activeSlotsRequestKeyRef.current = '';
+        setFormData({ patient_phone: '', patient_name: '', booking_for: 'SELF', doctor_id: '', clinic_id: '', date: '', time: '' });
         setAvailableSlots([]);
         setAvailableDates(new Set());
+        setLoadingSlots(false);
+        setLoadingDates(false);
         setShowCalendar(false);
         setMatchedPatients([]);
         setLockedPatientProfile(null);
@@ -1508,7 +1785,14 @@ const AppointmentsScreen = () => {
             showPermissionDenied();
             return;
         }
-        if (!formData.patient_phone || !formData.patient_name || !formData.clinic_id || !formData.date || !formData.time) {
+        if (
+            !formData.patient_phone ||
+            !formData.patient_name ||
+            (isHospitalStaff && !formData.doctor_id) ||
+            !formData.clinic_id ||
+            !formData.date ||
+            !formData.time
+        ) {
             Alert.alert('Error', 'Please fill all required fields');
             return;
         }
@@ -1691,7 +1975,7 @@ const AppointmentsScreen = () => {
         ]);
     };
 
-    const filteredAppointments = useMemo(() => {
+    const baseFilteredAppointments = useMemo(() => {
         const query = searchQuery.trim().toLowerCase();
         const from = parseDateOnly(dateFrom);
         const to = parseDateOnly(dateTo);
@@ -1704,7 +1988,8 @@ const AppointmentsScreen = () => {
             const phone = String(a?.patient?.phone || '').toLowerCase();
             const bookingId = String(a?.booking_id || '');
             const clinic = String(a?.clinic?.clinic_name || '').toLowerCase();
-            const matchesSearch = !query || patientName.includes(query) || phone.includes(query) || bookingId.includes(query) || clinic.includes(query);
+            const doctorName = String(a?.doctor?.doctor_name || '').toLowerCase();
+            const matchesSearch = !query || patientName.includes(query) || phone.includes(query) || bookingId.includes(query) || clinic.includes(query) || doctorName.includes(query);
             if (!matchesSearch) return false;
 
             if (!from && !to) return true;
@@ -1728,6 +2013,76 @@ const AppointmentsScreen = () => {
             return Number(a?.appointment_id ?? 0) - Number(b?.appointment_id ?? 0);
         });
     }, [appointments, dateFrom, dateTo, searchQuery, statusFilter]);
+
+    const doctorChipItems = useMemo(() => {
+        if (!isHospitalStaff) return [];
+
+        const counts = new Map<number, number>();
+        baseFilteredAppointments.forEach((appointment) => {
+            const doctorId = Number(appointment?.doctor_id ?? appointment?.doctor?.doctor_id ?? 0);
+            if (!doctorId) return;
+            counts.set(doctorId, (counts.get(doctorId) || 0) + 1);
+        });
+
+        const latestAppointmentByDoctor = new Map<number, number>();
+        appointments.forEach((appointment) => {
+            const doctorId = Number(appointment?.doctor_id ?? appointment?.doctor?.doctor_id ?? 0);
+            if (!doctorId || !normalizedAssignedDoctorIds.includes(doctorId)) return;
+            const createdAtTs = appointment?.created_at ? new Date(appointment.created_at).getTime() : 0;
+            const appointmentStart = createdAtTs || parseAppointmentStart(appointment)?.getTime() || 0;
+            const previousLatest = latestAppointmentByDoctor.get(doctorId) || 0;
+            if (appointmentStart > previousLatest) {
+                latestAppointmentByDoctor.set(doctorId, appointmentStart);
+            }
+        });
+
+        const sortedDoctors = [...hospitalDoctors].sort((a: any, b: any) => {
+            const aDoctorId = Number(a?.doctor_id || 0);
+            const bDoctorId = Number(b?.doctor_id || 0);
+            const aLatest = latestAppointmentByDoctor.get(aDoctorId) || 0;
+            const bLatest = latestAppointmentByDoctor.get(bDoctorId) || 0;
+            if (aLatest !== bLatest) return bLatest - aLatest;
+            return String(a?.doctor_name || '').localeCompare(String(b?.doctor_name || ''));
+        });
+
+        return [
+            { key: 'ALL', doctorId: 'ALL' as const, label: 'All Doctors', count: baseFilteredAppointments.length },
+            ...sortedDoctors.map((doctor: any) => ({
+                key: String(doctor?.doctor_id),
+                doctorId: Number(doctor?.doctor_id),
+                label: `Dr. ${String(doctor?.doctor_name || 'Doctor').trim()}`,
+                count: counts.get(Number(doctor?.doctor_id)) || 0,
+            })),
+        ];
+    }, [appointments, baseFilteredAppointments, hospitalDoctors, isHospitalStaff, normalizedAssignedDoctorIds]);
+
+    const exportDoctorItems = useMemo(() => {
+        if (!isHospitalStaff) return [];
+        return [
+            { key: 'ALL', doctorId: 'ALL' as const, label: 'All Doctors' },
+            ...hospitalDoctors.map((doctor: any) => ({
+                key: String(doctor?.doctor_id),
+                doctorId: Number(doctor?.doctor_id),
+                label: `Dr. ${String(doctor?.doctor_name || 'Doctor').trim()}`,
+            })),
+        ];
+    }, [hospitalDoctors, isHospitalStaff]);
+
+    const filteredAppointments = useMemo(() => {
+        if (!isHospitalStaff || selectedDoctorFilter === 'ALL') {
+            return baseFilteredAppointments;
+        }
+        return baseFilteredAppointments.filter((appointment) => {
+            const doctorId = Number(appointment?.doctor_id ?? appointment?.doctor?.doctor_id ?? 0);
+            return doctorId === Number(selectedDoctorFilter);
+        });
+    }, [baseFilteredAppointments, isHospitalStaff, selectedDoctorFilter]);
+
+    const showDoctorChipLeftHint = isHospitalStaff && doctorChipScrollX > 6;
+    const showDoctorChipRightHint =
+        isHospitalStaff &&
+        doctorChipContentWidth > doctorChipViewportWidth &&
+        doctorChipScrollX + doctorChipViewportWidth < doctorChipContentWidth - 6;
 
     const renderPrescriptionUploadContent = useCallback(() => (
         <>
@@ -1829,9 +2184,25 @@ const AppointmentsScreen = () => {
                                     {item.patient?.full_name || 'Unknown Patient'}
                                 </Text>
                             </TouchableOpacity>
-                            <Text className="text-gray-500 text-xs mt-0.5" numberOfLines={1}>
-                                {item.clinic?.clinic_name || 'N/A'}
-                            </Text>
+                            {isHospitalStaff ? (
+                                <View
+                                    className="self-start mt-1 rounded-full px-2 py-1 flex-row items-center"
+                                    style={{ backgroundColor: '#eff6ff', borderWidth: 1, borderColor: '#bfdbfe' }}
+                                >
+                                    <Stethoscope size={10} color="#2563eb" />
+                                    <Text
+                                        className="ml-1 text-[11px] font-bold text-blue-700"
+                                        numberOfLines={1}
+                                        style={{ maxWidth: 140 }}
+                                    >
+                                        {item?.doctor?.doctor_name ? `Dr. ${item.doctor.doctor_name}` : 'Doctor N/A'}
+                                    </Text>
+                                </View>
+                            ) : (
+                                <Text className="text-gray-500 text-xs mt-0.5" numberOfLines={1}>
+                                    {item.clinic?.clinic_name || 'N/A'}
+                                </Text>
+                            )}
                         </View>
                         <View className="ml-2 flex-row items-start justify-end">
                             {canUseChat && isHighlighted && (
@@ -1949,7 +2320,7 @@ const AppointmentsScreen = () => {
                 )}
             </View>
         );
-    }, [canManageAppointments, canUseChat, confirmStatusChange, handleDeleteAppointment, highlightedPairKey, incomingMessage, isClinicStaff, navigation, openCardMenuId, openPatientDetails, openPrescriptionHistoryForAppointment, openReschedule]);
+    }, [canManageAppointments, canUseChat, confirmStatusChange, handleDeleteAppointment, highlightedPairKey, incomingMessage, isClinicStaff, isHospitalStaff, navigation, openCardMenuId, openPatientDetails, openPrescriptionHistoryForAppointment, openReschedule]);
 
     if (loading) {
         return (
@@ -2018,102 +2389,135 @@ const AppointmentsScreen = () => {
                             </TouchableOpacity>
                         </View>
                     </View>
-                    {/* Quick date filter chips */}
-                    {(() => {
-                        const nowIST = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
-                        const todayStr = toYMDUTC(nowIST);
-                        const tomorrowIST = new Date(nowIST.getTime() + 86400000);
-                        const tomorrowStr = toYMDUTC(tomorrowIST);
-                        const isAllTime = !dateFrom && !dateTo;
-                        const isToday = dateFrom === todayStr && dateTo === todayStr;
-                        const isTomorrow = dateFrom === tomorrowStr && dateTo === tomorrowStr;
-                        const isCustom = !isAllTime && !isToday && !isTomorrow && (dateFrom || dateTo);
+                    <Animated.View
+                        style={{
+                            maxHeight: headerFiltersAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [0, 220],
+                            }),
+                            opacity: headerFiltersAnim,
+                            overflow: 'hidden',
+                            marginTop: headerFiltersAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [0, 12],
+                            }),
+                            transform: [
+                                {
+                                    translateY: headerFiltersAnim.interpolate({
+                                        inputRange: [0, 1],
+                                        outputRange: [-10, 0],
+                                    }),
+                                },
+                            ],
+                        }}
+                    >
+                        {/* Quick date filter chips */}
+                        {(() => {
+                            const nowIST = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+                            const todayStr = toYMDUTC(nowIST);
+                            const tomorrowIST = new Date(nowIST.getTime() + 86400000);
+                            const tomorrowStr = toYMDUTC(tomorrowIST);
+                            const isAllTime = !dateFrom && !dateTo;
+                            const isToday = dateFrom === todayStr && dateTo === todayStr;
+                            const isTomorrow = dateFrom === tomorrowStr && dateTo === tomorrowStr;
+                            const isCustom = !isAllTime && !isToday && !isTomorrow && (dateFrom || dateTo);
 
-                        const chipStyle = (active: boolean) => ({
-                            paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, marginRight: 8,
-                            backgroundColor: active ? '#fff' : 'rgba(255,255,255,0.18)',
-                            borderWidth: 1,
-                            borderColor: active ? '#fff' : 'rgba(255,255,255,0.35)',
-                        });
-                        const chipTextStyle = (active: boolean) => ({
-                            color: active ? '#1d4ed8' : '#e0e7ff',
-                            fontWeight: '700' as const, fontSize: 13,
-                        });
+                            const chipStyle = (active: boolean) => ({
+                                paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, marginRight: 8,
+                                backgroundColor: active ? '#fff' : 'rgba(255,255,255,0.18)',
+                                borderWidth: 1,
+                                borderColor: active ? '#fff' : 'rgba(255,255,255,0.35)',
+                            });
+                            const chipTextStyle = (active: boolean) => ({
+                                color: active ? '#1d4ed8' : '#e0e7ff',
+                                fontWeight: '700' as const, fontSize: 13,
+                            });
 
-                        return (
-                            <View className="mt-3">
-                                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                                    <View className="flex-row">
-                                        <TouchableOpacity
-                                            style={chipStyle(isAllTime)}
-                                            onPress={() => {
-                                                setDateFrom('');
-                                                setDateTo('');
-                                                setShowQuickDatePicker(false);
-                                            }}
-                                        >
-                                            <Text style={chipTextStyle(isAllTime)}>All Time</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            style={chipStyle(isToday)}
-                                            onPress={() => {
-                                                if (isToday) { setDateFrom(''); setDateTo(''); }
-                                                else { setDateFrom(todayStr); setDateTo(todayStr); setShowQuickDatePicker(false); }
-                                            }}
-                                        >
-                                            <Text style={chipTextStyle(isToday)}>Today</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            style={chipStyle(isTomorrow)}
-                                            onPress={() => {
-                                                if (isTomorrow) { setDateFrom(''); setDateTo(''); }
-                                                else { setDateFrom(tomorrowStr); setDateTo(tomorrowStr); setShowQuickDatePicker(false); }
-                                            }}
-                                        >
-                                            <Text style={chipTextStyle(isTomorrow)}>Tomorrow</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            style={chipStyle(isCustom as boolean)}
-                                            onPress={() => setShowQuickDatePicker(prev => !prev)}
-                                        >
-                                            <Text style={chipTextStyle(isCustom as boolean)}>
-                                                {isCustom ? `${dateFrom || '…'} → ${dateTo || '…'}` : 'Pick Date'}
-                                            </Text>
-                                        </TouchableOpacity>
-                                        {false && (
+                            return (
+                                <View>
+                                    <ScrollView
+                                        horizontal
+                                        showsHorizontalScrollIndicator={false}
+                                        onTouchStart={lockHorizontalSwipe}
+                                        onTouchEnd={unlockHorizontalSwipe}
+                                        onTouchCancel={unlockHorizontalSwipe}
+                                        onScrollBeginDrag={lockHorizontalSwipe}
+                                        onScrollEndDrag={unlockHorizontalSwipe}
+                                        onMomentumScrollBegin={lockHorizontalSwipe}
+                                        onMomentumScrollEnd={unlockHorizontalSwipe}
+                                    >
+                                        <View className="flex-row">
                                             <TouchableOpacity
-                                                style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 20, backgroundColor: 'rgba(255,100,100,0.25)', borderWidth: 1, borderColor: 'rgba(255,150,150,0.5)' }}
-                                                onPress={() => { setDateFrom(''); setDateTo(''); setShowQuickDatePicker(false); }}
+                                                style={chipStyle(isAllTime)}
+                                                onPress={() => {
+                                                    setDateFrom('');
+                                                    setDateTo('');
+                                                    setShowQuickDatePicker(false);
+                                                }}
                                             >
-                                                <Text style={{ color: '#fca5a5', fontWeight: '700', fontSize: 13 }}>✕ Clear</Text>
+                                                <Text style={chipTextStyle(isAllTime)}>All Time</Text>
                                             </TouchableOpacity>
-                                        )}
-                                    </View>
-                                </ScrollView>
-
-                                {/* Inline calendar for custom date */}
-                                {showQuickDatePicker && (
-                                    <View className="mt-3 bg-white rounded-2xl overflow-hidden" style={{ elevation: 8 }}>
-                                        <View className="px-4 pt-3 pb-1 flex-row justify-between items-center">
-                                            <Text className="font-bold text-gray-700 text-sm">Pick a date</Text>
-                                            <TouchableOpacity onPress={() => setShowQuickDatePicker(false)}>
-                                                <X size={16} color="#6b7280" />
+                                            <TouchableOpacity
+                                                style={chipStyle(isToday)}
+                                                onPress={() => {
+                                                    if (isToday) { setDateFrom(''); setDateTo(''); }
+                                                    else { setDateFrom(todayStr); setDateTo(todayStr); setShowQuickDatePicker(false); }
+                                                }}
+                                            >
+                                                <Text style={chipTextStyle(isToday)}>Today</Text>
                                             </TouchableOpacity>
+                                            <TouchableOpacity
+                                                style={chipStyle(isTomorrow)}
+                                                onPress={() => {
+                                                    if (isTomorrow) { setDateFrom(''); setDateTo(''); }
+                                                    else { setDateFrom(tomorrowStr); setDateTo(tomorrowStr); setShowQuickDatePicker(false); }
+                                                }}
+                                            >
+                                                <Text style={chipTextStyle(isTomorrow)}>Tomorrow</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                                style={chipStyle(isCustom as boolean)}
+                                                onPress={() => setShowQuickDatePicker(prev => !prev)}
+                                            >
+                                                <Text style={chipTextStyle(isCustom as boolean)}>
+                                                    {isCustom ? `${dateFrom || '…'} → ${dateTo || '…'}` : 'Pick Date'}
+                                                </Text>
+                                            </TouchableOpacity>
+                                            {false && (
+                                                <TouchableOpacity
+                                                    style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 20, backgroundColor: 'rgba(255,100,100,0.25)', borderWidth: 1, borderColor: 'rgba(255,150,150,0.5)' }}
+                                                    onPress={() => { setDateFrom(''); setDateTo(''); setShowQuickDatePicker(false); }}
+                                                >
+                                                    <Text style={{ color: '#fca5a5', fontWeight: '700', fontSize: 13 }}>✕ Clear</Text>
+                                                </TouchableOpacity>
+                                            )}
                                         </View>
-                                        <CalendarPicker
-                                            selectedDate={dateFrom}
-                                            onSelect={(d) => {
-                                                setDateFrom(d);
-                                                setDateTo(d);
-                                                setShowQuickDatePicker(false);
-                                            }}
-                                            minDate="1900-01-01"
-                                        />
-                                    </View>
-                                )}
-                            </View>
-                        );
-                    })()}
+                                    </ScrollView>
+
+                                    {/* Inline calendar for custom date */}
+                                    {showQuickDatePicker && (
+                                        <View className="mt-3 bg-white rounded-2xl overflow-hidden" style={{ elevation: 8 }}>
+                                            <View className="px-4 pt-3 pb-1 flex-row justify-between items-center">
+                                                <Text className="font-bold text-gray-700 text-sm">Pick a date</Text>
+                                                <TouchableOpacity onPress={() => setShowQuickDatePicker(false)}>
+                                                    <X size={16} color="#6b7280" />
+                                                </TouchableOpacity>
+                                            </View>
+                                            <CalendarPicker
+                                                selectedDate={dateFrom}
+                                                onSelect={(d) => {
+                                                    setDateFrom(d);
+                                                    setDateTo(d);
+                                                    setShowQuickDatePicker(false);
+                                                }}
+                                                minDate="1900-01-01"
+                                            />
+                                        </View>
+                                    )}
+                                </View>
+                            );
+                        })()}
+                    </Animated.View>
 
                     {headerMenuVisible && (
                         <View
@@ -2123,6 +2527,7 @@ const AppointmentsScreen = () => {
                             <TouchableOpacity
                                 onPress={() => {
                                     setExportError('');
+                                    setExportSelectedDoctorId('ALL');
                                     setExportModalVisible(true);
                                     setHeaderMenuVisible(false);
                                 }}
@@ -2147,6 +2552,7 @@ const AppointmentsScreen = () => {
                                     setDateFrom('');
                                     setDateTo('');
                                     setStatusFilter('ALL');
+                                    setSelectedDoctorFilter('ALL');
                                     setOpenCardMenuId(null);
                                     setHeaderMenuVisible(false);
                                 }}
@@ -2163,7 +2569,7 @@ const AppointmentsScreen = () => {
                             <TextInput
                                 ref={searchInputRef}
                                 className="flex-1 ml-2 text-gray-800 text-sm"
-                                placeholder="Search by patient, clinic, phone, booking id"
+                                placeholder={isHospitalStaff ? 'Search by patient, doctor, clinic, phone, booking id' : 'Search by patient, clinic, phone, booking id'}
                                 placeholderTextColor="#9ca3af"
                                 value={searchQuery}
                                 onChangeText={setSearchQuery}
@@ -2171,8 +2577,39 @@ const AppointmentsScreen = () => {
                             />
                         </View>
                     )}
-                    <View className="mt-3">
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <Animated.View
+                        style={{
+                            maxHeight: headerFiltersAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [0, 54],
+                            }),
+                            opacity: headerFiltersAnim,
+                            overflow: 'hidden',
+                            marginTop: headerFiltersAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [0, 12],
+                            }),
+                            transform: [
+                                {
+                                    translateY: headerFiltersAnim.interpolate({
+                                        inputRange: [0, 1],
+                                        outputRange: [-8, 0],
+                                    }),
+                                },
+                            ],
+                        }}
+                    >
+                        <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            onTouchStart={lockHorizontalSwipe}
+                            onTouchEnd={unlockHorizontalSwipe}
+                            onTouchCancel={unlockHorizontalSwipe}
+                            onScrollBeginDrag={lockHorizontalSwipe}
+                            onScrollEndDrag={unlockHorizontalSwipe}
+                            onMomentumScrollBegin={lockHorizontalSwipe}
+                            onMomentumScrollEnd={unlockHorizontalSwipe}
+                        >
                             <View className="flex-row">
                                 {(['ALL', 'BOOKED', 'PENDING', 'COMPLETED', 'CANCELLED'] as const).map((status) => {
                                     const active = statusFilter === status;
@@ -2208,7 +2645,131 @@ const AppointmentsScreen = () => {
                                 })}
                             </View>
                         </ScrollView>
-                    </View>
+                    </Animated.View>
+                    {isHospitalStaff && doctorChipItems.length > 0 && (
+                        <View className="mt-3">
+                            <View
+                                className="rounded-2xl px-2 py-2"
+                                style={{
+                                    backgroundColor: '#eef2ff',
+                                    borderWidth: 1,
+                                    borderColor: '#c7d2fe',
+                                    shadowColor: '#c7d2fe',
+                                    shadowOpacity: 0.18,
+                                    shadowRadius: 8,
+                                    shadowOffset: { width: 0, height: 2 },
+                                    elevation: 2,
+                                }}
+                            >
+                                <View
+                                    className="relative"
+                                    onLayout={(event) => setDoctorChipViewportWidth(event.nativeEvent.layout.width)}
+                                >
+                                    <ScrollView
+                                        horizontal
+                                        showsHorizontalScrollIndicator={false}
+                                        onTouchStart={lockHorizontalSwipe}
+                                        onTouchEnd={unlockHorizontalSwipe}
+                                        onTouchCancel={unlockHorizontalSwipe}
+                                        onScrollBeginDrag={lockHorizontalSwipe}
+                                        onScrollEndDrag={unlockHorizontalSwipe}
+                                        onMomentumScrollBegin={lockHorizontalSwipe}
+                                        onMomentumScrollEnd={unlockHorizontalSwipe}
+                                        onScroll={(event) => setDoctorChipScrollX(event.nativeEvent.contentOffset.x)}
+                                        onContentSizeChange={(width) => setDoctorChipContentWidth(width)}
+                                        scrollEventThrottle={16}
+                                    >
+                                        <View className="flex-row pr-1">
+                                            {doctorChipItems.map((chip) => {
+                                                const active = selectedDoctorFilter === chip.doctorId;
+                                                return (
+                                                    <TouchableOpacity
+                                                        key={chip.key}
+                                                        onPress={() => setSelectedDoctorFilter(chip.doctorId)}
+                                                        className="mr-2 rounded-full border px-3 py-2 flex-row items-center"
+                                                        style={{
+                                                            backgroundColor: active ? '#1d4ed8' : '#ffffff',
+                                                            borderColor: active ? '#1d4ed8' : '#dbe4ff',
+                                                        }}
+                                                    >
+                                                        <Text
+                                                            numberOfLines={1}
+                                                            style={{
+                                                                color: active ? '#ffffff' : '#334155',
+                                                                fontWeight: '700',
+                                                                fontSize: 12,
+                                                                maxWidth: 130,
+                                                            }}
+                                                        >
+                                                            {chip.label}
+                                                        </Text>
+                                                        <View
+                                                            className="ml-2 rounded-full px-2 py-0.5"
+                                                            style={{ backgroundColor: active ? 'rgba(255,255,255,0.18)' : '#eef2ff' }}
+                                                        >
+                                                            <Text
+                                                                style={{
+                                                                    color: active ? '#ffffff' : '#1d4ed8',
+                                                                    fontSize: 11,
+                                                                    fontWeight: '800',
+                                                                }}
+                                                            >
+                                                                {chip.count}
+                                                            </Text>
+                                                        </View>
+                                                    </TouchableOpacity>
+                                                );
+                                            })}
+                                        </View>
+                                    </ScrollView>
+                                    {showDoctorChipLeftHint && (
+                                        <Animated.View
+                                            pointerEvents="none"
+                                            className="absolute left-0 top-0 bottom-0 justify-center pl-1"
+                                            style={{ opacity: chipHintOpacity }}
+                                        >
+                                            <View
+                                                className="w-7 h-7 rounded-full items-center justify-center border"
+                                                style={{
+                                                    backgroundColor: 'rgba(30,41,59,0.34)',
+                                                    borderColor: 'rgba(255,255,255,0.24)',
+                                                    shadowColor: '#0f172a',
+                                                    shadowOpacity: 0.12,
+                                                    shadowRadius: 6,
+                                                    shadowOffset: { width: 0, height: 2 },
+                                                    elevation: 3,
+                                                }}
+                                            >
+                                                <ChevronLeft size={14} color="#ffffff" />
+                                            </View>
+                                        </Animated.View>
+                                    )}
+                                    {showDoctorChipRightHint && (
+                                        <Animated.View
+                                            pointerEvents="none"
+                                            className="absolute right-0 top-0 bottom-0 justify-center pr-1"
+                                            style={{ opacity: chipHintOpacity }}
+                                        >
+                                            <View
+                                                className="w-7 h-7 rounded-full items-center justify-center border"
+                                                style={{
+                                                    backgroundColor: 'rgba(30,41,59,0.34)',
+                                                    borderColor: 'rgba(255,255,255,0.24)',
+                                                    shadowColor: '#0f172a',
+                                                    shadowOpacity: 0.12,
+                                                    shadowRadius: 6,
+                                                    shadowOffset: { width: 0, height: 2 },
+                                                    elevation: 3,
+                                                }}
+                                            >
+                                                <ChevronRight size={14} color="#ffffff" />
+                                            </View>
+                                        </Animated.View>
+                                    )}
+                                </View>
+                            </View>
+                        </View>
+                    )}
                 </View>
 
                 {/* List */}
@@ -2223,6 +2784,8 @@ const AppointmentsScreen = () => {
                     onScrollBeginDrag={() => {
                         if (openCardMenuId !== null) setOpenCardMenuId(null);
                     }}
+                    onScroll={handleAppointmentListScroll}
+                    scrollEventThrottle={16}
                     contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
                     showsVerticalScrollIndicator={false}
                     refreshControl={
@@ -2770,6 +3333,38 @@ const AppointmentsScreen = () => {
                                 </View>
                             </View>
 
+                            {isHospitalStaff && exportDoctorItems.length > 0 && (
+                                <View>
+                                    <Text className="text-sm font-bold text-gray-700 mb-2">Doctor</Text>
+                                    <ScrollView
+                                        horizontal
+                                        showsHorizontalScrollIndicator={false}
+                                        contentContainerStyle={{ paddingRight: 8 }}
+                                    >
+                                        <View className="flex-row">
+                                            {exportDoctorItems.map((item) => {
+                                                const active = exportSelectedDoctorId === item.doctorId;
+                                                return (
+                                                    <TouchableOpacity
+                                                        key={item.key}
+                                                        onPress={() => setExportSelectedDoctorId(item.doctorId)}
+                                                        className={`mr-2 rounded-full border px-3 py-2 ${active ? 'bg-blue-50 border-blue-500' : 'bg-white border-gray-200'}`}
+                                                    >
+                                                        <Text
+                                                            className={`text-sm font-semibold ${active ? 'text-blue-700' : 'text-gray-600'}`}
+                                                            numberOfLines={1}
+                                                            style={{ maxWidth: 150 }}
+                                                        >
+                                                            {item.label}
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                );
+                                            })}
+                                        </View>
+                                    </ScrollView>
+                                </View>
+                            )}
+
                             {exportError ? (
                                 <View className="bg-red-50 border border-red-200 rounded-xl px-3 py-2">
                                     <Text className="text-sm text-red-600">{exportError}</Text>
@@ -3010,18 +3605,45 @@ const AppointmentsScreen = () => {
                                         )}
                                     </View>
 
+                                    {isHospitalStaff && (
+                                        <View>
+                                            <Text className="text-sm font-bold text-gray-700 mb-2">
+                                                Doctor <Text className="text-red-500">*</Text>
+                                            </Text>
+                                            <DoctorDropdown
+                                                doctors={hospitalDoctors}
+                                                selectedId={formData.doctor_id}
+                                                onSelect={(id) => {
+                                                    const doctorClinics = clinics.filter((clinic) => Number(clinic?.doctor_id) === Number(id));
+                                                    setFormData((prev) => ({
+                                                        ...prev,
+                                                        doctor_id: id,
+                                                        clinic_id: doctorClinics.length === 1 ? String(doctorClinics[0].clinic_id) : '',
+                                                        date: '',
+                                                        time: '',
+                                                    }));
+                                                }}
+                                            />
+                                        </View>
+                                    )}
+
                                     {/* Clinic Dropdown */}
                                     <View>
                                         <Text className="text-sm font-bold text-gray-700 mb-2">
                                             Clinic <Text className="text-red-500">*</Text>
                                         </Text>
                                         <ClinicDropdown
-                                            clinics={clinics}
+                                            clinics={visibleCreateClinics}
                                             selectedId={formData.clinic_id}
                                             onSelect={id =>
                                                 setFormData({ ...formData, clinic_id: id, date: '', time: '' })
                                             }
                                         />
+                                        {isHospitalStaff && !formData.doctor_id && (
+                                            <Text className="text-xs text-gray-400 mt-2">
+                                                Select a doctor first to see that doctor&apos;s clinic.
+                                            </Text>
+                                        )}
                                     </View>
 
                                     {/* Date — calendar toggle */}
@@ -3060,7 +3682,9 @@ const AppointmentsScreen = () => {
                                                 />
                                                 {!formData.clinic_id && (
                                                     <Text className="text-xs text-gray-400 text-center mt-3">
-                                                        Select a clinic first to see available slot dates.
+                                                        {isHospitalStaff
+                                                            ? 'Select doctor and clinic first to see available slot dates.'
+                                                            : 'Select a clinic first to see available slot dates.'}
                                                     </Text>
                                                 )}
                                                 {!!formData.clinic_id && !loadingDates && availableDates.size === 0 && (
@@ -3185,7 +3809,9 @@ const AppointmentsScreen = () => {
                                                 <Text className="text-gray-400 text-sm italic text-center">
                                                     {formData.clinic_id && formData.date
                                                         ? 'No slots available for this date'
-                                                        : 'Select a clinic and date to see available slots'}
+                                                        : (isHospitalStaff
+                                                            ? 'Select doctor, clinic and date to see available slots'
+                                                            : 'Select a clinic and date to see available slots')}
                                                 </Text>
                                             </View>
                                         )}
@@ -3200,6 +3826,13 @@ const AppointmentsScreen = () => {
                                             <Text className="text-blue-600 text-sm">
                                                  {formatDisplayDate(formData.date)}{'  ·  '} {to12h(formData.time)}
                                             </Text>
+                                            {isHospitalStaff && formData.doctor_id ? (
+                                                <Text className="text-blue-600 text-sm mt-1">
+                                                     {hospitalDoctors.find((doctor) => String(doctor.doctor_id) === String(formData.doctor_id))?.doctor_name
+                                                        ? `Dr. ${hospitalDoctors.find((doctor) => String(doctor.doctor_id) === String(formData.doctor_id))?.doctor_name}`
+                                                        : 'Selected doctor'}
+                                                </Text>
+                                            ) : null}
                                             <Text className="text-blue-600 text-sm mt-1">
                                                  {clinics.find(c => c.clinic_id.toString() === formData.clinic_id)?.clinic_name}
                                             </Text>

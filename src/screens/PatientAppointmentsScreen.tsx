@@ -22,6 +22,7 @@ import { getPatientProfile } from '../api/auth';
 import { getClinics } from '../api/clinics';
 import { getSlots, getAvailableDates } from '../api/slots';
 import { getAllDoctors } from '../api/doctors';
+import { isDoctorBookableForPatient } from '../lib/doctorAvailability';
 import type { PatientTabParamList } from '../navigation/types';
 
 type AppointmentItem = {
@@ -203,7 +204,7 @@ export default function PatientAppointmentsScreen() {
 
         const ds = ((doctorsRes?.doctors || []) as any[])
             .filter((d) => d?.doctor_id)
-            .filter((d) => String(d?.status || '').toUpperCase() !== 'INACTIVE')
+            .filter((d) => isDoctorBookableForPatient(d))
             .map((d) => ({
                 doctor_id: d.doctor_id,
                 doctor_name: d.doctor_name || 'Doctor',
@@ -260,6 +261,20 @@ export default function PatientAppointmentsScreen() {
         });
         setClinics(filtered);
     }, [form.doctor_id, allClinics]);
+
+    useEffect(() => {
+        if (!form.doctor_id) return;
+        const doctorStillAvailable = doctors.some((doctor) => String(doctor.doctor_id) === String(form.doctor_id));
+        if (doctorStillAvailable) return;
+
+        setForm((prev) => ({
+            ...prev,
+            doctor_id: '',
+            clinic_id: '',
+            date: '',
+            time: '',
+        }));
+    }, [doctors, form.doctor_id]);
 
     const now = Date.now();
     const withTs = (a: AppointmentItem) => {

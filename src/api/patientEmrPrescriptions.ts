@@ -45,6 +45,9 @@ const normalizePatientDocumentUrl = (value: string) => {
     }
 };
 
+const normalizeSummaryText = (value: string | null | undefined) =>
+    String(value || '').replace(/\s+/g, ' ').trim().toUpperCase();
+
 export const listPatientEmrPrescriptions = async (params: {
     doctor_id: number;
 }) => {
@@ -56,6 +59,8 @@ export const listPatientEmrPrescriptions = async (params: {
     return {
         prescriptions: (data.prescriptions || []).map((item) => ({
             ...item,
+            complaint_summary: normalizeSummaryText(item.complaint_summary),
+            diagnosis_summary: normalizeSummaryText(item.diagnosis_summary),
             view_url: normalizePatientDocumentUrl(item.view_url),
             download_url: normalizePatientDocumentUrl(item.download_url),
         })),

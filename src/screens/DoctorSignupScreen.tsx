@@ -85,6 +85,15 @@ function getTermsAndConditionsUrl() {
     return apiUrl.replace(/\/api\/?$/i, '') + '/terms-and-conditions';
 }
 
+function getPrivacyPolicyUrl() {
+    const apiUrl = String(process.env.EXPO_PUBLIC_API_URL || '').trim();
+    if (!apiUrl) {
+        return 'https://dapto.vinfocom.co.in/privacy-policy';
+    }
+
+    return apiUrl.replace(/\/api\/?$/i, '') + '/privacy-policy';
+}
+
 function maskEmail(value: string) {
     const [name = '', domain = ''] = String(value || '').split('@');
     if (!name || !domain) return value;
@@ -293,6 +302,22 @@ export default function DoctorSignupScreen() {
             await Linking.openURL(url);
         } catch {
             Alert.alert('Unable to Open', 'Terms & Conditions link is not available right now.');
+        }
+    };
+
+    const handleOpenPrivacyPolicy = async () => {
+        const url = getPrivacyPolicyUrl();
+
+        try {
+            const supported = await Linking.canOpenURL(url);
+            if (!supported) {
+                Alert.alert('Unable to Open', 'Privacy Policy link is not available right now.');
+                return;
+            }
+
+            await Linking.openURL(url);
+        } catch {
+            Alert.alert('Unable to Open', 'Privacy Policy link is not available right now.');
         }
     };
 
@@ -1009,6 +1034,11 @@ export default function DoctorSignupScreen() {
                         <Text className="font-semibold text-blue-600" onPress={() => void handleOpenTermsAndConditions()}>
                             Terms &amp; Conditions
                         </Text>
+                        {'\n'}
+                        and acknowledge that you have read our{' '}
+                        <Text className="font-semibold text-blue-600" onPress={() => void handleOpenPrivacyPolicy()}>
+                            Privacy Policy
+                        </Text>
                         .
                     </Text>
                 </View>
@@ -1017,7 +1047,7 @@ export default function DoctorSignupScreen() {
                     onBack: () => setStep(5),
                     onContinue: handleSignup,
                     continueDisabled: loading || !isSignupVerificationCurrent,
-                    continueLabel: 'Submit for Review',
+                    continueLabel: 'Submit',
                     continueLoading: loading,
                 })}
             </>
@@ -1561,14 +1591,6 @@ export default function DoctorSignupScreen() {
                             <Text className="text-blue-600 font-semibold">Already have an account? Sign in</Text>
                         </TouchableOpacity>
 
-                        <View className="px-4 mt-3">
-                            <View className="flex-row items-center justify-center">
-                                <ShieldCheck size={14} color="#9ca3af" />
-                                <Text className="text-xs text-gray-400 text-center ml-2">
-                                    Your session is encrypted and secure.
-                                </Text>
-                            </View>
-                        </View>
                     </Animated.View>
                 </ScrollView>
             </KeyboardAvoidingView>

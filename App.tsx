@@ -161,6 +161,11 @@ export default function App() {
       return;
     }
 
+    if (pendingNotificationData.type === 'sms_pack') {
+      setPendingNotificationData(null);
+      return;
+    }
+
     if (pendingNotificationData.type !== 'chat') return;
 
     const patientId = Number(pendingNotificationData.patientId);

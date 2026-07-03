@@ -1,7 +1,17 @@
 import React from 'react';
-import { SUPPORTED_LANGUAGES, translations } from './config';
-import { DEFAULT_LANGUAGE, getStoredLanguage, setStoredLanguage } from './storage';
-import type { LanguageCode, LanguageOption, TranslationDictionary, TranslationValue } from './types';
+
+export const DEFAULT_LANGUAGE = 'en' as const;
+export const LANGUAGE_STORAGE_KEY = 'app_language';
+
+export type LanguageCode = typeof DEFAULT_LANGUAGE;
+export type LanguageOption = {
+    code: LanguageCode;
+    label: string;
+};
+
+export interface TranslationDictionary {
+    [key: string]: string | TranslationDictionary;
+}
 
 type TranslateOptions = {
     fallback?: string;
@@ -16,22 +26,10 @@ type LanguageContextValue = {
     supportedLanguages: readonly LanguageOption[];
 };
 
+const SUPPORTED_LANGUAGES = [{ code: DEFAULT_LANGUAGE, label: 'English' }] as const;
+const commonTranslationKeys: readonly string[] = [];
+
 const LanguageContext = React.createContext<LanguageContextValue | undefined>(undefined);
-
-function getTranslationValue(dictionary: TranslationDictionary, key: string): string | undefined {
-    const segments = key.split('.');
-    let current: TranslationValue | undefined = dictionary;
-
-    for (const segment of segments) {
-        if (!current || typeof current === 'string') {
-            return undefined;
-        }
-
-        current = current[segment];
-    }
-
-    return typeof current === 'string' ? current : undefined;
-}
 
 function interpolate(template: string, values?: Record<string, string | number>) {
     if (!values) return template;
@@ -42,57 +40,19 @@ function interpolate(template: string, values?: Record<string, string | number>)
     });
 }
 
-function createTranslator(language: LanguageCode) {
-    return (key: string, options?: TranslateOptions) => {
-        const currentDictionary = translations[language] ?? translations[DEFAULT_LANGUAGE];
-        const fallbackDictionary = translations[DEFAULT_LANGUAGE];
-        const translated =
-            (currentDictionary ? getTranslationValue(currentDictionary, key) : undefined) ??
-            (fallbackDictionary ? getTranslationValue(fallbackDictionary, key) : undefined) ??
-            options?.fallback ??
-            key;
-
-        return interpolate(translated, options?.values);
-    };
+function createTranslator() {
+    return (key: string, options?: TranslateOptions) => interpolate(options?.fallback ?? key, options?.values);
 }
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
     const [currentLanguage, setCurrentLanguage] = React.useState<LanguageCode>(DEFAULT_LANGUAGE);
-    const [isReady, setIsReady] = React.useState(false);
-
-    React.useEffect(() => {
-        let isMounted = true;
-
-        getStoredLanguage()
-            .then((storedLanguage) => {
-                if (!isMounted) return;
-                setCurrentLanguage(storedLanguage);
-            })
-            .catch(() => {
-                if (!isMounted) return;
-                setCurrentLanguage(DEFAULT_LANGUAGE);
-            })
-            .finally(() => {
-                if (!isMounted) return;
-                setIsReady(true);
-            });
-
-        return () => {
-            isMounted = false;
-        };
-    }, []);
+    const [isReady] = React.useState(true);
 
     const setLanguage = React.useCallback(async (language: LanguageCode) => {
         setCurrentLanguage(language);
-
-        try {
-            await setStoredLanguage(language);
-        } catch (error) {
-            console.warn('[i18n] Failed to persist selected language', error);
-        }
     }, []);
 
-    const t = React.useMemo(() => createTranslator(currentLanguage), [currentLanguage]);
+    const t = React.useMemo(() => createTranslator(), []);
 
     const value = React.useMemo(
         () => ({
@@ -118,6 +78,4 @@ export function useLanguage() {
     return context;
 }
 
-export type { LanguageCode, LanguageOption, TranslationDictionary } from './types';
-export { DEFAULT_LANGUAGE, LANGUAGE_STORAGE_KEY } from './storage';
-export { commonTranslationKeys } from './shared';
+export { commonTranslationKeys };

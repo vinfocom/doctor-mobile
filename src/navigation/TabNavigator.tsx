@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { TabActions, useNavigation, type NavigationProp } from '@react-navigation/native';
 import { MainTabParamList } from './types';
@@ -13,6 +13,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 import { getChatNotifications } from '../api/notifications';
 import { useAuthSession } from '../context/AuthSessionContext';
+import { SwipeNavigationLockProvider, useSwipeNavigationLock } from './SwipeNavigationLockContext';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
@@ -26,6 +27,7 @@ function SwipeTabScreen({
     tabOrder: Array<keyof MainTabParamList>;
 }) {
     const navigation = useNavigation<NavigationProp<MainTabParamList>>();
+    const { isSwipeLocked } = useSwipeNavigationLock();
 
     const moveToTab = React.useCallback(
         (delta: -1 | 1) => {
@@ -41,6 +43,7 @@ function SwipeTabScreen({
     const swipeGesture = React.useMemo(
         () =>
             Gesture.Pan()
+                .enabled(!isSwipeLocked)
                 .activeOffsetX([-24, 24])
                 .failOffsetY([-18, 18])
                 .onEnd((event) => {
@@ -49,7 +52,7 @@ function SwipeTabScreen({
                     if (openNext) runOnJS(moveToTab)(1);
                     if (openPrev) runOnJS(moveToTab)(-1);
                 }),
-        [moveToTab]
+        [isSwipeLocked, moveToTab]
     );
 
     return (
@@ -89,11 +92,21 @@ const TabNavigator = () => {
         return () => clearInterval(interval);
     }, []);
 
+    if (!role) {
+        return (
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f9fafb' }}>
+                <ActivityIndicator size="large" color="#2563eb" />
+                <Text style={{ color: '#9ca3af', marginTop: 12, fontSize: 14 }}>Loading your profile...</Text>
+            </View>
+        );
+    }
+
     return (
-        <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
-            <Tab.Navigator
-                detachInactiveScreens={false}
-                screenOptions={({ route }) => ({
+        <SwipeNavigationLockProvider>
+            <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
+                <Tab.Navigator
+                    detachInactiveScreens={false}
+                    screenOptions={({ route }) => ({
                 headerShown: false,
                 lazy: false,
                 animation: 'shift',
@@ -120,42 +133,43 @@ const TabNavigator = () => {
                 },
                 tabBarActiveTintColor: '#007bff',
                 tabBarInactiveTintColor: 'gray',
-                })}
-            >
-                <Tab.Screen name="Dashboard">
-                    {() => <SwipeTabScreen ScreenComponent={DashboardScreen} currentTab="Dashboard" tabOrder={tabOrder} />}
-                </Tab.Screen>
-                <Tab.Screen name="Appointments">
-                    {() => <SwipeTabScreen ScreenComponent={AppointmentsScreen} currentTab="Appointments" tabOrder={tabOrder} />}
-                </Tab.Screen>
-                {!isClinicStaff && (
-                    <Tab.Screen name="Clinics">
-                        {() => <SwipeTabScreen ScreenComponent={ClinicsScreen} currentTab="Clinics" tabOrder={tabOrder} />}
+                    })}
+                >
+                    <Tab.Screen name="Dashboard">
+                        {() => <SwipeTabScreen ScreenComponent={DashboardScreen} currentTab="Dashboard" tabOrder={tabOrder} />}
                     </Tab.Screen>
-                )}
-                {!isClinicStaff && (
-                    <Tab.Screen
-                        name="Patients"
-                        options={{
-                            title: 'Patients',
-                            tabBarBadge: unreadChatCount > 0 ? (unreadChatCount > 99 ? '99+' : unreadChatCount) : undefined,
-                        }}
-                        listeners={{
-                            tabPress: () => {
-                                setUnreadChatCount(0);
-                            },
-                        }}
-                    >
-                        {() => <SwipeTabScreen ScreenComponent={Patients} currentTab="Patients" tabOrder={tabOrder} />}
+                    <Tab.Screen name="Appointments">
+                        {() => <SwipeTabScreen ScreenComponent={AppointmentsScreen} currentTab="Appointments" tabOrder={tabOrder} />}
                     </Tab.Screen>
-                )}
-                {!isClinicStaff && (
-                    <Tab.Screen name="CalendarView" options={{ title: 'Trends' }}>
-                        {() => <SwipeTabScreen ScreenComponent={CalendarScreen} currentTab="CalendarView" tabOrder={tabOrder} />}
-                    </Tab.Screen>
-                )}
-            </Tab.Navigator>
-        </View>
+                    {!isClinicStaff && (
+                        <Tab.Screen name="Clinics">
+                            {() => <SwipeTabScreen ScreenComponent={ClinicsScreen} currentTab="Clinics" tabOrder={tabOrder} />}
+                        </Tab.Screen>
+                    )}
+                    {!isClinicStaff && (
+                        <Tab.Screen
+                            name="Patients"
+                            options={{
+                                title: 'Patients',
+                                tabBarBadge: unreadChatCount > 0 ? (unreadChatCount > 99 ? '99+' : unreadChatCount) : undefined,
+                            }}
+                            listeners={{
+                                tabPress: () => {
+                                    setUnreadChatCount(0);
+                                },
+                            }}
+                        >
+                            {() => <SwipeTabScreen ScreenComponent={Patients} currentTab="Patients" tabOrder={tabOrder} />}
+                        </Tab.Screen>
+                    )}
+                    {!isClinicStaff && (
+                        <Tab.Screen name="CalendarView" options={{ title: 'Trends' }}>
+                            {() => <SwipeTabScreen ScreenComponent={CalendarScreen} currentTab="CalendarView" tabOrder={tabOrder} />}
+                        </Tab.Screen>
+                    )}
+                </Tab.Navigator>
+            </View>
+        </SwipeNavigationLockProvider>
     );
 };
 

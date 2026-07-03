@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     View,
     Text,
@@ -9,6 +9,8 @@ import {
     StatusBar,
     RefreshControl,
     Image,
+    Modal,
+    TextInput,
 } from 'react-native';
 import {
     User,
@@ -27,6 +29,8 @@ import {
     CheckCircle2,
     CalendarClock,
     UserX,
+    ChevronLeft,
+    Search,
 } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { getProfile } from '../api/auth';
@@ -95,14 +99,22 @@ const QuickActionButton = ({
 const DashboardScreen = () => {
     const navigation = useNavigation<DashboardScreenNavigationProp>();
     const isFocused = useIsFocused();
-    const { role, staff_role, staff_doctor_id, name, email, clearSession, refreshSession } = useAuthSession();
+    const { role, staff_role, staff_doctor_id, assigned_doctor_ids, name, email, clearSession, refreshSession } = useAuthSession();
     const isClinicStaff = role === 'CLINIC_STAFF';
+    const normalizedAssignedDoctorIds = React.useMemo(
+        () => Array.from(new Set((assigned_doctor_ids || []).map((doctorId) => Number(doctorId)).filter((doctorId) => Number.isFinite(doctorId) && doctorId > 0))),
+        [assigned_doctor_ids]
+    );
+    const isHospitalStaff = isClinicStaff && normalizedAssignedDoctorIds.length > 1;
     const getClinicStaffProfile = React.useCallback(async () => ({ doctor: null }), []);
     const [refreshing, setRefreshing] = useState(false);
     const [notifCount, setNotifCount] = useState(0);
     const [announcementNotifCount, setAnnouncementNotifCount] = useState(0);
     const [unreadSenders, setUnreadSenders] = useState<Map<number, { patientName: string; doctorId: number }>>(new Map());
     const lastNotifCheckAtRef = useRef<string>(new Date(Date.now() - 60 * 1000).toISOString());
+    const [doctorPickerVisible, setDoctorPickerVisible] = useState(false);
+    const [doctorSearchText, setDoctorSearchText] = useState('');
+    const [selectedDoctorId, setSelectedDoctorId] = useState<number | 'ALL'>('ALL');
 
     const {
         data: profileData,
@@ -112,22 +124,53 @@ const DashboardScreen = () => {
         isClinicStaff ? 'clinic-staff:profile' : 'doctor:profile',
         isClinicStaff ? getClinicStaffProfile : getProfile
     );
+    const loadClinicStaffDoctorLookup = useCallback(async () => {
+        if (!isClinicStaff || !staff_doctor_id) return null;
+        const response = await getAllDoctors();
+        const doctors = Array.isArray(response) ? response : (response?.doctors || []);
+        const matchedDoctor = doctors.find((item: any) => Number(item?.doctor_id) === Number(staff_doctor_id));
+        return matchedDoctor || null;
+    }, [isClinicStaff, staff_doctor_id]);
     const { data: clinicStaffDoctorLookup } = useSWRLite(
         isClinicStaff && staff_doctor_id ? `clinic-staff:doctor:${staff_doctor_id}` : 'clinic-staff:doctor:none',
-        async () => {
-            if (!isClinicStaff || !staff_doctor_id) return null;
-            const response = await getAllDoctors();
-            const doctors = Array.isArray(response) ? response : (response?.doctors || []);
-            const matchedDoctor = doctors.find((item: any) => Number(item?.doctor_id) === Number(staff_doctor_id));
-            return matchedDoctor || null;
-        }
+        loadClinicStaffDoctorLookup
+    );
+    const loadHospitalAssignedDoctors = useCallback(async () => {
+        if (!isHospitalStaff || normalizedAssignedDoctorIds.length === 0) return [];
+        const response = await getAllDoctors();
+        const doctors = Array.isArray(response) ? response : (response?.doctors || []);
+        return doctors
+            .filter((item: any) => normalizedAssignedDoctorIds.includes(Number(item?.doctor_id)))
+            .sort((a: any, b: any) => String(a?.doctor_name || '').localeCompare(String(b?.doctor_name || '')));
+    }, [isHospitalStaff, normalizedAssignedDoctorIds]);
+    const { data: hospitalAssignedDoctors, isLoading: hospitalDoctorsLoading } = useSWRLite(
+        isHospitalStaff ? `clinic-staff:hospital-doctors:${normalizedAssignedDoctorIds.join(',')}` : 'clinic-staff:hospital-doctors:none',
+        loadHospitalAssignedDoctors
     );
     const profile = profileData?.doctor;
-    const displayName = isClinicStaff ? (name || 'Clinic Staff') : (profile?.doctor_name || 'Doctor');
+    const displayName = isClinicStaff ? (name || (isHospitalStaff ? 'Hospital Staff' : 'Clinic Staff')) : (profile?.doctor_name || 'Doctor');
     const linkedDoctorName = String(clinicStaffDoctorLookup?.doctor_name || '').trim();
+    const hospitalRoleLabel = staff_role ? String(staff_role).replace(/_/g, ' ') : 'Have Access';
     const roleBadgeLabel = isClinicStaff
-        ? `Clinic Staff${staff_role ? ` | ${String(staff_role).replace(/_/g, ' ')}` : ''}`
+        ? isHospitalStaff
+            ? `Hospital Staff | ${hospitalRoleLabel}`
+            : `Clinic Staff${staff_role ? ` | ${String(staff_role).replace(/_/g, ' ')}` : ''}`
         : 'Doctor';
+    const assignedDoctors = React.useMemo(
+        () => (Array.isArray(hospitalAssignedDoctors) ? hospitalAssignedDoctors : []),
+        [hospitalAssignedDoctors]
+    );
+    const selectedDoctor = React.useMemo(() => {
+        if (selectedDoctorId === 'ALL') return null;
+        return assignedDoctors.find((doctor: any) => Number(doctor?.doctor_id) === Number(selectedDoctorId)) || null;
+    }, [assignedDoctors, selectedDoctorId]);
+    const filteredAssignedDoctors = React.useMemo(() => {
+        const query = doctorSearchText.trim().toLowerCase();
+        if (!query) return assignedDoctors;
+        return assignedDoctors.filter((doctor: any) =>
+            String(doctor?.doctor_name || '').toLowerCase().includes(query)
+        );
+    }, [assignedDoctors, doctorSearchText]);
 
     const [upcomingToday, setUpcomingToday] = useState<any[]>([]);
     const [upcomingLoading, setUpcomingLoading] = useState(true);
@@ -144,6 +187,23 @@ const DashboardScreen = () => {
     }, []);
 
     useEffect(() => { loadUpcoming(); }, [loadUpcoming]);
+
+    useEffect(() => {
+        if (!isHospitalStaff) {
+            setSelectedDoctorId('ALL');
+            setDoctorSearchText('');
+            setDoctorPickerVisible(false);
+        }
+    }, [isHospitalStaff]);
+
+    useEffect(() => {
+        if (!isHospitalStaff) return;
+        if (selectedDoctorId === 'ALL') return;
+        const doctorStillAssigned = assignedDoctors.some((doctor: any) => Number(doctor?.doctor_id) === Number(selectedDoctorId));
+        if (!doctorStillAssigned) {
+            setSelectedDoctorId('ALL');
+        }
+    }, [assignedDoctors, isHospitalStaff, selectedDoctorId]);
 
     useFocusEffect(
         React.useCallback(() => {
@@ -266,6 +326,89 @@ const DashboardScreen = () => {
     return (
         <SafeAreaView className="flex-1 bg-gray-50" edges={['left', 'right']}>
             <StatusBar barStyle="light-content" backgroundColor="#3032ceff" />
+            <Modal visible={doctorPickerVisible} animationType="slide" onRequestClose={() => setDoctorPickerVisible(false)}>
+                <SafeAreaView className="flex-1 bg-gray-50" edges={['top', 'left', 'right']}>
+                    <StatusBar barStyle="dark-content" backgroundColor="#f9fafb" />
+                    <View className="flex-row items-center px-4 py-3 bg-white border-b border-gray-100">
+                        <TouchableOpacity
+                            onPress={() => setDoctorPickerVisible(false)}
+                            className="w-10 h-10 rounded-full bg-gray-100 items-center justify-center"
+                            activeOpacity={0.7}
+                        >
+                            <ChevronLeft size={20} color="#111827" />
+                        </TouchableOpacity>
+                        <View className="flex-1 ml-3">
+                            <Text className="text-lg font-bold text-gray-900">Current Doctor</Text>
+                            <Text className="text-xs text-gray-500">Choose one doctor or keep all doctors</Text>
+                        </View>
+                    </View>
+
+                    <View className="px-4 pt-4">
+                        <View className="bg-white border border-gray-200 rounded-2xl px-4 py-3 flex-row items-center">
+                            <Search size={18} color="#6b7280" />
+                            <TextInput
+                                value={doctorSearchText}
+                                onChangeText={setDoctorSearchText}
+                                placeholder="Search doctor"
+                                placeholderTextColor="#9ca3af"
+                                className="flex-1 ml-3 text-gray-800 text-base"
+                            />
+                        </View>
+                    </View>
+
+                    <ScrollView className="flex-1 px-4 pt-4" showsVerticalScrollIndicator={false}>
+                        <TouchableOpacity
+                            activeOpacity={0.75}
+                            onPress={() => {
+                                setSelectedDoctorId('ALL');
+                                setDoctorPickerVisible(false);
+                            }}
+                            className={`rounded-2xl px-4 py-4 mb-3 border ${selectedDoctorId === 'ALL' ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'}`}
+                        >
+                            <Text className={`text-base font-bold ${selectedDoctorId === 'ALL' ? 'text-blue-700' : 'text-gray-900'}`}>All Doctors</Text>
+                            <Text className={`text-xs mt-1 ${selectedDoctorId === 'ALL' ? 'text-blue-600' : 'text-gray-500'}`}>
+                                Combined snapshot for all assigned doctors
+                            </Text>
+                        </TouchableOpacity>
+
+                        {hospitalDoctorsLoading ? (
+                            <View className="py-10 items-center">
+                                <ActivityIndicator size="small" color="#2563eb" />
+                            </View>
+                        ) : filteredAssignedDoctors.length > 0 ? (
+                            filteredAssignedDoctors.map((doctor: any) => {
+                                const doctorId = Number(doctor?.doctor_id || 0);
+                                const isSelected = selectedDoctorId !== 'ALL' && Number(selectedDoctorId) === doctorId;
+                                return (
+                                    <TouchableOpacity
+                                        key={doctorId}
+                                        activeOpacity={0.75}
+                                        onPress={() => {
+                                            setSelectedDoctorId(doctorId);
+                                            setDoctorPickerVisible(false);
+                                        }}
+                                        className={`rounded-2xl px-4 py-4 mb-3 border ${isSelected ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'}`}
+                                    >
+                                        <Text className={`text-base font-bold ${isSelected ? 'text-blue-700' : 'text-gray-900'}`}>
+                                            Dr. {String(doctor?.doctor_name || 'Doctor').trim()}
+                                        </Text>
+                                        {!!doctor?.specialization && (
+                                            <Text className={`text-xs mt-1 ${isSelected ? 'text-blue-600' : 'text-gray-500'}`}>
+                                                {doctor.specialization}
+                                            </Text>
+                                        )}
+                                    </TouchableOpacity>
+                                );
+                            })
+                        ) : (
+                            <View className="bg-white rounded-2xl border border-gray-200 px-4 py-6 items-center">
+                                <Text className="text-sm font-semibold text-gray-700">No doctors found</Text>
+                                <Text className="text-xs text-gray-500 mt-1">Try another search term.</Text>
+                            </View>
+                        )}
+                    </ScrollView>
+                </SafeAreaView>
+            </Modal>
             <ScrollView
                 className="flex-1 bg-gray-50"
                 showsVerticalScrollIndicator={false}
@@ -303,17 +446,17 @@ const DashboardScreen = () => {
                             <Text className="text-white text-4xl font-bold">
                                 {isClinicStaff ? displayName : `Dr. ${displayName}`}
                             </Text>
-                            {isClinicStaff && linkedDoctorName ? (
-                                <View className="self-start mt-3 bg-white/15 border border-white/20 rounded-full px-3 py-1.5">
+                            {isClinicStaff && !isHospitalStaff && linkedDoctorName ? (
+                                <View className="self-center mt-3 bg-white/15 border border-white/20 rounded-full px-3 py-1.5">
                                     <Text className="text-white text-xs font-bold">Dr. {linkedDoctorName}</Text>
                                 </View>
                             ) : (
-                                <View className="self-start mt-3 bg-white/15 border border-white/20 rounded-full px-3 py-1.5">
+                                <View className={`${isHospitalStaff ? 'self-center' : 'self-start'} mt-3 bg-white/15 border border-white/20 rounded-full px-3 py-1.5`}>
                                     <Text className="text-white text-xs font-bold">{roleBadgeLabel}</Text>
                                 </View>
                             )}
-                            {isClinicStaff ? (
-                                <Text className="text-blue-100 text-sm mt-2">{roleBadgeLabel}</Text>
+                            {isClinicStaff && !isHospitalStaff ? (
+                                <Text className="text-blue-100 text-sm mt-2 text-center">{roleBadgeLabel}</Text>
                             ) : null}
                         </View>
 
@@ -409,17 +552,48 @@ const DashboardScreen = () => {
                         </>
                     )}
 
+                    {isHospitalStaff && (
+                        <Animated.View entering={FadeInUp.delay(220).duration(500)} className="mb-5">
+                            <Text className="text-gray-700 font-bold text-sm mb-2">Current Doctor</Text>
+                            <TouchableOpacity
+                                onPress={() => setDoctorPickerVisible(true)}
+                                activeOpacity={0.75}
+                                className="bg-white border border-gray-200 rounded-2xl px-4 py-4 flex-row items-center justify-between"
+                                style={{
+                                    shadowColor: '#000',
+                                    shadowOffset: { width: 0, height: 2 },
+                                    shadowOpacity: 0.05,
+                                    shadowRadius: 6,
+                                    elevation: 2,
+                                }}
+                            >
+                                <View className="flex-1 pr-3">
+                                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-1">Selection</Text>
+                                    <Text className="text-base font-bold text-gray-900">
+                                        {selectedDoctorId === 'ALL'
+                                            ? 'All Doctors'
+                                            : `Dr. ${String(selectedDoctor?.doctor_name || 'Doctor').trim()}`}
+                                    </Text>
+                                </View>
+                                <ArrowRight size={18} color="#6b7280" />
+                            </TouchableOpacity>
+                        </Animated.View>
+                    )}
+
                     {/* Today's Snapshot */}
                     {(() => {
-                        const visited = upcomingToday.filter((a: any) => String(a?.status || '').toUpperCase() === 'COMPLETED').length;
-                        const booked = upcomingToday.filter((a: any) => ['BOOKED', 'CONFIRMED'].includes(String(a?.status || '').toUpperCase())).length;
-                        const pending = upcomingToday.filter((a: any) => String(a?.status || '').toUpperCase() === 'PENDING').length;
-                        const total = upcomingToday.filter((a: any) => String(a?.status || '').toUpperCase() !== 'CANCELLED').length;
+                        const scopedAppointments = isHospitalStaff && selectedDoctorId !== 'ALL'
+                            ? upcomingToday.filter((appointment: any) => Number(appointment?.doctor_id ?? appointment?.doctor?.doctor_id ?? 0) === Number(selectedDoctorId))
+                            : upcomingToday;
+                        const visited = scopedAppointments.filter((a: any) => String(a?.status || '').toUpperCase() === 'COMPLETED').length;
+                        const booked = scopedAppointments.filter((a: any) => ['BOOKED', 'CONFIRMED'].includes(String(a?.status || '').toUpperCase())).length;
+                        const pending = scopedAppointments.filter((a: any) => String(a?.status || '').toUpperCase() === 'PENDING').length;
+                        const total = scopedAppointments.filter((a: any) => String(a?.status || '').toUpperCase() !== 'CANCELLED').length;
 
                         const stats = [
                             { label: 'Visited', value: visited, bg: '#f0fdf4', border: '#bbf7d0', icon: <CheckCircle2 size={20} color="#16a34a" />, num: '#16a34a' },
                             { label: 'Booked', value: booked, bg: '#eff6ff', border: '#bfdbfe', icon: <CalendarClock size={20} color="#2563eb" />, num: '#2563eb' },
-                            { label: 'Pending', value: pending, icon: <UserX size={20} color="#d97706" />, num: '#d97706' },
+                            { label: 'Not Visited', value: pending, bg: '#fff7ed', border: '#fed7aa', icon: <UserX size={20} color="#d97706" />, num: '#d97706' },
                         ];
 
                         return (

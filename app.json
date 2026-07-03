@@ -2,7 +2,7 @@
   "expo": {
     "name": "Dapto",
     "slug": "Dapto",
-    "version": "2.1.0",
+    "version": "3.0.0",
     "orientation": "portrait",
     "icon": "./assets/daptao.png",
     "userInterfaceStyle": "light",
@@ -42,7 +42,7 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.vinfocom.dapto",
-      "versionCode": 21000
+      "versionCode": 30000
     },
     "web": {
       "favicon": "./assets/favicon.png",

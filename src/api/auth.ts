@@ -11,6 +11,7 @@ export interface AuthMeUser {
     staff_role: string | null;
     staff_clinic_id: number | null;
     staff_doctor_id: number | null;
+    assigned_doctor_ids?: number[] | null;
 }
 
 export interface LoginChallenge {

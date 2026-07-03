@@ -12,6 +12,7 @@ import {
     ScrollView,
     StatusBar,
     Modal,
+    Linking,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -29,7 +30,6 @@ import {
     Lock,
     Phone,
     RefreshCw,
-    ShieldCheck,
     UserPlus,
 } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp, ZoomIn } from 'react-native-reanimated';
@@ -59,6 +59,24 @@ const getTodayYMD = () => {
     const now = new Date();
     return ymdFromParts(now.getFullYear(), now.getMonth() + 1, now.getDate());
 };
+
+function getTermsAndConditionsUrl() {
+    const apiUrl = String(process.env.EXPO_PUBLIC_API_URL || '').trim();
+    if (!apiUrl) {
+        return 'https://dapto.vinfocom.co.in/terms-and-conditions';
+    }
+
+    return apiUrl.replace(/\/api\/?$/i, '') + '/terms-and-conditions';
+}
+
+function getPrivacyPolicyUrl() {
+    const apiUrl = String(process.env.EXPO_PUBLIC_API_URL || '').trim();
+    if (!apiUrl) {
+        return 'https://dapto.vinfocom.co.in/privacy-policy';
+    }
+
+    return apiUrl.replace(/\/api\/?$/i, '') + '/privacy-policy';
+}
 
 const formatDob = (value?: string) => {
     if (!value) return 'Select date of birth';
@@ -177,6 +195,38 @@ export default function SignupScreen() {
         }
         return dobMonth.year;
     }, [dobMonth.year, selectedDobDate]);
+
+    const handleOpenTermsAndConditions = async () => {
+        const url = getTermsAndConditionsUrl();
+
+        try {
+            const supported = await Linking.canOpenURL(url);
+            if (!supported) {
+                Alert.alert('Unable to Open', 'Terms & Conditions link is not available right now.');
+                return;
+            }
+
+            await Linking.openURL(url);
+        } catch {
+            Alert.alert('Unable to Open', 'Terms & Conditions link is not available right now.');
+        }
+    };
+
+    const handleOpenPrivacyPolicy = async () => {
+        const url = getPrivacyPolicyUrl();
+
+        try {
+            const supported = await Linking.canOpenURL(url);
+            if (!supported) {
+                Alert.alert('Unable to Open', 'Privacy Policy link is not available right now.');
+                return;
+            }
+
+            await Linking.openURL(url);
+        } catch {
+            Alert.alert('Unable to Open', 'Privacy Policy link is not available right now.');
+        }
+    };
 
     const loadLoginChallenge = async (clearAnswer = true) => {
         setChallengeLoading(true);
@@ -854,7 +904,7 @@ export default function SignupScreen() {
                                             </View>
                                         ) : (
                                             <View className="flex-row items-center">
-                                                <Text className="text-white font-extrabold mr-2 tracking-wide text-base">Sign Up</Text>
+                                                <Text className="text-white font-extrabold mr-2 tracking-wide text-base">Signup</Text>
                                                 <ArrowRight size={18} color="#fff" />
                                             </View>
                                         )}
@@ -867,14 +917,22 @@ export default function SignupScreen() {
                             <Text className="text-blue-600 font-semibold">Already have an account? Sign in</Text>
                         </TouchableOpacity>
 
-                        <View className="px-4 mt-3">
-                            <View className="flex-row items-center justify-center">
-                                <ShieldCheck size={14} color="#9ca3af" />
-                                <Text className="text-xs text-gray-400 text-center ml-2">
-                                    Your session is encrypted and secure.
+                        {step === 2 ? (
+                            <View className="px-4 mt-3">
+                                <Text className="text-xs leading-5 text-gray-400 text-center">
+                                    By signing up, you agree to our{' '}
+                                    <Text className="text-blue-600 font-semibold" onPress={() => void handleOpenTermsAndConditions()}>
+                                        Terms &amp; Conditions
+                                    </Text>
+                                    {'\n'}
+                                    and acknowledge that you have read our{' '}
+                                    <Text className="text-blue-600 font-semibold" onPress={() => void handleOpenPrivacyPolicy()}>
+                                        Privacy Policy
+                                    </Text>
+                                    .
                                 </Text>
                             </View>
-                        </View>
+                        ) : null}
                     </Animated.View>
                 </ScrollView>
             </KeyboardAvoidingView>

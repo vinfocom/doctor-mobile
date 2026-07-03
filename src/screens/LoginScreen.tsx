@@ -12,6 +12,7 @@ import {
     StatusBar,
     Keyboard,
     useWindowDimensions,
+    Linking,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -31,7 +32,7 @@ import {
 import { setAuthSession, type AppRole } from '../api/token';
 import { useAuthSession } from '../context/AuthSessionContext';
 import { registerForPushNotificationsAsync } from '../hooks/usePushNotifications';
-import { Stethoscope, Mail, Lock, Eye, EyeOff, ArrowRight, ShieldCheck, RefreshCw, Calculator, Check, UserPlus, Phone } from 'lucide-react-native';
+import { Stethoscope, Mail, Lock, Eye, EyeOff, ArrowRight, RefreshCw, Calculator, Check, UserPlus, Phone } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp, ZoomIn } from 'react-native-reanimated';
 import { API_URL } from '../config/env';
 import { doctorNeedsSetup } from '../lib/doctorOnboarding';
@@ -48,6 +49,24 @@ const pushWarn = (...args: unknown[]) => {
 
 function isValidEmail(value: string) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+}
+
+function getTermsAndConditionsUrl() {
+    const apiUrl = String(process.env.EXPO_PUBLIC_API_URL || '').trim();
+    if (!apiUrl) {
+        return 'https://dapto.vinfocom.co.in/terms-and-conditions';
+    }
+
+    return apiUrl.replace(/\/api\/?$/i, '') + '/terms-and-conditions';
+}
+
+function getPrivacyPolicyUrl() {
+    const apiUrl = String(process.env.EXPO_PUBLIC_API_URL || '').trim();
+    if (!apiUrl) {
+        return 'https://dapto.vinfocom.co.in/privacy-policy';
+    }
+
+    return apiUrl.replace(/\/api\/?$/i, '') + '/privacy-policy';
 }
 
 function getDoctorForgotPasswordErrorMessage(error: any) {
@@ -329,6 +348,38 @@ const LoginScreen = () => {
             purpose: 'SET_PASSWORD_FIRST_TIME',
             forgotPasswordMode: false,
         });
+    };
+
+    const handleOpenTermsAndConditions = async () => {
+        const url = getTermsAndConditionsUrl();
+
+        try {
+            const supported = await Linking.canOpenURL(url);
+            if (!supported) {
+                Alert.alert('Unable to Open', 'Terms & Conditions link is not available right now.');
+                return;
+            }
+
+            await Linking.openURL(url);
+        } catch {
+            Alert.alert('Unable to Open', 'Terms & Conditions link is not available right now.');
+        }
+    };
+
+    const handleOpenPrivacyPolicy = async () => {
+        const url = getPrivacyPolicyUrl();
+
+        try {
+            const supported = await Linking.canOpenURL(url);
+            if (!supported) {
+                Alert.alert('Unable to Open', 'Privacy Policy link is not available right now.');
+                return;
+            }
+
+            await Linking.openURL(url);
+        } catch {
+            Alert.alert('Unable to Open', 'Privacy Policy link is not available right now.');
+        }
     };
 
     const handleLogin = async () => {
@@ -1028,16 +1079,19 @@ const LoginScreen = () => {
                                 </TouchableOpacity>
                             ) : null}
 
-                            {/* Security Note */}
                             <View className={`px-4 ${isVeryCompactScreen ? 'mt-3' : 'mt-4'}`}>
-                                <View className="flex-row items-center justify-center">
-                                    <ShieldCheck size={14} color="#9ca3af" />
-                                    <Text className="text-xs text-gray-400 text-center ml-2" maxFontSizeMultiplier={1.2}>
-                                        {mode === 'DOCTOR'
-                                            ? <>Authorized medical personnel only.{'\n'}Your session is encrypted and secure.</>
-                                            : 'Your session is encrypted and secure.'}
+                                <Text className="text-xs leading-5 text-gray-400 text-center" maxFontSizeMultiplier={1.2}>
+                                    {mode === 'DOCTOR' ? 'By signing in, you agree to our ' : 'By continuing, you agree to our '}
+                                    <Text className="text-blue-600 font-semibold" onPress={() => void handleOpenTermsAndConditions()}>
+                                        Terms &amp; Conditions
                                     </Text>
-                                </View>
+                                    {'\n'}
+                                    and acknowledge that you have read our{' '}
+                                    <Text className="text-blue-600 font-semibold" onPress={() => void handleOpenPrivacyPolicy()}>
+                                        Privacy Policy
+                                    </Text>
+                                    .
+                                </Text>
                             </View>
                         </Animated.View>
                 </ScrollView>

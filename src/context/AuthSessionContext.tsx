@@ -9,6 +9,7 @@ type SessionState = {
     staff_role: string | null;
     staff_clinic_id: number | null;
     staff_doctor_id: number | null;
+    assigned_doctor_ids: number[];
     name: string | null;
     email: string | null;
     user: AuthMeUser | null;
@@ -22,7 +23,7 @@ type SessionState = {
 
 type SessionUserState = Pick<
     SessionState,
-    'role' | 'staff_role' | 'staff_clinic_id' | 'staff_doctor_id' | 'name' | 'email' | 'user'
+    'role' | 'staff_role' | 'staff_clinic_id' | 'staff_doctor_id' | 'assigned_doctor_ids' | 'name' | 'email' | 'user'
 >;
 
 const AuthSessionContext = React.createContext<SessionState | undefined>(undefined);
@@ -41,6 +42,11 @@ function mapUserToSession(user: AuthMeUser | null): SessionUserState {
         staff_role: user?.staff_role ?? null,
         staff_clinic_id: user?.staff_clinic_id ?? null,
         staff_doctor_id: user?.staff_doctor_id ?? null,
+        assigned_doctor_ids: Array.isArray(user?.assigned_doctor_ids)
+            ? user.assigned_doctor_ids
+                  .map((doctorId) => Number(doctorId))
+                  .filter((doctorId) => Number.isFinite(doctorId) && doctorId > 0)
+            : [],
         name: user?.name ?? null,
         email: user?.email ?? null,
         user,
@@ -53,6 +59,7 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
         staff_role: null,
         staff_clinic_id: null,
         staff_doctor_id: null,
+        assigned_doctor_ids: [],
         name: null,
         email: null,
         user: null,
@@ -67,6 +74,7 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
             staff_role: null,
             staff_clinic_id: null,
             staff_doctor_id: null,
+            assigned_doctor_ids: [],
             name: null,
             email: null,
             user: null,
@@ -146,6 +154,7 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
                     staff_role: null,
                     staff_clinic_id: null,
                     staff_doctor_id: null,
+                    assigned_doctor_ids: [],
                     name: null,
                     email: null,
                     user: null,
