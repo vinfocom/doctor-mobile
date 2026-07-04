@@ -77,21 +77,11 @@ function normalizeUppercaseText(value: string) {
 }
 
 function getTermsAndConditionsUrl() {
-    const apiUrl = String(process.env.EXPO_PUBLIC_API_URL || '').trim();
-    if (!apiUrl) {
-        return 'https://dapto.vinfocom.co.in/terms-and-conditions';
-    }
-
-    return apiUrl.replace(/\/api\/?$/i, '') + '/terms-and-conditions';
+    return 'https://dapto.vinfocom.co.in/terms-and-conditions';
 }
 
 function getPrivacyPolicyUrl() {
-    const apiUrl = String(process.env.EXPO_PUBLIC_API_URL || '').trim();
-    if (!apiUrl) {
-        return 'https://dapto.vinfocom.co.in/privacy-policy';
-    }
-
-    return apiUrl.replace(/\/api\/?$/i, '') + '/privacy-policy';
+    return 'https://dapto.vinfocom.co.in/privacy-policy';
 }
 
 function maskEmail(value: string) {
