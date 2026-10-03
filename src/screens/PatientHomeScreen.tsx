@@ -15,7 +15,7 @@ import {
     Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CalendarDays, ChevronLeft, ChevronRight, User, MessageCircle, Radio, Settings, FileText, Upload, ImagePlus, ZoomIn, ZoomOut, X, Trash2, Camera, Eye, Download } from 'lucide-react-native';
+import { CalendarDays, ChevronLeft, ChevronRight, User, MessageCircle, Radio, Settings, FileText, Upload, ImagePlus, ZoomIn, ZoomOut, X, Trash2, Camera, Eye, Download, Stethoscope, Baby, Venus, ScanSearch, Pill, Bone, BriefcaseMedical, LayoutGrid } from 'lucide-react-native';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
@@ -127,6 +127,17 @@ type PrescriptionRecordItem = {
 };
 
 type PrescriptionModalTab = 'IMAGE' | 'EMR_HISTORY';
+
+const specializationTiles = [
+    { label: 'Senior consultant', search: 'senior consultant', icon: Stethoscope, color: '#2563eb', background: '#eff6ff' },
+    { label: 'Pediatrics', search: 'pediatrics', icon: Baby, color: '#db2777', background: '#fdf2f8' },
+    { label: 'Gynecologist', search: 'gynecologist', icon: Venus, color: '#c026d3', background: '#fdf4ff' },
+    { label: 'Radiologist', search: 'radiologist', icon: ScanSearch, color: '#0891b2', background: '#ecfeff' },
+    { label: 'Medicine', search: 'medicine', icon: Pill, color: '#059669', background: '#ecfdf5' },
+    { label: 'Orthopedic', search: 'orthopedic', icon: Bone, color: '#ea580c', background: '#fff7ed' },
+    { label: 'Physician', search: 'physician', icon: BriefcaseMedical, color: '#dc2626', background: '#fef2f2' },
+    { label: 'All doctors', search: '', icon: LayoutGrid, color: '#7c3aed', background: '#f5f3ff' },
+] as const;
 
 const toYMD = (value?: string) => {
     if (!value) return '';
@@ -1256,84 +1267,128 @@ export default function PatientHomeScreen() {
                                 </View>
                             )}
                             {!shouldShowSignupOnboarding ? (
-                                <Text className="text-gray-700 font-bold text-base">My Doctors</Text>
+                                <View className="mb-2">
+                                    <Text className="text-slate-900 text-base font-bold">Find a specialist</Text>
+                                    <Text className="text-slate-500 text-xs mt-1">Choose a speciality to start a new appointment</Text>
+                                    <View className="flex-row flex-wrap justify-between mt-2">
+                                        {specializationTiles.map((tile) => {
+                                            const TileIcon = tile.icon;
+                                            return (
+                                                <TouchableOpacity
+                                                    key={tile.label}
+                                                    activeOpacity={0.82}
+                                                    onPress={() => navigation.navigate('PatientMain', {
+                                                        screen: 'PatientAppointments',
+                                                        params: {
+                                                            openCreate: true,
+                                                            openDoctorSearch: true,
+                                                            prefillSpecialization: tile.search,
+                                                        },
+                                                    })}
+                                                    className="w-[48.5%] mb-2.5 rounded-2xl px-3 py-3 border border-white"
+                                                    style={{ backgroundColor: tile.background, shadowColor: tile.color, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 5, elevation: 2 }}
+                                                >
+                                                    <View className="flex-row items-center">
+                                                        <View className="w-9 h-9 rounded-xl items-center justify-center" style={{ backgroundColor: '#ffffffcc' }}>
+                                                            <TileIcon size={20} color={tile.color} strokeWidth={2.2} />
+                                                        </View>
+                                                        <View className="flex-1 ml-2">
+                                                            <Text className="text-slate-800 text-xs font-bold" numberOfLines={2}>{tile.label}</Text>
+                                                            <Text className="text-slate-500 text-[10px] mt-0.5">View doctors</Text>
+                                                        </View>
+                                                    </View>
+                                                </TouchableOpacity>
+                                            );
+                                        })}
+                                    </View>
+                                    <View className="mt-5 mb-2 pl-1">
+                                        <Text className="text-slate-900 text-xl font-bold">Your care team</Text>
+                                        <Text className="text-slate-500 text-xs mt-1">Everything you need for your ongoing care</Text>
+                                    </View>
+                                </View>
                             ) : null}
                         </View>
                     }
                     renderItem={({ item }) => {
                         const unreadCount = unreadChatCountsByDoctor.get(item.doctor_id) || 0;
+                        const queueData = liveQueueByDoctor.get(item.doctor_id);
+                        const latestAppointment = latestBookedAppointmentByDoctor.get(item.doctor_id);
                         return (
-                        <TouchableOpacity
-                            className="bg-white rounded-2xl p-4 mb-2 flex-row items-center"
-                            style={{ shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 2 }}
-                            disabled={!patient?.patient_id}
-                            onPress={() => handleOpenDoctorHistory(item)}
+                        <View
+                            className="bg-white rounded-3xl p-4 mb-3 border border-slate-100"
+                            style={{ shadowColor: '#0f172a', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 3 }}
                         >
-                            <View className="mr-3 relative">
-                                <View className="w-11 h-11 rounded-full items-center justify-center overflow-hidden bg-blue-100">
-                                    {item.profile_pic_url ? (
-                                        <Image
-                                            source={{ uri: item.profile_pic_url }}
-                                            className="w-11 h-11"
-                                            resizeMode="cover"
-                                        />
-                                    ) : (
-                                        <User size={20} color="#1d4ed8" />
-                                    )}
-                                </View>
-                                {incomingMessage && !incomingMessage.isAnnouncement && incomingMessage.doctorId === item.doctor_id ? (
-                                    <View className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 items-center justify-center border border-white">
-                                        <Text className="text-white text-[10px] font-bold">1</Text>
+                            <View className="flex-row items-center">
+                                <View className="mr-3 relative">
+                                    <View className="w-14 h-14 rounded-2xl items-center justify-center overflow-hidden bg-blue-100">
+                                        {item.profile_pic_url ? (
+                                            <Image source={{ uri: item.profile_pic_url }} className="w-14 h-14" resizeMode="cover" />
+                                        ) : (
+                                            <User size={23} color="#1d4ed8" />
+                                        )}
                                     </View>
-                                ) : null}
+                                    {incomingMessage && !incomingMessage.isAnnouncement && incomingMessage.doctorId === item.doctor_id ? (
+                                        <View className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 items-center justify-center border-2 border-white">
+                                            <Text className="text-white text-[10px] font-bold">1</Text>
+                                        </View>
+                                    ) : null}
+                                </View>
+                                <View className="flex-1">
+                                    <Text className="text-slate-900 text-base font-bold" numberOfLines={1}>
+                                        {item.doctor_name ? `Dr. ${item.doctor_name}` : 'Doctor'}
+                                    </Text>
+                                    <Text className="text-slate-500 text-xs mt-1" numberOfLines={1}>
+                                        {item.specialization || 'General care'}
+                                    </Text>
+                                    <View className="flex-row flex-wrap items-center mt-2 gap-1.5">
+                                        {(() => {
+                                            const appt = latestBookedAppointmentByDoctor.get(item.doctor_id);
+                                            const badgeText = hasOtherContext ? getRelationBadgeText(appt) : '';
+                                            if (!badgeText) return null;
+                                            return (
+                                                <View className={`px-2 py-1 rounded-full ${appt?.relation_type === 'OTHER' ? 'bg-amber-50' : 'bg-sky-50'}`}>
+                                                    <Text className={`text-[10px] font-semibold ${appt?.relation_type === 'OTHER' ? 'text-amber-700' : 'text-sky-700'}`} numberOfLines={1}>
+                                                        {badgeText}
+                                                    </Text>
+                                                </View>
+                                            );
+                                        })()}
+                                        {(() => {
+                                            const apptNo = getAppointmentNo(latestBookedAppointmentByDoctor.get(item.doctor_id));
+                                            return apptNo ? <Text className="text-[10px] text-slate-400">No. {apptNo}</Text> : null;
+                                        })()}
+                                    </View>
+                                </View>
                             </View>
-                            <View className="flex-1">
-                                <Text className="text-gray-800 font-bold">
-                                    {item.doctor_name ? `Dr. ${item.doctor_name}` : "Doctor"}
-                                </Text>
-                                <View className="mt-1 flex-row flex-wrap items-center gap-1.5">
-                                    <View className="self-start bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
-                                        <Text className="text-[10px] font-semibold text-emerald-700">
-                                            {item.specialization || 'General'}
+                            {latestAppointment ? (
+                                <View className="mt-4 rounded-2xl bg-blue-50 border border-blue-100 px-3 py-3 flex-row items-center">
+                                    <View className="w-9 h-9 rounded-xl bg-white items-center justify-center mr-3">
+                                        <CalendarDays size={17} color="#2563eb" />
+                                    </View>
+                                    <View className="flex-1">
+                                        <Text className="text-blue-700 text-[10px] font-bold uppercase tracking-wide">Next visit</Text>
+                                        <Text className="text-slate-800 text-xs font-bold mt-1">
+                                            {formatDateOnly(latestAppointment.appointment_date)}
+                                            {latestAppointment.start_time ? `  •  ${formatTimeOnly(latestAppointment.start_time)}` : ''}
                                         </Text>
                                     </View>
-                                    {(() => {
-                                        const appt = latestBookedAppointmentByDoctor.get(item.doctor_id);
-                                        const badgeText = hasOtherContext ? getRelationBadgeText(appt) : '';
-                                        if (!badgeText) return null;
-                                        return (
-                                            <View
-                                                className={`self-start max-w-[104px] items-center px-2 py-0.5 rounded-full ${
-                                                    appt?.relation_type === 'OTHER' ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'
-                                                }`}
-                                            >
-                                                <Text
-                                                    className={`text-[10px] font-semibold text-center ${
-                                                        appt?.relation_type === 'OTHER' ? 'text-amber-700' : 'text-sky-700'
-                                                    }`}
-                                                    numberOfLines={1}
-                                                    ellipsizeMode="tail"
-                                                >
-                                                    {badgeText}
-                                                </Text>
-                                            </View>
-                                        );
-                                    })()}
+                                    <View className="rounded-full bg-white px-2.5 py-1">
+                                        <Text className="text-blue-700 text-[10px] font-bold">BOOKED</Text>
+                                    </View>
                                 </View>
-                                {(() => {
-                                    const appt = latestBookedAppointmentByDoctor.get(item.doctor_id);
-                                    const apptNo = getAppointmentNo(appt);
-                                    if (!apptNo) return null;
-                                    return (
-                                        <Text className="text-[10px] font-semibold text-gray-500 mt-1">
-                                            Appointment No. {apptNo}
-                                        </Text>
-                                    );
-                                })()}
-                                <Text className="text-[10px] text-gray-400 mt-1">Tap to view appointment history</Text>
-                            </View>
-                            {(() => {
-                                const queueData = liveQueueByDoctor.get(item.doctor_id);
+                            ) : null}
+                            <View className="h-px bg-slate-100 mt-4 mb-3" />
+                            <Text className="text-slate-400 text-[10px] font-bold uppercase tracking-widest mb-2">Quick access</Text>
+                            <View className="flex-row items-center gap-2">
+                                <TouchableOpacity
+                                    className="flex-1 h-10 rounded-xl bg-slate-50 border border-slate-200 flex-row items-center justify-center"
+                                    disabled={!patient?.patient_id}
+                                    onPress={() => handleOpenDoctorHistory(item)}
+                                >
+                                    <CalendarDays size={15} color="#475569" />
+                                    <Text className="text-slate-700 text-xs font-bold ml-1.5">Visit history</Text>
+                                </TouchableOpacity>
+                                {queueData ? (() => {
                                 if (!queueData) return null;
 
                                 const isCurrentPatient =
@@ -1357,35 +1412,14 @@ export default function PatientHomeScreen() {
                                         ? '#2563eb'
                                         : '#b45309';
 
-                                return (
-                                    <TouchableOpacity
-                                        onPress={(e) => {
-                                            e?.stopPropagation?.();
-                                            handleOpenLiveQueue(item);
-                                        }}
-                                        className={`w-9 h-9 rounded-full border items-center justify-center mr-2 ${iconTone}`}
-                                    >
-                                        <Radio size={17} color={iconColor} />
-                                    </TouchableOpacity>
-                                );
-                            })()}
-                            <TouchableOpacity
-                            onPress={(e) => {
-                                e?.stopPropagation?.();
-                                handleOpenDoctorChat(item.doctor_id, item.doctor_name || 'Doctor', item.profile_pic_url);
-                            }}
-                            className="w-9 h-9 rounded-full bg-blue-50 items-center justify-center relative ml-2"
-                        >
-                                <MessageCircle size={18} color="#1d4ed8" />
-                                {unreadCount > 0 ? (
-                                    <View className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 items-center justify-center border border-white">
-                                        <Text className="text-white text-[10px] font-bold">
-                                            {unreadCount > 99 ? '99+' : unreadCount}
-                                        </Text>
-                                    </View>
-                                ) : null}
-                            </TouchableOpacity>
-                        </TouchableOpacity>
+                                    return <TouchableOpacity onPress={() => handleOpenLiveQueue(item)} className={`flex-1 h-10 rounded-xl border flex-row items-center justify-center ${iconTone}`}><Radio size={15} color={iconColor} /><Text className="text-xs font-bold ml-1.5" style={{ color: iconColor }}>Live</Text></TouchableOpacity>;
+                                })() : null}
+                                <TouchableOpacity onPress={() => handleOpenDoctorChat(item.doctor_id, item.doctor_name || 'Doctor', item.profile_pic_url)} className="flex-1 h-10 rounded-xl bg-blue-50 border border-blue-100 flex-row items-center justify-center relative">
+                                    <MessageCircle size={15} color="#1d4ed8" /><Text className="text-blue-700 text-xs font-bold ml-1.5">Chat</Text>
+                                    {unreadCount > 0 ? <View className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 items-center justify-center border-2 border-white"><Text className="text-white text-[10px] font-bold">{unreadCount > 99 ? '99+' : unreadCount}</Text></View> : null}
+                                </TouchableOpacity>
+                            </View>
+                        </View>
                     )}}
                     ListEmptyComponent={
                         shouldShowSignupOnboarding ? (

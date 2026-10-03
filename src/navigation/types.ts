@@ -22,6 +22,8 @@ export type PatientTabParamList = {
   PatientHome: undefined;
   PatientAppointments: {
     openCreate?: boolean;
+    prefillSpecialization?: string;
+    openDoctorSearch?: boolean;
     focusAppointmentId?: number;
     autoOpenMenu?: boolean;
     openRescheduleAppointmentId?: number;

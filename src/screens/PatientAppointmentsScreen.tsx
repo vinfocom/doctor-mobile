@@ -317,8 +317,13 @@ export default function PatientAppointmentsScreen() {
     useEffect(() => {
         if (!route.params?.openCreate) return;
         handleOpenCreateModal();
-        navigation.setParams?.({ openCreate: undefined });
-    }, [navigation, patientName, route.params?.openCreate]);
+        const specialization = String(route.params?.prefillSpecialization || '').trim();
+        if (specialization || route.params?.openDoctorSearch) {
+            setSearchQuery(specialization);
+            setShowDoctorSearch(true);
+        }
+        navigation.setParams?.({ openCreate: undefined, prefillSpecialization: undefined, openDoctorSearch: undefined });
+    }, [navigation, patientName, route.params?.openCreate, route.params?.openDoctorSearch, route.params?.prefillSpecialization]);
 
     useEffect(() => {
         const openRescheduleAppointmentId = route.params?.openRescheduleAppointmentId;
