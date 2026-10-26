@@ -29,6 +29,7 @@ export type PatientTabParamList = {
     openRescheduleAppointmentId?: number;
   } | undefined;
   PatientAnnouncements: undefined;
+  PatientRecords: undefined;
 };
 
 export type RootStackParamList = {

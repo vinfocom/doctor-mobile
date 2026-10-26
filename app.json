@@ -2,7 +2,7 @@
   "expo": {
     "name": "Dapto",
     "slug": "Dapto",
-    "version": "3.0.1",
+    "version": "4.0.0",
     "orientation": "portrait",
     "icon": "./assets/daptao.png",
     "userInterfaceStyle": "light",
@@ -19,7 +19,8 @@
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Allow access to camera to send photos in chat.",
         "NSPhotoLibraryUsageDescription": "Allow access to your photos to send images in chat.",
-        "NSPhotoLibraryAddUsageDescription": "Allow saving images to your library."
+        "NSPhotoLibraryAddUsageDescription": "Allow saving images to your library.",
+        "NSLocationWhenInUseUsageDescription": "Allow location to be added to a health record when you choose."
       }
     },
     "android": {
@@ -42,7 +43,7 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.vinfocom.dapto",
-      "versionCode": 30001
+      "versionCode": 40000
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -58,7 +59,15 @@
           "photosPermission": "Allow Dapto to select prescription photos from your library.",
           "microphonePermission": false
         }
-      ]
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow location to be added to a health record when you choose."
+        }
+      ],
+      "@config-plugins/react-native-blob-util",
+      "@config-plugins/react-native-pdf"
     ],
     "extra": {
       "apiUrl": "https://dapto.vinfocom.co.in/api",

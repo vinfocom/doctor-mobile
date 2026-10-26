@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Bell, CalendarDays, Home } from 'lucide-react-native';
+import { Bell, CalendarDays, FileHeart, Home } from 'lucide-react-native';
 import type { PatientTabParamList } from './types';
 import PatientHomeScreen from '../screens/PatientHomeScreen';
 import PatientAnnouncementsScreen from '../screens/PatientAnnouncementsScreen';
 import PatientAppointmentsScreen from '../screens/PatientAppointmentsScreen';
+import PatientRecordsScreen from '../screens/PatientRecordsScreen';
 import { getPatientAnnouncements } from '../api/announcements';
 import {
     ensurePatientAnnouncementsStateHydrated,
@@ -63,6 +64,7 @@ export default function PatientTabNavigator() {
                 tabBarIcon: ({ color, size }) => {
                     if (route.name === 'PatientAnnouncements') return <Bell size={size} color={color} />;
                     if (route.name === 'PatientAppointments') return <CalendarDays size={size} color={color} />;
+                    if (route.name === 'PatientRecords') return <FileHeart size={size} color={color} />;
                     return <Home size={size} color={color} />;
                 },
             })}
@@ -77,6 +79,7 @@ export default function PatientTabNavigator() {
                     tabBarBadge: announcementBadgeCount > 0 ? (announcementBadgeCount > 99 ? '99+' : announcementBadgeCount) : undefined,
                 }}
             />
+            <Tab.Screen name="PatientRecords" component={PatientRecordsScreen} options={{ title: "My Records" }} />
         </Tab.Navigator>
     );
 }
