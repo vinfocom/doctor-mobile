@@ -48,3 +48,8 @@ android/app/src/main/assets/adi-registration.properties
 # generated native folders
 /ios
 /android
+
+# generated build output for local Expo modules
+/modules/*/android/build/
+/modules/*/android/.gradle/
+/modules/*/ios/build/

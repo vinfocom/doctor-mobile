@@ -30,6 +30,7 @@ export type PatientTabParamList = {
   } | undefined;
   PatientAnnouncements: undefined;
   PatientRecords: undefined;
+  PatientWellness: undefined;
 };
 
 export type RootStackParamList = {

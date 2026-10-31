@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Image, View } from 'react-native';
 import { Bell, CalendarDays, FileHeart, Home } from 'lucide-react-native';
 import type { PatientTabParamList } from './types';
 import PatientHomeScreen from '../screens/PatientHomeScreen';
 import PatientAnnouncementsScreen from '../screens/PatientAnnouncementsScreen';
 import PatientAppointmentsScreen from '../screens/PatientAppointmentsScreen';
 import PatientRecordsScreen from '../screens/PatientRecordsScreen';
+import PatientWellnessScreen from '../screens/PatientWellnessScreen';
 import { getPatientAnnouncements } from '../api/announcements';
 import {
     ensurePatientAnnouncementsStateHydrated,
@@ -61,16 +63,19 @@ export default function PatientTabNavigator() {
                 headerShown: false,
                 tabBarActiveTintColor: '#2563eb',
                 tabBarInactiveTintColor: 'gray',
-                tabBarIcon: ({ color, size }) => {
+                tabBarStyle: { backgroundColor: '#ffffff' },
+                tabBarIcon: ({ color, size, focused }) => {
                     if (route.name === 'PatientAnnouncements') return <Bell size={size} color={color} />;
                     if (route.name === 'PatientAppointments') return <CalendarDays size={size} color={color} />;
                     if (route.name === 'PatientRecords') return <FileHeart size={size} color={color} />;
+                    if (route.name === 'PatientWellness') return <LotusTabIcon size={size} focused={focused} />;
                     return <Home size={size} color={color} />;
                 },
             })}
         >
             <Tab.Screen name="PatientHome" component={PatientHomeScreen} options={{ title: "Home" }} />
             <Tab.Screen name="PatientAppointments" component={PatientAppointmentsScreen} options={{ title: "Appointments" }} />
+            <Tab.Screen name="PatientWellness" component={PatientWellnessScreen} options={{ title: "Wellness" }} />
             <Tab.Screen
                 name="PatientAnnouncements"
                 component={PatientAnnouncementsScreen}
@@ -82,4 +87,17 @@ export default function PatientTabNavigator() {
             <Tab.Screen name="PatientRecords" component={PatientRecordsScreen} options={{ title: "My Records" }} />
         </Tab.Navigator>
     );
+}
+
+function LotusTabIcon({ size, focused }: { size: number; focused: boolean }) {
+    const frameSize = size * 1.25;
+    const iconSize = size * (focused ? 1.9 : 1.8);
+    const offset = (frameSize - iconSize) / 2;
+    return <View style={{ width: frameSize, height: frameSize, overflow: 'hidden', backgroundColor: '#ffffff' }}>
+        <Image
+            source={focused ? require('../../assets/wellness/dapto_lotus_active_blue.png') : require('../../assets/wellness/dapto_lotus_inactive_grey.png')}
+            resizeMode="stretch"
+            style={{ position: 'absolute', width: iconSize, height: iconSize, left: offset, top: offset }}
+        />
+    </View>;
 }

@@ -2,11 +2,14 @@
   "expo": {
     "name": "Dapto",
     "slug": "Dapto",
-    "version": "4.0.0",
+    "version": "5.0.0",
     "orientation": "portrait",
     "icon": "./assets/daptao.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "autolinking": {
+      "nativeModulesDir": "./modules"
+    },
     "splash": {
       "image": "./assets/daptao.png",
       "resizeMode": "contain",
@@ -43,7 +46,7 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.vinfocom.dapto",
-      "versionCode": 40000
+      "versionCode": 50000
     },
     "web": {
       "favicon": "./assets/favicon.png",

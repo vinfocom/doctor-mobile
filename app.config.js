@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const FIXED_ANDROID_VERSION_CODE = 40000;
+const FIXED_ANDROID_VERSION_CODE = 50000;
 
 const parseVersionCode = (version) => {
   const semverMatch = version.match(/(\d+)\.(\d+)\.(\d+)/);
