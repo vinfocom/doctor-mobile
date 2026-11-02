@@ -18,12 +18,12 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.vinfocom.dapto",
+      "buildNumber": "1",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSCameraUsageDescription": "Allow access to camera to send photos in chat.",
-        "NSPhotoLibraryUsageDescription": "Allow access to your photos to send images in chat.",
-        "NSPhotoLibraryAddUsageDescription": "Allow saving images to your library.",
-        "NSLocationWhenInUseUsageDescription": "Allow location to be added to a health record when you choose."
+        "NSCameraUsageDescription": "Dapto uses the camera when you choose to take a prescription, clinic, or profile photo.",
+        "NSPhotoLibraryUsageDescription": "Dapto uses your photo library when you choose an image to upload to your profile, clinic, chat, or health record.",
+        "NSLocationWhenInUseUsageDescription": "Dapto uses your current location only when you choose to attach it to a patient health record."
       }
     },
     "android": {
@@ -58,15 +58,18 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "Allow Dapto to capture prescription photos.",
-          "photosPermission": "Allow Dapto to select prescription photos from your library.",
+          "cameraPermission": "Dapto uses the camera when you choose to take a prescription, clinic, or profile photo.",
+          "photosPermission": "Dapto uses your photo library when you choose an image to upload to your profile, clinic, chat, or health record.",
           "microphonePermission": false
         }
       ],
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Allow location to be added to a health record when you choose."
+          "locationWhenInUsePermission": "Dapto uses your current location only when you choose to attach it to a patient health record.",
+          "locationAlwaysAndWhenInUsePermission": false,
+          "locationAlwaysPermission": false,
+          "isIosBackgroundLocationEnabled": false
         }
       ],
       "@config-plugins/react-native-blob-util",
