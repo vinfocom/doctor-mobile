@@ -265,6 +265,7 @@ export default function PatientHomeScreen() {
     const [selectedLiveQueue, setSelectedLiveQueue] = useState<SelectedLiveQueueState | null>(null);
     const [historyDoctor, setHistoryDoctor] = useState<DoctorItem | null>(null);
     const [historyVisible, setHistoryVisible] = useState(false);
+    const [openPrescriptionsAfterHistoryDismiss, setOpenPrescriptionsAfterHistoryDismiss] = useState(false);
     const [prescriptionVisible, setPrescriptionVisible] = useState(false);
     const [prescriptionLoading, setPrescriptionLoading] = useState(false);
     const [prescriptionError, setPrescriptionError] = useState('');
@@ -1617,7 +1618,12 @@ export default function PatientHomeScreen() {
                     </View>
                 </Modal>
 
-                <Modal visible={historyVisible} transparent animationType="slide" onRequestClose={() => setHistoryVisible(false)}>
+                <Modal visible={historyVisible} transparent animationType="slide" onRequestClose={() => setHistoryVisible(false)} onDismiss={() => {
+                    if (Platform.OS !== 'ios' || !openPrescriptionsAfterHistoryDismiss || !historyDoctor) return;
+                    setOpenPrescriptionsAfterHistoryDismiss(false);
+                    void loadDoctorPrescriptions(historyDoctor);
+                    void loadDoctorEmrPrescriptions(historyDoctor);
+                }}>
                     <View className="flex-1 justify-end bg-black/40">
                         <View
                             className="bg-white rounded-t-3xl p-5 max-h-[80%]"
@@ -1634,9 +1640,18 @@ export default function PatientHomeScreen() {
                                     <TouchableOpacity
                                         onPress={() => {
                                             if (!historyDoctor) return;
-                                            void loadDoctorPrescriptions(historyDoctor);
-                                            void loadDoctorEmrPrescriptions(historyDoctor);
+                                            const doctor = historyDoctor;
+                                            if (Platform.OS === 'ios') {
+                                                setOpenPrescriptionsAfterHistoryDismiss(true);
+                                                setHistoryVisible(false);
+                                            } else {
+                                                void loadDoctorPrescriptions(doctor);
+                                                void loadDoctorEmrPrescriptions(doctor);
+                                            }
                                         }}
+                                        accessibilityRole="button"
+                                        accessibilityLabel="Open prescriptions and medical records"
+                                        hitSlop={8}
                                         className="bg-blue-50 border border-blue-100 rounded-full p-2 mr-2"
                                     >
                                         <FileText size={18} color="#2563eb" />

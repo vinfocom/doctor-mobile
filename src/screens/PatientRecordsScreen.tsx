@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View, FlatList, Linking } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { CalendarDays, Camera, Check, ChevronDown, ChevronLeft, ChevronRight, CloudCheck, CloudUpload, Download, FileImage, FilePlus2, FileText, FlaskConical, Heart, ImagePlus, Info, MapPin, Pencil, RotateCw, Search, ShieldCheck, SlidersHorizontal, Trash2, Users, X, ZoomIn, ZoomOut } from 'lucide-react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { FadeInUp, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
@@ -21,6 +21,7 @@ import { prepareUploadFile } from '../lib/uploadFilePreparation';
 // react-native-pdf requires native modules that are not included in Expo Go.
 // Keep its module out of Expo Go's runtime startup path; custom builds include it.
 const Pdf = Constants.appOwnership === 'expo' ? null : require('react-native-pdf').default;
+const ModalSafeAreaProvider = Platform.OS === 'ios' ? SafeAreaProvider : React.Fragment;
 
 type Doctor = { doctor_id: number; doctor_name: string | null; specialization?: string | null };
 type Category = PatientRecord['category'];
@@ -846,6 +847,18 @@ export default function PatientRecordsScreen() {
         setLocationAddress(null);
         setLocationAddressLoading(false);
     };
+    const openCoordinatesInMap = async () => {
+        if (!locationPageCoordinates) return;
+        const { latitude, longitude } = locationPageCoordinates;
+        const url = Platform.OS === 'ios'
+            ? `https://maps.apple.com/?ll=${latitude},${longitude}`
+            : `https://maps.google.com/?q=${latitude},${longitude}`;
+        try {
+            await Linking.openURL(url);
+        } catch {
+            Alert.alert('Unable to open map', `Coordinates: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
+        }
+    };
     const currentPage = selectedRecord?.pages[selectedPage];
     const currentPageCoordinates = coordinatesForPage(currentPage);
     const locationPageCoordinates = coordinatesForPage(locationPage);
@@ -932,6 +945,7 @@ export default function PatientRecordsScreen() {
             )}
 
             <Modal visible={composerVisible} animationType="slide" onRequestClose={closeComposer}>
+                <ModalSafeAreaProvider>
                 <SafeAreaView className="flex-1 bg-slate-50">
                     <View className="flex-row items-center justify-between border-b border-slate-100 bg-white px-5 py-3">
                         <View className="flex-row items-center"><View className="mr-3 h-11 w-11 items-center justify-center rounded-2xl bg-amber-50"><FilePlus2 size={21} color="#d97706" /></View><View><Text className="text-lg font-bold text-slate-900">Save a health document</Text><Text className="mt-0.5 text-xs text-slate-500">Your private health library</Text></View></View>
@@ -968,6 +982,7 @@ export default function PatientRecordsScreen() {
                         <View className="border-t border-slate-200 bg-white px-5 pb-3 pt-3"><TouchableOpacity disabled={saving || !files.length} onPress={() => void saveRecord()} className={`flex-row items-center justify-center rounded-2xl py-4 ${saving || !files.length ? 'bg-indigo-300' : 'bg-indigo-600'}`}>{saving ? <><ActivityIndicator color="white" /><Text className="ml-2 font-bold text-white">Saving on this device…</Text></> : <><Check size={18} color="white" /><Text className="ml-2 font-bold text-white">{files.length ? `Save ${files.length} ${files.length === 1 ? 'page' : 'pages'}` : 'Add pages to continue'}</Text></>}</TouchableOpacity></View>
                     </KeyboardAvoidingView>
                 </SafeAreaView>
+                </ModalSafeAreaProvider>
             </Modal>
             <Modal visible={filterSheetVisible} transparent animationType="slide" onRequestClose={() => setFilterSheetVisible(false)}>
                 <View className="flex-1 justify-end bg-black/40">
@@ -1058,6 +1073,7 @@ export default function PatientRecordsScreen() {
                 </SafeAreaView>
             </Modal>
             <Modal visible={Boolean(selectedEmrPrescription)} animationType="slide" onRequestClose={closeEmrPrescription}>
+                <ModalSafeAreaProvider>
                 <SafeAreaView className="flex-1 bg-white" edges={['top', 'bottom']}>
                     <View className="flex-row items-center border-b border-slate-100 px-4 py-3">
                         <View className="mr-3 h-10 w-10 items-center justify-center rounded-xl bg-indigo-50"><FileText size={20} color="#4f46e5" /></View>
@@ -1082,8 +1098,10 @@ export default function PatientRecordsScreen() {
                         {emrViewerError ? <View className="flex-1 items-center justify-center px-8"><View className="h-14 w-14 items-center justify-center rounded-2xl bg-white"><FileText size={26} color="#64748b" /></View><Text className="mt-4 text-center text-sm text-slate-600">{emrViewerError}</Text>{Pdf ? <TouchableOpacity disabled={!selectedEmrPrescription} onPress={() => selectedEmrPrescription && void loadEmrPrescriptionPdf(selectedEmrPrescription)} className="mt-4 rounded-xl bg-indigo-600 px-5 py-3"><Text className="font-semibold text-white">Try again</Text></TouchableOpacity> : null}</View> : null}
                     </View>
                 </SafeAreaView>
+                </ModalSafeAreaProvider>
             </Modal>
             <Modal visible={Boolean(selectedRecord)} transparent animationType="fade" onRequestClose={() => setSelectedRecord(null)}>
+                <ModalSafeAreaProvider>
                 <SafeAreaView className="flex-1 bg-black/95" edges={['top', 'bottom']}>
                     <View className="flex-row items-start justify-between px-4 pb-2 pt-3">
                         <View className="mr-4 flex-1"><Text className="text-lg font-bold text-white" numberOfLines={2}>{selectedRecord?.title || categories.find((item) => item.key === selectedRecord?.category)?.label || 'Health record'}</Text><Text className="mt-1 text-xs text-white/70">{selectedRecord?.for_label === 'Self' ? 'Self' : selectedRecord?.relationship_label || 'Other'}  |  Page {selectedPage + 1} of {selectedRecord?.pages.length || 0}</Text></View>
@@ -1093,7 +1111,7 @@ export default function PatientRecordsScreen() {
                     <View className="flex-row items-center justify-between px-4 pb-3 pt-3">
                         <TouchableOpacity accessibilityLabel="Previous page" disabled={selectedPage === 0} onPress={() => changeSelectedPage(-1)} className="rounded-full bg-white/15 p-2.5"><ChevronLeft size={20} color={selectedPage === 0 ? '#64748b' : 'white'} /></TouchableOpacity>
                         <View className="flex-row items-center gap-2">
-                            {currentPage && currentPageCoordinates ? <TouchableOpacity accessibilityLabel="View location" onPress={() => void openLocation(currentPage)} className="rounded-full bg-white/15 p-2.5"><MapPin size={18} color="white" /></TouchableOpacity> : null}
+                            {currentPage && currentPageCoordinates ? <TouchableOpacity accessibilityRole="button" accessibilityLabel="View location" hitSlop={12} onPress={() => void openLocation(currentPage)} className="rounded-full bg-white/15 p-2.5"><MapPin size={18} color="white" /></TouchableOpacity> : null}
                         {selectedRecord?.note?.trim() ? <TouchableOpacity accessibilityLabel="View notes" onPress={() => Alert.alert('Notes', selectedRecord?.note?.trim() || '')} className="rounded-full bg-white/15 p-2.5"><FileText size={18} color="white" /></TouchableOpacity> : null}
                             <TouchableOpacity accessibilityLabel="Zoom in" disabled={imageZoom >= 3} onPress={() => setImageZoomLevel(imageZoom + 0.25)} className="rounded-full bg-white/15 p-2.5"><ZoomIn size={19} color={imageZoom >= 3 ? '#64748b' : 'white'} /></TouchableOpacity>
                             <TouchableOpacity accessibilityLabel="Zoom out" disabled={imageZoom <= 1} onPress={() => setImageZoomLevel(imageZoom - 0.25)} className="rounded-full bg-white/15 p-2.5"><ZoomOut size={19} color={imageZoom <= 1 ? '#64748b' : 'white'} /></TouchableOpacity>
@@ -1101,8 +1119,9 @@ export default function PatientRecordsScreen() {
                         <TouchableOpacity accessibilityLabel="Next page" disabled={!selectedRecord || selectedPage >= selectedRecord.pages.length - 1} onPress={() => changeSelectedPage(1)} className="rounded-full bg-white/15 p-2.5"><ChevronRight size={20} color={!selectedRecord || selectedPage >= selectedRecord.pages.length - 1 ? '#64748b' : 'white'} /></TouchableOpacity>
                     </View>
                 </SafeAreaView>
+                </ModalSafeAreaProvider>
             </Modal>
-            <Modal visible={Boolean(locationPage)} transparent animationType="fade" onRequestClose={closeLocation}><View className="flex-1 bg-black/50 justify-center px-6"><View className="bg-white rounded-2xl p-5"><View className="flex-row items-center justify-between"><Text className="text-slate-900 font-bold text-lg">Upload location</Text><TouchableOpacity onPress={closeLocation}><X size={21} color="#475569" /></TouchableOpacity></View><Text className="text-slate-800 mt-3 font-medium">{locationAddressLoading ? 'Loading address...' : locationAddress || 'Address unavailable'}</Text>{!locationAddressLoading && !locationAddress && locationPageCoordinates ? <Text className="text-slate-500 text-xs mt-1">Coordinates: {locationPageCoordinates.latitude.toFixed(5)}, {locationPageCoordinates.longitude.toFixed(5)}</Text> : null}{locationPage?.location_accuracy_m != null && Number.isFinite(Number(locationPage.location_accuracy_m)) ? <Text className="text-slate-400 text-xs mt-2">Accuracy about {Math.round(Number(locationPage.location_accuracy_m))} m</Text> : null}{locationPageCoordinates ? <TouchableOpacity onPress={() => void Linking.openURL(`https://maps.google.com/?q=${locationPageCoordinates.latitude},${locationPageCoordinates.longitude}`)} className="bg-indigo-600 rounded-xl items-center py-3 mt-5"><Text className="text-white font-semibold">Open map</Text></TouchableOpacity> : null}</View></View></Modal>
+            <Modal visible={Boolean(locationPage)} transparent animationType="fade" onRequestClose={closeLocation}><View className="flex-1 bg-black/50 justify-center px-6"><View className="bg-white rounded-2xl p-5"><View className="flex-row items-center justify-between"><Text className="text-slate-900 font-bold text-lg">Upload location</Text><TouchableOpacity hitSlop={10} onPress={closeLocation}><X size={21} color="#475569" /></TouchableOpacity></View><Text className="text-slate-800 mt-3 font-medium">{locationAddressLoading ? 'Loading address...' : locationAddress || 'Address unavailable'}</Text>{!locationAddressLoading && !locationAddress && locationPageCoordinates ? <Text className="text-slate-500 text-xs mt-1">Coordinates: {locationPageCoordinates.latitude.toFixed(5)}, {locationPageCoordinates.longitude.toFixed(5)}</Text> : null}{locationPage?.location_accuracy_m != null && Number.isFinite(Number(locationPage.location_accuracy_m)) ? <Text className="text-slate-400 text-xs mt-2">Accuracy about {Math.round(Number(locationPage.location_accuracy_m))} m</Text> : null}{locationPageCoordinates ? <TouchableOpacity accessibilityRole="button" onPress={() => void openCoordinatesInMap()} className="bg-indigo-600 rounded-xl items-center py-3 mt-5"><Text className="text-white font-semibold">Open map</Text></TouchableOpacity> : null}</View></View></Modal>
         </SafeAreaView>
     );
 }

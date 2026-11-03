@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, RefreshControl, StatusBar, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, RefreshControl, StatusBar, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { Bell } from 'lucide-react-native';
@@ -78,6 +78,7 @@ export default function PatientAnnouncementsScreen() {
     }, [fetchAnnouncements]);
 
     useEffect(() => {
+        if (Platform.OS !== 'ios') return;
         if (!patientId || doctorIds.length === 0) return;
 
         const socket = io(SOCKET_URL, {
@@ -90,9 +91,22 @@ export default function PatientAnnouncementsScreen() {
         socketRef.current = socket;
 
         const joinAllRooms = () => {
-            socketRef.current = null;
+            doctorIds.forEach((doctorId) => socket.emit('join_chat', { patientId, doctorId }));
         };
-    }, [doctorIds, patientId]);
+        socket.on('connect', joinAllRooms);
+        socket.on('receive_message', (message: any) => {
+            if (message?.sender !== 'DOCTOR' || Number(message?.patient_id) !== patientId) return;
+            if (!String(message?.content || '').startsWith('Announcement:')) return;
+            void fetchAnnouncements().catch(() => undefined);
+        });
+        if (socket.connected) joinAllRooms();
+        return () => {
+            socket.off('connect', joinAllRooms);
+            socket.off('receive_message');
+            socket.disconnect();
+            if (socketRef.current === socket) socketRef.current = null;
+        };
+    }, [doctorIds, fetchAnnouncements, patientId]);
 
     const onRefresh = async () => {
         setRefreshing(true);

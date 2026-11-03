@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, BackHandler, Image, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, BackHandler, Image, Platform, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { G, Path } from 'react-native-svg';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Eye, Info } from 'lucide-react-native';
 import type { CheckResult } from './WellnessCheckScreen';
@@ -74,7 +74,7 @@ function EyeOptotype({ trial, size }: { trial: Trial; size: number }) {
     return (
         <Svg width={size} height={size} viewBox={viewBox} accessibilityLabel={`${trial.type} symbol`}>
             <G transform={trial.rotation ? `rotate(${trial.rotation} ${center})` : undefined}>
-                {trial.type === 'E' ? <Path d={E_PATH} fill="#000000" fillRule="evenodd" transform="translate(9 0)" /> : <G transform="translate(146 146) scale(1.1) translate(-146 -146)"><Path d={C_PATH} fill="#000000" fillRule="evenodd" transform="translate(16 0)" /></G>}
+                {trial.type === 'E' ? <Path d={E_PATH} fill="#000000" fillRule="evenodd" transform="translate(9 0)" /> : <Path d={C_PATH} fill="#000000" fillRule="evenodd" transform={Platform.OS === 'ios' ? 'translate(146 146) scale(1.05) translate(-139.5 -138.5)' : 'translate(146 146) scale(1.1) translate(-146 -146) translate(16 0)'} />}
             </G>
         </Svg>
     );

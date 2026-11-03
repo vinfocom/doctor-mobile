@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Animated, BackHandler, Image, RefreshControl, ScrollView, Text, TextInput, TouchableOpacity, View, Vibration } from 'react-native';
+import { Alert, Animated, BackHandler, Image, Platform, RefreshControl, ScrollView, Text, TextInput, TouchableOpacity, View, Vibration } from 'react-native';
 import { Audio } from 'expo-av';
 import * as Speech from 'expo-speech';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -215,7 +215,11 @@ export default function PatientWellnessScreen({ navigation }: Props) {
             chosen.push(...recentlyShown.slice(0, questionCount - chosen.length));
         }
         if (!chosen.length) return;
-        setQuizQuestions(chosen); setPage('quizzes');
+        const sessionQuestions = Platform.OS === 'ios' ? chosen.map((item) => {
+            const choices = shuffleItems(item.options.map((text, originalIndex) => ({ text, originalIndex })));
+            return { ...item, options: choices.map((choice) => choice.text), answer: choices.findIndex((choice) => choice.originalIndex === item.answer) };
+        }) : chosen;
+        setQuizQuestions(sessionQuestions); setPage('quizzes');
     };
 
     const onCheckComplete = async (result: CheckResult) => {
@@ -249,7 +253,7 @@ export default function PatientWellnessScreen({ navigation }: Props) {
                     <TouchableOpacity onPress={() => setPage('relax')} activeOpacity={0.84} className="mx-4 mt-4 min-h-[178px] overflow-hidden rounded-3xl bg-white p-5 shadow-sm">
                         <MindfulBreakIllustration /><Text className="text-xl font-bold text-slate-900">Take a mindful break</Text><Text className="mt-2 max-w-[56%] text-base leading-6 text-slate-600">Play, learn and relax while you wait.</Text><View className="mt-4 self-start rounded-full bg-blue-600 px-5 py-3"><Text className="font-semibold text-white">Explore</Text></View>
                     </TouchableOpacity>
-                    <View className="mx-4 mt-4 flex-row flex-wrap justify-between">{(Object.keys(CATEGORY_STYLE) as Array<keyof typeof CATEGORY_STYLE>).map((title) => <CategoryCard key={title} title={title} onPress={() => setPage(pageForCategory(title))} />)}</View>
+                    <View className="mx-4 mt-4 flex-row flex-wrap justify-between" style={Platform.OS === 'ios' ? { rowGap: 12, alignContent: 'flex-start' } : undefined}>{(Object.keys(CATEGORY_STYLE) as Array<keyof typeof CATEGORY_STYLE>).map((title) => <CategoryCard key={title} title={title} onPress={() => setPage(pageForCategory(title))} />)}</View>
                     <SectionTitle title="Quick Play" action="See all" onPress={() => setPage('games')} />
                     {WELLNESS_GAMES.slice(0, 2).map((item, index) => <GameListCard key={item.id} game={item} index={index} onPress={() => enterGame(item)} />)}
                     <SectionTitle title="Your Progress" action="See all" onPress={() => setPage('progress')} />
@@ -438,7 +442,20 @@ function RelaxSession({ isScreenFocused, activityId, onBack, onComplete }: { isS
         if (lastCueRef.current === key) return;
         lastCueRef.current = key;
         if (haptics) Vibration.vibrate(18);
-        if (voice) { void Speech.stop(); void Speech.speak(phase === 'in' ? 'Breathe in' : 'Breathe out', { language: 'en-IN', rate: 0.82, pitch: 1 }); }
+        if (voice) {
+            if (Platform.OS === 'ios') {
+                void (async () => {
+                    try {
+                        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+                        await Speech.stop();
+                        await Speech.speak(phase === 'in' ? 'Breathe in' : 'Breathe out', { language: 'en-IN', rate: 0.82, pitch: 1 });
+                    } catch { /* Keep the visual breathing guide usable if speech audio is unavailable. */ }
+                })();
+            } else {
+                void Speech.stop();
+                void Speech.speak(phase === 'in' ? 'Breathe in' : 'Breathe out', { language: 'en-IN', rate: 0.82, pitch: 1 });
+            }
+        }
     }, [activityId, playing, phase, elapsed, haptics, voice, remaining]);
     useEffect(() => {
         if (activityId !== 'sounds') return;

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Modal, Text, TouchableOpacity, View, Image, useWindowDimensions } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Modal, Platform, Text, TouchableOpacity, View, Image, useWindowDimensions } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Gesture, GestureDetector, Directions, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
     runOnJS,
@@ -9,6 +9,8 @@ import Animated, {
     withTiming,
 } from 'react-native-reanimated';
 import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut } from 'lucide-react-native';
+
+const ModalSafeAreaProvider = Platform.OS === 'ios' ? SafeAreaProvider : React.Fragment;
 
 type PrescriptionPageItem = {
     prescription_page_id: number;
@@ -197,7 +199,8 @@ export default function PrescriptionImageViewerModal({
         <Modal visible={visible} transparent={false} animationType="fade" onRequestClose={onClose}>
             <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000000' }}>
                 <View className="flex-1 bg-black">
-                    <SafeAreaView className="flex-1">
+                    <ModalSafeAreaProvider>
+                    <SafeAreaView className="flex-1" edges={Platform.OS === 'ios' ? ['top', 'bottom'] : undefined}>
                     <View className="flex-row items-center justify-between px-5 pt-2 pb-4">
                         <View className="flex-1 pr-4">
                             <Text className="text-white text-lg font-bold">Prescription Viewer</Text>
@@ -289,6 +292,7 @@ export default function PrescriptionImageViewerModal({
                         </View>
                     </View>
                     </SafeAreaView>
+                    </ModalSafeAreaProvider>
                 </View>
             </GestureHandlerRootView>
         </Modal>

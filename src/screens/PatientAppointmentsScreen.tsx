@@ -11,6 +11,7 @@ import {
     Alert,
     StatusBar,
     Image,
+    Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
@@ -155,6 +156,8 @@ export default function PatientAppointmentsScreen() {
     const [selectedAppointment, setSelectedAppointment] = useState<AppointmentItem | null>(null);
     const [showDoctorSearch, setShowDoctorSearch] = useState(false);
     const [showClinicSelect, setShowClinicSelect] = useState(false);
+    const [pickerAfterBookingDismiss, setPickerAfterBookingDismiss] = useState<'doctor' | 'clinic' | null>(null);
+    const [reopenBookingAfterPickerDismiss, setReopenBookingAfterPickerDismiss] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [availableDates, setAvailableDates] = useState<Set<string>>(new Set());
     const [loadingDates, setLoadingDates] = useState(false);
@@ -320,7 +323,12 @@ export default function PatientAppointmentsScreen() {
         const specialization = String(route.params?.prefillSpecialization || '').trim();
         if (specialization || route.params?.openDoctorSearch) {
             setSearchQuery(specialization);
-            setShowDoctorSearch(true);
+            if (Platform.OS === 'ios') {
+                setOpen(false);
+                setShowDoctorSearch(true);
+            } else {
+                setShowDoctorSearch(true);
+            }
         }
         navigation.setParams?.({ openCreate: undefined, prefillSpecialization: undefined, openDoctorSearch: undefined });
     }, [navigation, patientName, route.params?.openCreate, route.params?.openDoctorSearch, route.params?.prefillSpecialization]);
@@ -522,6 +530,36 @@ export default function PatientAppointmentsScreen() {
         setShowDoctorSearch(false);
         setSearchQuery('');
         setAvailableDates(new Set());
+    };
+
+    const closeDoctorSearch = () => {
+        if (Platform.OS === 'ios') setReopenBookingAfterPickerDismiss(true);
+        setShowDoctorSearch(false);
+    };
+
+    const closeClinicSelect = () => {
+        if (Platform.OS === 'ios') setReopenBookingAfterPickerDismiss(true);
+        setShowClinicSelect(false);
+    };
+
+    const openDoctorSearch = () => {
+        if (Platform.OS === 'ios') {
+            setPickerAfterBookingDismiss('doctor');
+            setOpen(false);
+        } else {
+            setShowDoctorSearch(true);
+        }
+        setSearchQuery('');
+    };
+
+    const openClinicSelect = () => {
+        if (!form.doctor_id) return;
+        if (Platform.OS === 'ios') {
+            setPickerAfterBookingDismiss('clinic');
+            setOpen(false);
+        } else {
+            setShowClinicSelect(true);
+        }
     };
 
     // ── Inline Calendar helpers ──────────────────────────────────────────────
@@ -822,7 +860,13 @@ export default function PatientAppointmentsScreen() {
                 />
             </View>
 
-            <Modal visible={open} transparent animationType="slide" onRequestClose={handleCloseModal}>
+            <Modal visible={open} transparent animationType="slide" onRequestClose={handleCloseModal} onDismiss={() => {
+                if (Platform.OS !== 'ios' || !pickerAfterBookingDismiss) return;
+                const picker = pickerAfterBookingDismiss;
+                setPickerAfterBookingDismiss(null);
+                if (picker === 'doctor') setShowDoctorSearch(true);
+                else setShowClinicSelect(true);
+            }}>
                 <View className="flex-1 justify-end bg-black/50">
                     <View
                         className="bg-white rounded-t-3xl p-6 h-[86%]"
@@ -886,7 +930,7 @@ export default function PatientAppointmentsScreen() {
                                 <View>
                                     <Text className="text-sm font-bold text-gray-700 mb-2">Doctor</Text>
                                     <TouchableOpacity
-                                        onPress={() => { setShowDoctorSearch(true); setSearchQuery(''); }}
+                                        onPress={openDoctorSearch}
                                         className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 flex-row justify-between items-center h-[50px]"
                                     >
                                         <Text className={form.doctor_id ? "text-gray-800" : "text-gray-400"}>
@@ -901,10 +945,7 @@ export default function PatientAppointmentsScreen() {
                                 <View>
                                     <Text className="text-sm font-bold text-gray-700 mb-2">Clinic</Text>
                                     <TouchableOpacity
-                                        onPress={() => {
-                                            if (!form.doctor_id) return;
-                                            setShowClinicSelect(true);
-                                        }}
+                                        onPress={openClinicSelect}
                                         activeOpacity={0.85}
                                         className={`bg-gray-50 border rounded-xl px-4 py-3 min-h-[50px] flex-row items-center justify-between ${
                                             form.doctor_id ? 'border-gray-200' : 'border-gray-100'
@@ -1071,7 +1112,12 @@ export default function PatientAppointmentsScreen() {
             </Modal>
 
             {/* Doctor Search Modal */}
-            <Modal visible={showDoctorSearch} transparent animationType="slide" onRequestClose={() => setShowDoctorSearch(false)}>
+            <Modal visible={showDoctorSearch} transparent animationType="slide" onRequestClose={closeDoctorSearch} onDismiss={() => {
+                if (Platform.OS === 'ios' && reopenBookingAfterPickerDismiss) {
+                    setReopenBookingAfterPickerDismiss(false);
+                    setOpen(true);
+                }
+            }}>
                 <View className="flex-1 justify-end bg-black/50">
                     <View
                         className="bg-white rounded-t-3xl p-6 h-[80%]"
@@ -1079,7 +1125,7 @@ export default function PatientAppointmentsScreen() {
                     >
                         <View className="flex-row items-center justify-between mb-4">
                             <Text className="text-xl font-bold text-gray-800">Select Doctor</Text>
-                            <TouchableOpacity onPress={() => setShowDoctorSearch(false)} className="bg-gray-100 p-2 rounded-full">
+                            <TouchableOpacity onPress={closeDoctorSearch} className="bg-gray-100 p-2 rounded-full">
                                 <X size={20} color="#4b5563" />
                             </TouchableOpacity>
                         </View>
@@ -1111,7 +1157,7 @@ export default function PatientAppointmentsScreen() {
                                         key={item.doctor_id}
                                         onPress={() => {
                                             setForm((p) => ({ ...p, doctor_id: String(item.doctor_id), clinic_id: '', date: '', time: '' }));
-                                            setShowDoctorSearch(false);
+                                            closeDoctorSearch();
                                         }}
                                         className="py-4 border-b border-gray-100 flex-row items-center"
                                     >
@@ -1144,7 +1190,12 @@ export default function PatientAppointmentsScreen() {
                 </View>
             </Modal>
 
-            <Modal visible={showClinicSelect} transparent animationType="slide" onRequestClose={() => setShowClinicSelect(false)}>
+            <Modal visible={showClinicSelect} transparent animationType="slide" onRequestClose={closeClinicSelect} onDismiss={() => {
+                if (Platform.OS === 'ios' && reopenBookingAfterPickerDismiss) {
+                    setReopenBookingAfterPickerDismiss(false);
+                    setOpen(true);
+                }
+            }}>
                 <View className="flex-1 justify-end bg-black/40">
                     <View
                         className="bg-white rounded-t-3xl p-5 max-h-[75%]"
@@ -1152,7 +1203,7 @@ export default function PatientAppointmentsScreen() {
                     >
                         <View className="flex-row items-center justify-between mb-4">
                             <Text className="text-lg font-bold text-gray-800">Select Clinic</Text>
-                            <TouchableOpacity onPress={() => setShowClinicSelect(false)} className="bg-gray-100 rounded-full px-3 py-2">
+                            <TouchableOpacity onPress={closeClinicSelect} className="bg-gray-100 rounded-full px-3 py-2">
                                 <Text className="text-xs font-semibold text-gray-600">Close</Text>
                             </TouchableOpacity>
                         </View>
@@ -1182,7 +1233,7 @@ export default function PatientAppointmentsScreen() {
                                                     date: '',
                                                     time: '',
                                                 }));
-                                                setShowClinicSelect(false);
+                                                closeClinicSelect();
                                             }}
                                             activeOpacity={0.85}
                                             className={`rounded-2xl border px-4 py-3 mb-3 ${

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, Platform, ActivityIndicator, KeyboardAvoidingView, Image, Linking, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, Platform, ActivityIndicator, KeyboardAvoidingView, Image, Linking, Alert, Keyboard } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeft, Send, User, Paperclip, FileText } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -51,6 +51,7 @@ const getDateSeparatorLabel = (dateKey: string) => {
 export default function ChatScreen({ route, navigation }: Props) {
     const { patientId, doctorId, patientName, profilePicUrl, viewer = 'DOCTOR' } = route.params;
     const insets = useSafeAreaInsets();
+    const [keyboardVisible, setKeyboardVisible] = useState(false);
     const [messages, setMessages] = useState<any[]>([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
@@ -59,6 +60,14 @@ export default function ChatScreen({ route, navigation }: Props) {
     const flatListRef = useRef<FlatList>(null);
     const socketRef = useRef<Socket | null>(null);
     const playSound = useNotificationSound();
+
+    useEffect(() => {
+        const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+        const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+        const show = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+        const hide = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+        return () => { show.remove(); hide.remove(); };
+    }, []);
 
     const openAttachmentUrl = React.useCallback(async (url: string) => {
         const trimmed = String(url || '').trim();
@@ -452,7 +461,7 @@ export default function ChatScreen({ route, navigation }: Props) {
             {/* Unified Keyboard Logic */}
             <KeyboardAvoidingView 
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+                keyboardVerticalOffset={0}
                 className="flex-1 bg-gray-50"
             >
                 {loading ? (
@@ -480,7 +489,7 @@ export default function ChatScreen({ route, navigation }: Props) {
                 {/* Unified Input Section */}
                 <View
                     className="px-4 pt-3 bg-white border-t border-gray-100 flex-row items-center"
-                    style={{ paddingBottom: Math.max(insets.bottom, 10) }}
+                    style={{ paddingBottom: Platform.OS === 'ios' && keyboardVisible ? 0 : Math.max(insets.bottom, 10) }}
                 >
                     <TouchableOpacity
                         onPress={handleAttach}
