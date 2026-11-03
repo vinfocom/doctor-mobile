@@ -19,7 +19,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.vinfocom.dapto",
       "icon": "./assets/dapto-ios-icon.png",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Dapto uses the camera when you choose to take a prescription, clinic, or profile photo.",
