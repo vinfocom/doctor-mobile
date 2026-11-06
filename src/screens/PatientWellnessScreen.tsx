@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Animated, BackHandler, Image, Platform, RefreshControl, ScrollView, Text, TextInput, TouchableOpacity, View, Vibration } from 'react-native';
+import { Alert, Animated, BackHandler, Image, Platform, RefreshControl, ScrollView, StatusBar, Text, TextInput, TouchableOpacity, View, Vibration } from 'react-native';
 import { Audio } from 'expo-av';
 import * as Speech from 'expo-speech';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Line, Path, Text as SvgText } from 'react-native-svg';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
+import { useIsFocused } from '@react-navigation/native';
 import { Accessibility, Activity, Apple, ArrowLeft, Brain, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, CloudRain, Droplets, Ear, Eye, Flame, Flower2, Grid3x3, Heart, HeartPulse, Info, Lightbulb, Minus, Moon, Music2, PersonStanding, Plus, RotateCcw, Shapes, ShieldPlus, Sparkles, Type, Volume2, VolumeX, Waves, Wind, X, Zap } from 'lucide-react-native';
 import type { PatientTabParamList } from '../navigation/types';
 import { listRecentWellnessExposures, listWellnessProgress, listWellnessTests, saveWellnessCompletion, saveWellnessExposure, saveWellnessTestResult, type WellnessCompletion, type WellnessTestResult } from '../api/wellness';
@@ -74,6 +75,9 @@ function streakFor(completions: WellnessCompletion[], activeDates: string[]) {
 
 export default function PatientWellnessScreen({ navigation }: Props) {
     const wellnessScrollRef = useRef<ScrollView>(null);
+    const insets = useSafeAreaInsets();
+    const isWellnessFocused = useIsFocused();
+    const hasWellnessBeenFocused = useRef(false);
     const [page, setPage] = useState<Page>('home');
     const [gameFilter, setGameFilter] = useState('All');
     const [tests, setTests] = useState<WellnessTestResult[]>([]);
@@ -95,6 +99,9 @@ export default function PatientWellnessScreen({ navigation }: Props) {
     const [quizCategory, setQuizCategory] = useState('All');
     const [selectedHistory, setSelectedHistory] = useState<WellnessTestResult | null>(null);
     const [relaxActivity, setRelaxActivity] = useState<string | null>(null);
+    const iosStatusBar = Platform.OS === 'ios' && isWellnessFocused
+        ? <StatusBar barStyle={relaxActivity === 'sounds' ? 'dark-content' : 'light-content'} />
+        : null;
     const [isScreenFocused, setIsScreenFocused] = useState(() => navigation.isFocused());
 
     const load = useCallback(async () => {
@@ -142,10 +149,22 @@ export default function PatientWellnessScreen({ navigation }: Props) {
         }
     }, [testsCursor, testsHaveMore]);
     useEffect(() => {
-        const refresh = () => { setLoading(true); void load().finally(() => setLoading(false)); };
-        const unsubscribeFocus = navigation.addListener('focus', () => { setIsScreenFocused(true); refresh(); });
+        const refresh = () => { void load(); };
+        const unsubscribeFocus = navigation.addListener('focus', () => {
+            setIsScreenFocused(true);
+            refresh();
+            if (Platform.OS === 'ios' && hasWellnessBeenFocused.current) {
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => wellnessScrollRef.current?.scrollTo({ y: 0, animated: false }));
+                });
+            }
+            hasWellnessBeenFocused.current = true;
+        });
         const unsubscribeBlur = navigation.addListener('blur', () => setIsScreenFocused(false));
-        if (navigation.isFocused()) refresh();
+        if (navigation.isFocused()) {
+            hasWellnessBeenFocused.current = true;
+            refresh();
+        }
         return () => { unsubscribeFocus(); unsubscribeBlur(); };
     }, [load, navigation]);
 
@@ -235,19 +254,33 @@ export default function PatientWellnessScreen({ navigation }: Props) {
         }
     };
 
-    if (game) return <SafeAreaView className="flex-1 bg-slate-50" edges={['top']}><WellnessGameScreen key={`${game.id}-${gameContentId}`} game={game} contentId={gameContentId} onBack={() => { setGame(null); setPage('games'); }} onComplete={() => void completeActivity('GAME', game.id)} /></SafeAreaView>;
-    if (testId) return <SafeAreaView className="flex-1 bg-slate-50" edges={['top']}><WellnessCheckScreen testId={testId} onBack={() => { setTestId(null); setPage('tests'); }} onComplete={onCheckComplete} recentColorVisionPlateIds={colorVisionExposureIds} onColorVisionPlateShown={(id) => { setColorVisionExposureIds((old) => old.includes(id) ? old : [...old, id]); void saveWellnessExposure('COLOR_VISION', id).catch(() => undefined); }} /></SafeAreaView>;
-    if (quizQuestions.length) return <SafeAreaView className="flex-1 bg-slate-50" edges={['top']}><QuizSession category={quizCategory} questions={quizQuestions} onExposure={(id) => { setQuizExposureIds((old) => [...old, id]); void saveWellnessExposure('QUIZ', id).catch(() => undefined); }} onBack={() => setQuizQuestions([])} onFinish={() => { void completeActivity('QUIZ', `quiz-${quizCategory.toLowerCase().replace(/\s+/g, '-')}`); }} /></SafeAreaView>;
-    if (relaxActivity) return <SafeAreaView className="flex-1 bg-slate-50" edges={['top']}><RelaxSession key={relaxActivity} isScreenFocused={isScreenFocused} activityId={relaxActivity} onBack={() => setRelaxActivity(null)} onComplete={() => { void completeActivity('RELAX', relaxActivity); }} /></SafeAreaView>;
+    if (game) return <SafeAreaView className={`flex-1 ${Platform.OS === 'ios' ? 'bg-blue-700' : 'bg-slate-50'}`} style={{ backgroundColor: Platform.OS === 'ios' ? '#1d4ed8' : '#f8fafc' }} edges={['top']}>{iosStatusBar}<WellnessGameScreen key={`${game.id}-${gameContentId}`} game={game} contentId={gameContentId} onBack={() => { setGame(null); setPage('games'); }} onComplete={() => void completeActivity('GAME', game.id)} /></SafeAreaView>;
+    if (testId) return <SafeAreaView className={`flex-1 ${Platform.OS === 'ios' ? 'bg-blue-700' : 'bg-slate-50'}`} style={{ backgroundColor: Platform.OS === 'ios' ? '#1d4ed8' : '#f8fafc' }} edges={['top']}>{iosStatusBar}<WellnessCheckScreen testId={testId} onBack={() => { setTestId(null); setPage('tests'); }} onComplete={onCheckComplete} recentColorVisionPlateIds={colorVisionExposureIds} onColorVisionPlateShown={(id) => { setColorVisionExposureIds((old) => old.includes(id) ? old : [...old, id]); void saveWellnessExposure('COLOR_VISION', id).catch(() => undefined); }} /></SafeAreaView>;
+    if (quizQuestions.length) return <SafeAreaView className={`flex-1 ${Platform.OS === 'ios' ? 'bg-blue-700' : 'bg-slate-50'}`} style={{ backgroundColor: Platform.OS === 'ios' ? '#1d4ed8' : '#f8fafc' }} edges={['top']}>{iosStatusBar}<QuizSession category={quizCategory} questions={quizQuestions} onExposure={(id) => { setQuizExposureIds((old) => [...old, id]); void saveWellnessExposure('QUIZ', id).catch(() => undefined); }} onBack={() => setQuizQuestions([])} onFinish={() => { void completeActivity('QUIZ', `quiz-${quizCategory.toLowerCase().replace(/\s+/g, '-')}`); }} /></SafeAreaView>;
+    if (relaxActivity) {
+        const session = <RelaxSession key={relaxActivity} isScreenFocused={isScreenFocused} activityId={relaxActivity} onBack={() => setRelaxActivity(null)} onComplete={() => { void completeActivity('RELAX', relaxActivity); }} />;
+        if (Platform.OS === 'ios' && relaxActivity === 'sounds') return session;
+        return <SafeAreaView className={`flex-1 ${Platform.OS === 'ios' ? 'bg-blue-700' : 'bg-slate-50'}`} style={{ backgroundColor: Platform.OS === 'ios' ? '#1d4ed8' : '#f8fafc' }} edges={['top']}>{iosStatusBar}{session}</SafeAreaView>;
+    }
 
     return (
-        <SafeAreaView className="flex-1 bg-slate-50" edges={['top']}>
-            <ScrollView ref={wellnessScrollRef} className="flex-1" contentContainerStyle={{ paddingBottom: 26 }} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { setLoading(true); void load().finally(() => setLoading(false)); }} />}>
+        <SafeAreaView className="flex-1 bg-slate-50" edges={Platform.OS === 'ios' ? ['left', 'right'] : ['top']}>
+            {iosStatusBar}
+            {Platform.OS === 'ios' ? <View className="overflow-hidden rounded-b-[30px] bg-blue-700">
+                <View className="bg-blue-700 px-5 pb-6" style={{ paddingTop: insets.top + 12 }}>
+                    {page !== 'home' ? <TouchableOpacity onPress={goBack} className="mb-3 flex-row items-center"><ArrowLeft size={20} color="white" /><Text className="ml-2 text-white">Wellness Hub</Text></TouchableOpacity> : <Text className="text-sm text-blue-100">Patient Portal</Text>}
+                    <Text className="mt-1 text-3xl font-bold text-white">{pageTitle(page)}</Text>
+                    <Text className="mt-1 text-base text-blue-100">{pageSubtitle(page)}</Text>
+                </View>
+            </View> : null}
+            <ScrollView ref={wellnessScrollRef} className="flex-1 bg-slate-50" contentInsetAdjustmentBehavior={Platform.OS === 'ios' ? 'never' : undefined} automaticallyAdjustContentInsets={Platform.OS === 'ios' ? false : undefined} contentContainerStyle={{ paddingBottom: 26 }} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { setLoading(true); void load().finally(() => setLoading(false)); }} />}>
+                {Platform.OS !== 'ios' ? (
                 <View className="rounded-b-[30px] bg-blue-700 px-5 pb-6 pt-3">
                     {page !== 'home' ? <TouchableOpacity onPress={goBack} className="mb-3 flex-row items-center"><ArrowLeft size={20} color="white" /><Text className="ml-2 text-white">Wellness Hub</Text></TouchableOpacity> : <Text className="text-sm text-blue-100">Patient Portal</Text>}
                     <Text className="mt-1 text-3xl font-bold text-white">{pageTitle(page)}</Text>
                     <Text className="mt-1 text-base text-blue-100">{pageSubtitle(page)}</Text>
                 </View>
+                ) : null}
                 {error ? <Text className="mx-4 mt-3 rounded-2xl bg-rose-50 p-3 text-sm text-rose-700">{error}</Text> : null}
                 {page === 'home' ? <>
                     <TouchableOpacity onPress={() => setPage('relax')} activeOpacity={0.84} className="mx-4 mt-4 min-h-[178px] overflow-hidden rounded-3xl bg-white p-5 shadow-sm">
@@ -553,9 +586,13 @@ function RelaxSession({ isScreenFocused, activityId, onBack, onComplete }: { isS
         if (sound) void sound.stopAsync().catch(() => setSoundError('Audio playback is unavailable.'));
     };
     if (finished && activityId === 'meditation') return <View className="flex-1 bg-slate-50"><View className="rounded-b-[28px] bg-blue-700 px-5 pb-5 pt-3"><Text className="text-2xl font-bold text-white">Short Meditation</Text></View><View className="m-4 flex-1 items-center justify-center rounded-3xl bg-white p-6 shadow-sm"><Check size={58} color="#16a34a" /><Text className="mt-4 text-2xl font-bold text-slate-900">Session complete</Text><TouchableOpacity onPress={restartMeditation} className="mt-7 w-full rounded-full bg-blue-600 py-4"><Text className="text-center font-bold text-white">Restart</Text></TouchableOpacity><TouchableOpacity onPress={onBack} className="mt-3 w-full rounded-full bg-violet-50 py-4"><Text className="text-center font-bold text-violet-800">Done</Text></TouchableOpacity></View></View>;
-    if (finished && activityId === 'sounds') return <View className="flex-1" style={{ backgroundColor: soundTheme.background }}><View className="rounded-b-[28px] px-5 pb-5 pt-3" style={{ backgroundColor: soundTheme.header }}><Text className="text-2xl font-bold text-slate-800">Session complete</Text></View><View className="m-4 flex-1 items-center justify-center rounded-3xl bg-white p-6 shadow-sm"><Check size={58} color="#16a34a" /><Text className="mt-4 text-2xl font-bold text-slate-900">Quiet moment complete</Text><TouchableOpacity onPress={restartSound} className="mt-7 w-full rounded-full py-4" style={{ backgroundColor: soundTheme.soft }}><Text className="text-center font-bold" style={{ color: soundTheme.tint }}>Restart</Text></TouchableOpacity><TouchableOpacity onPress={onBack} className="mt-3 w-full rounded-full py-4" style={{ backgroundColor: soundTheme.soft }}><Text className="text-center font-bold" style={{ color: soundTheme.tint }}>Done</Text></TouchableOpacity></View></View>;
+    if (finished && activityId === 'sounds') return (
+        <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: soundTheme.header }}>
+            <View className="flex-1" style={{ backgroundColor: soundTheme.background }}><View className="rounded-b-[28px] px-5 pb-5 pt-3" style={{ backgroundColor: soundTheme.header }}><Text className="text-2xl font-bold text-slate-800">Session complete</Text></View><View className="m-4 flex-1 items-center justify-center rounded-3xl bg-white p-6 shadow-sm"><Check size={58} color="#16a34a" /><Text className="mt-4 text-2xl font-bold text-slate-900">Quiet moment complete</Text><TouchableOpacity onPress={restartSound} className="mt-7 w-full rounded-full py-4" style={{ backgroundColor: soundTheme.soft }}><Text className="text-center font-bold" style={{ color: soundTheme.tint }}>Restart</Text></TouchableOpacity><TouchableOpacity onPress={onBack} className="mt-3 w-full rounded-full py-4" style={{ backgroundColor: soundTheme.soft }}><Text className="text-center font-bold" style={{ color: soundTheme.tint }}>Done</Text></TouchableOpacity></View></View>
+        </SafeAreaView>
+    );
     if (finished) return <View className="flex-1 bg-slate-50"><View className="rounded-b-[28px] bg-blue-700 px-5 pb-5 pt-3"><Text className="text-2xl font-bold text-white">Session complete</Text><Text className="mt-1 text-blue-100">A small moment for yourself</Text></View><View className="m-4 flex-1 items-center justify-center rounded-3xl bg-white p-6 shadow-sm"><Check size={60} color="#16a34a" /><Text className="mt-4 text-2xl font-bold text-slate-900">Well done</Text><Text className="mt-2 text-center text-slate-600">You completed {title}. Your progress is personal and private.</Text><TouchableOpacity onPress={onBack} className="mt-7 w-full rounded-full bg-blue-600 py-4"><Text className="text-center font-bold text-white">Back to Relax & Refresh</Text></TouchableOpacity></View></View>;
-    return <View className="flex-1 bg-slate-50" style={activityId === 'sounds' ? { backgroundColor: soundTheme.background } : undefined}><View className="rounded-b-[28px] bg-blue-700 px-5 pb-5 pt-3" style={activityId === 'sounds' ? { backgroundColor: soundTheme.header } : undefined}><TouchableOpacity onPress={activityId === 'sounds' && soundStarted ? backToSoundChoices : onBack} className="mb-3 flex-row items-center"><ArrowLeft size={20} color={activityId === 'sounds' ? '#334155' : 'white'} /><Text className="ml-2" style={{ color: activityId === 'sounds' ? '#334155' : 'white' }}>Relax & Refresh</Text></TouchableOpacity><Text className="text-2xl font-bold" style={{ color: activityId === 'sounds' ? '#1e293b' : 'white' }}>{title}</Text><Text className="mt-1" style={{ color: activityId === 'sounds' ? '#475569' : '#dbeafe' }}>{activityId === 'sounds' ? 'Choose a sound and unwind' : activityId === 'breathing' ? 'Follow the rhythm at your own pace' : activityId === 'meditation' ? 'A quiet moment, just for you' : activityId === 'stretching' ? 'Gentle movement, at your own pace' : 'Gentle and optional · Stop if uncomfortable'}</Text></View><View className="m-4 flex-1 items-center justify-center rounded-3xl bg-white p-6 shadow-sm">
+    const sessionContent = <View className="flex-1 bg-slate-50" style={activityId === 'sounds' ? { backgroundColor: soundTheme.background } : undefined}><View className="rounded-b-[28px] bg-blue-700 px-5 pb-5 pt-3" style={activityId === 'sounds' ? { backgroundColor: soundTheme.header } : undefined}><TouchableOpacity onPress={activityId === 'sounds' && soundStarted ? backToSoundChoices : onBack} className="mb-3 flex-row items-center"><ArrowLeft size={20} color={activityId === 'sounds' ? '#334155' : 'white'} /><Text className="ml-2" style={{ color: activityId === 'sounds' ? '#334155' : 'white' }}>Relax & Refresh</Text></TouchableOpacity><Text className="text-2xl font-bold" style={{ color: activityId === 'sounds' ? '#1e293b' : 'white' }}>{title}</Text><Text className="mt-1" style={{ color: activityId === 'sounds' ? '#475569' : '#dbeafe' }}>{activityId === 'sounds' ? 'Choose a sound and unwind' : activityId === 'breathing' ? 'Follow the rhythm at your own pace' : activityId === 'meditation' ? 'A quiet moment, just for you' : activityId === 'stretching' ? 'Gentle movement, at your own pace' : 'Gentle and optional · Stop if uncomfortable'}</Text></View><View className="m-4 flex-1 items-center justify-center rounded-3xl bg-white p-6 shadow-sm">
         {activityId === 'stretching' ? <View className="w-full flex-1 justify-center">
             <View className="mb-4 w-full flex-row items-center justify-center">
                 {stretches.map((_, index) => <React.Fragment key={index}><View className="h-8 w-8 items-center justify-center rounded-full" style={{ backgroundColor: index === stretchStep ? '#2563eb' : index < stretchStep ? '#dbeafe' : '#e2e8f0' }}><Text className="text-sm font-bold" style={{ color: index === stretchStep ? 'white' : '#64748b' }}>{index + 1}</Text></View>{index < stretches.length - 1 ? <View className="mx-2 h-1 flex-1 rounded-full" style={{ backgroundColor: index < stretchStep ? '#93c5fd' : '#dbeafe' }} /> : null}</React.Fragment>)}
@@ -586,6 +623,10 @@ function RelaxSession({ isScreenFocused, activityId, onBack, onComplete }: { isS
             <View className="mt-6 w-full flex-row gap-3"><TouchableOpacity disabled={customTimer && !customTimerValid} onPress={toggleMeditation} className="flex-1 rounded-full bg-violet-600 py-4" style={{ opacity: customTimer && !customTimerValid ? 0.5 : 1 }}><Text className="text-center font-bold text-white">{playing ? 'Pause' : meditationStarted ? 'Resume' : 'Begin'}</Text></TouchableOpacity><TouchableOpacity accessibilityRole="button" accessibilityLabel="Restart meditation" disabled={customTimer && !customTimerValid} onPress={restartMeditation} className="w-14 items-center justify-center rounded-full bg-violet-50" style={{ opacity: customTimer && !customTimerValid ? 0.5 : 1 }}><RotateCcw size={22} color="#6d28d9" /></TouchableOpacity></View>
         </> : null}
     </View></View>;
+    if (Platform.OS === 'ios' && activityId === 'sounds') {
+        return <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: soundTheme.header }}>{sessionContent}</SafeAreaView>;
+    }
+    return sessionContent;
 }
 class WellnessHistoryBoundary extends React.Component<{ children: React.ReactNode; onBack: () => void }, { hasError: boolean }> {
     state = { hasError: false };

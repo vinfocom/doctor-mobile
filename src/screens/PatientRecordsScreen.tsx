@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View, FlatList, Linking } from 'react-native';
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View, FlatList, Linking, Share } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { CalendarDays, Camera, Check, ChevronDown, ChevronLeft, ChevronRight, CloudCheck, CloudUpload, Download, FileImage, FilePlus2, FileText, FlaskConical, Heart, ImagePlus, Info, MapPin, Pencil, RotateCw, Search, ShieldCheck, SlidersHorizontal, Trash2, Users, X, ZoomIn, ZoomOut } from 'lucide-react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -169,6 +169,7 @@ export default function PatientRecordsScreen() {
     const [emrViewerCurrentPage, setEmrViewerCurrentPage] = useState(1);
     const [exportVisible, setExportVisible] = useState(false);
     const [exportBusy, setExportBusy] = useState(false);
+    const pendingExportShareUriRef = useRef<string | null>(null);
     const [exportIncludeSaved, setExportIncludeSaved] = useState(true);
     const [exportIncludeEmr, setExportIncludeEmr] = useState(false);
     const [exportAllDoctors, setExportAllDoctors] = useState(true);
@@ -650,7 +651,7 @@ export default function PatientRecordsScreen() {
             else if (exportDatePicker === 'end') setExportEndDate(value);
         }
     };
-    const saveExportFile = async (bytes: ArrayBuffer, filename: string, mimeType: string) => {
+    const saveExportFile = async (bytes: ArrayBuffer, filename: string, mimeType: string): Promise<string | null> => {
         if (Platform.OS === 'web') {
             const objectUrl = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
             const anchor = document.createElement('a');
@@ -660,14 +661,17 @@ export default function PatientRecordsScreen() {
             anchor.click();
             anchor.remove();
             URL.revokeObjectURL(objectUrl);
-            return;
+            return null;
         }
         const tempUri = `${FileSystem.cacheDirectory}dapto-export-${Date.now()}-${filename}`;
         await FileSystem.writeAsStringAsync(tempUri, Buffer.from(bytes).toString('base64'), { encoding: FileSystem.EncodingType.Base64 });
-        try {
-            if (Platform.OS === 'android') {
+        if (Platform.OS === 'android') {
+            try {
                 const permission = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-                if (!permission.granted) return Alert.alert('Download cancelled', 'Choose a folder to save your records.');
+                if (!permission.granted) {
+                    Alert.alert('Download cancelled', 'Choose a folder to save your records.');
+                    return null;
+                }
                 let destination: string;
                 try {
                     destination = await FileSystem.StorageAccessFramework.createFileAsync(permission.directoryUri, filename, mimeType);
@@ -680,13 +684,24 @@ export default function PatientRecordsScreen() {
                 const base64 = await FileSystem.readAsStringAsync(tempUri, { encoding: FileSystem.EncodingType.Base64 });
                 await FileSystem.writeAsStringAsync(destination, base64, { encoding: FileSystem.EncodingType.Base64 });
                 Alert.alert('Download complete', `Saved ${filename}`);
-            } else {
-                const destination = `${FileSystem.documentDirectory}${filename}`;
-                await FileSystem.copyAsync({ from: tempUri, to: destination });
-                Alert.alert('Download complete', `Saved ${filename} in Dapto app files.`);
+                return null;
+            } finally {
+                await FileSystem.deleteAsync(tempUri, { idempotent: true }).catch(() => undefined);
             }
+        }
+        // Let the export modal finish dismissing before presenting the iOS share/save sheet.
+        return tempUri;
+    };
+    const presentPendingExportShare = async () => {
+        const uri = pendingExportShareUriRef.current;
+        if (!uri) return;
+        pendingExportShareUriRef.current = null;
+        try {
+            await Share.share({ url: uri });
+        } catch (error: any) {
+            Alert.alert('Could not open save options', error?.message || 'Please try downloading the records again.');
         } finally {
-            await FileSystem.deleteAsync(tempUri, { idempotent: true }).catch(() => undefined);
+            await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
         }
     };
     const downloadRecords = async () => {
@@ -748,8 +763,9 @@ export default function PatientRecordsScreen() {
                 if (__DEV__) console.warn('[patient-records-export] Invalid download body', { mimeType, receivedBytes: bytes.byteLength, contentLength: contentLength || null, signature });
                 throw new Error('The download did not finish correctly. Please retry with a stable connection.');
             }
+            const shareUri = await saveExportFile(bytes, filename, mimeType);
+            if (shareUri) pendingExportShareUriRef.current = shareUri;
             setExportVisible(false);
-            await saveExportFile(bytes, filename, mimeType);
         } catch (error: any) {
             Alert.alert('Download failed', error?.message || 'Could not create the download. Please try again.');
         } finally {
@@ -776,7 +792,12 @@ export default function PatientRecordsScreen() {
             savedImageScale.value = imageScale.value;
             runOnJS(setImageZoom)(imageScale.value);
         });
-    const openRecord = (record: PatientRecord) => { setSelectedRecord(record); setSelectedPage(0); resetImageZoom(); };
+    const openRecord = (record: PatientRecord) => {
+        if (Platform.OS === 'ios') closeLocation();
+        setSelectedRecord(record);
+        setSelectedPage(0);
+        resetImageZoom();
+    };
     const loadEmrPrescriptionPdf = async (prescription: PatientEmrPrescriptionItem) => {
         if (!Pdf) {
             setEmrViewerError('Prescription preview isn’t available in Expo Go. Install the latest Dapto app to view it here.');
@@ -846,6 +867,10 @@ export default function PatientRecordsScreen() {
         setLocationPage(null);
         setLocationAddress(null);
         setLocationAddressLoading(false);
+    };
+    const closeRecordPreview = () => {
+        if (Platform.OS === 'ios') closeLocation();
+        setSelectedRecord(null);
     };
     const openCoordinatesInMap = async () => {
         if (!locationPageCoordinates) return;
@@ -1024,7 +1049,7 @@ export default function PatientRecordsScreen() {
                     </SafeAreaView>
                 </View>
             </Modal>
-            <Modal visible={exportVisible} animationType="slide" onRequestClose={() => !exportBusy && setExportVisible(false)}>
+            <Modal visible={exportVisible} animationType="slide" onDismiss={() => { void presentPendingExportShare(); }} onRequestClose={() => !exportBusy && setExportVisible(false)}>
                 <SafeAreaView className="flex-1 bg-slate-50" edges={['top', 'bottom']}>
                     <View className="flex-row items-center justify-between border-b border-slate-100 bg-white px-5 py-4">
                         <View><Text className="text-xl font-bold text-slate-900">Download records</Text><Text className="mt-1 text-xs text-slate-500">Choose what to include and who it is for</Text></View>
@@ -1100,12 +1125,12 @@ export default function PatientRecordsScreen() {
                 </SafeAreaView>
                 </ModalSafeAreaProvider>
             </Modal>
-            <Modal visible={Boolean(selectedRecord)} transparent animationType="fade" onRequestClose={() => setSelectedRecord(null)}>
+            <Modal visible={Boolean(selectedRecord)} transparent animationType="fade" onRequestClose={closeRecordPreview}>
                 <ModalSafeAreaProvider>
                 <SafeAreaView className="flex-1 bg-black/95" edges={['top', 'bottom']}>
                     <View className="flex-row items-start justify-between px-4 pb-2 pt-3">
                         <View className="mr-4 flex-1"><Text className="text-lg font-bold text-white" numberOfLines={2}>{selectedRecord?.title || categories.find((item) => item.key === selectedRecord?.category)?.label || 'Health record'}</Text><Text className="mt-1 text-xs text-white/70">{selectedRecord?.for_label === 'Self' ? 'Self' : selectedRecord?.relationship_label || 'Other'}  |  Page {selectedPage + 1} of {selectedRecord?.pages.length || 0}</Text></View>
-                        <TouchableOpacity accessibilityLabel="Close image" onPress={() => setSelectedRecord(null)} className="rounded-full bg-white/15 p-2"><X size={22} color="white" /></TouchableOpacity>
+                        <TouchableOpacity accessibilityLabel="Close image" onPress={closeRecordPreview} className="rounded-full bg-white/15 p-2"><X size={22} color="white" /></TouchableOpacity>
                     </View>
                     {currentPage?.image_path ? <GestureDetector gesture={imagePinchGesture}><View className="flex-1 w-full items-center justify-center overflow-hidden" collapsable={false}><Animated.View className="h-full w-full" style={animatedImageStyle}><Image source={imageSourceFor(selectedRecord?.record_id || '', currentPage)} onError={() => handleRecordImageError(selectedRecord?.record_id || '', currentPage)} className="h-full w-full" resizeMode="contain" /></Animated.View></View></GestureDetector> : <View className="flex-1 items-center justify-center"><Text className="text-white">Image unavailable</Text></View>}
                     <View className="flex-row items-center justify-between px-4 pb-3 pt-3">
@@ -1118,10 +1143,22 @@ export default function PatientRecordsScreen() {
                         </View>
                         <TouchableOpacity accessibilityLabel="Next page" disabled={!selectedRecord || selectedPage >= selectedRecord.pages.length - 1} onPress={() => changeSelectedPage(1)} className="rounded-full bg-white/15 p-2.5"><ChevronRight size={20} color={!selectedRecord || selectedPage >= selectedRecord.pages.length - 1 ? '#64748b' : 'white'} /></TouchableOpacity>
                     </View>
+                    {Platform.OS === 'ios' && locationPage ? <View className="absolute inset-0 z-50 items-center justify-center bg-black/60 px-6">
+                        <View className="w-full rounded-2xl bg-white p-5">
+                            <View className="flex-row items-center justify-between">
+                                <Text className="text-lg font-bold text-slate-900">Upload location</Text>
+                                <TouchableOpacity accessibilityLabel="Close location" hitSlop={10} onPress={closeLocation} className="p-1"><X size={21} color="#475569" /></TouchableOpacity>
+                            </View>
+                            <Text className="mt-3 font-medium text-slate-800">{locationAddressLoading ? 'Looking up address…' : locationAddress || 'Address unavailable'}</Text>
+                            {locationPageCoordinates ? <Text className="mt-1 text-xs text-slate-500">Coordinates: {locationPageCoordinates.latitude.toFixed(5)}, {locationPageCoordinates.longitude.toFixed(5)}</Text> : null}
+                            {locationPage?.location_accuracy_m != null && Number.isFinite(Number(locationPage.location_accuracy_m)) ? <Text className="mt-2 text-xs text-slate-400">Accuracy about {Math.round(Number(locationPage.location_accuracy_m))} m</Text> : null}
+                            {locationPageCoordinates ? <TouchableOpacity accessibilityRole="button" onPress={() => void openCoordinatesInMap()} className="mt-5 items-center rounded-xl bg-indigo-600 py-3"><Text className="font-semibold text-white">Open map</Text></TouchableOpacity> : null}
+                        </View>
+                    </View> : null}
                 </SafeAreaView>
                 </ModalSafeAreaProvider>
             </Modal>
-            <Modal visible={Boolean(locationPage)} transparent animationType="fade" onRequestClose={closeLocation}><View className="flex-1 bg-black/50 justify-center px-6"><View className="bg-white rounded-2xl p-5"><View className="flex-row items-center justify-between"><Text className="text-slate-900 font-bold text-lg">Upload location</Text><TouchableOpacity hitSlop={10} onPress={closeLocation}><X size={21} color="#475569" /></TouchableOpacity></View><Text className="text-slate-800 mt-3 font-medium">{locationAddressLoading ? 'Loading address...' : locationAddress || 'Address unavailable'}</Text>{!locationAddressLoading && !locationAddress && locationPageCoordinates ? <Text className="text-slate-500 text-xs mt-1">Coordinates: {locationPageCoordinates.latitude.toFixed(5)}, {locationPageCoordinates.longitude.toFixed(5)}</Text> : null}{locationPage?.location_accuracy_m != null && Number.isFinite(Number(locationPage.location_accuracy_m)) ? <Text className="text-slate-400 text-xs mt-2">Accuracy about {Math.round(Number(locationPage.location_accuracy_m))} m</Text> : null}{locationPageCoordinates ? <TouchableOpacity accessibilityRole="button" onPress={() => void openCoordinatesInMap()} className="bg-indigo-600 rounded-xl items-center py-3 mt-5"><Text className="text-white font-semibold">Open map</Text></TouchableOpacity> : null}</View></View></Modal>
+            {Platform.OS !== 'ios' ? <Modal visible={Boolean(locationPage)} transparent animationType="fade" onRequestClose={closeLocation}><View className="flex-1 bg-black/50 justify-center px-6"><View className="bg-white rounded-2xl p-5"><View className="flex-row items-center justify-between"><Text className="text-slate-900 font-bold text-lg">Upload location</Text><TouchableOpacity hitSlop={10} onPress={closeLocation}><X size={21} color="#475569" /></TouchableOpacity></View><Text className="text-slate-800 mt-3 font-medium">{locationAddressLoading ? 'Loading address...' : locationAddress || 'Address unavailable'}</Text>{!locationAddressLoading && !locationAddress && locationPageCoordinates ? <Text className="text-slate-500 text-xs mt-1">Coordinates: {locationPageCoordinates.latitude.toFixed(5)}, {locationPageCoordinates.longitude.toFixed(5)}</Text> : null}{locationPage?.location_accuracy_m != null && Number.isFinite(Number(locationPage.location_accuracy_m)) ? <Text className="text-slate-400 text-xs mt-2">Accuracy about {Math.round(Number(locationPage.location_accuracy_m))} m</Text> : null}{locationPageCoordinates ? <TouchableOpacity accessibilityRole="button" onPress={() => void openCoordinatesInMap()} className="bg-indigo-600 rounded-xl items-center py-3 mt-5"><Text className="text-white font-semibold">Open map</Text></TouchableOpacity> : null}</View></View></Modal> : null}
         </SafeAreaView>
     );
 }

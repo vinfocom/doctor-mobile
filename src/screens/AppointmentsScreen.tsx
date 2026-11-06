@@ -15,6 +15,7 @@ import {
     Image,
     Animated,
     Easing,
+    Share,
 } from 'react-native';
 import {
     Activity,
@@ -601,6 +602,7 @@ const AppointmentsScreen = () => {
     const [exportTo, setExportTo] = useState('');
     const [exportSelectedDoctorId, setExportSelectedDoctorId] = useState<number | 'ALL'>('ALL');
     const [exporting, setExporting] = useState(false);
+    const pendingExportShareUriRef = useRef<string | null>(null);
     const [exportError, setExportError] = useState('');
     const [exportCalendarMode, setExportCalendarMode] = useState<'FROM' | 'TO' | null>(null);
     const [openCardMenuId, setOpenCardMenuId] = useState<number | null>(null);
@@ -1138,6 +1140,19 @@ const AppointmentsScreen = () => {
         return { from, to };
     };
 
+    const presentPendingExportShare = async () => {
+        const uri = pendingExportShareUriRef.current;
+        if (!uri) return;
+        pendingExportShareUriRef.current = null;
+        try {
+            await Share.share({ url: uri });
+        } catch (error) {
+            Alert.alert('Could not open save options', error instanceof Error ? error.message : 'Please try downloading the report again.');
+        } finally {
+            await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
+        }
+    };
+
     const handleExportDownload = async () => {
         const getReadableExportError = (error: unknown) => {
             if (error instanceof Error && error.message) {
@@ -1244,7 +1259,8 @@ const AppointmentsScreen = () => {
                 link.remove();
                 URL.revokeObjectURL(blobUrl);
             } else {
-                const tempUri = `${FileSystem.cacheDirectory}${filename}`;
+                const tempFilename = Platform.OS === 'ios' ? `dapto-export-${Date.now()}-${filename}` : filename;
+                const tempUri = `${FileSystem.cacheDirectory}${tempFilename}`;
                 const download = await FileSystem.downloadAsync(url, tempUri, {
                     headers: { Authorization: `Bearer ${token}` },
                 });
@@ -1275,9 +1291,7 @@ const AppointmentsScreen = () => {
                     });
                     Alert.alert('Downloaded', 'Saved to selected folder.');
                 } else {
-                    const fileUri = `${FileSystem.documentDirectory}${filename}`;
-                    await FileSystem.copyAsync({ from: tempUri, to: fileUri });
-                    Alert.alert('Downloaded', `Saved in app files: ${fileUri}`);
+                    pendingExportShareUriRef.current = tempUri;
                 }
             }
 
@@ -2393,7 +2407,10 @@ const AppointmentsScreen = () => {
                         style={{
                             maxHeight: headerFiltersAnim.interpolate({
                                 inputRange: [0, 1],
-                                outputRange: [0, 220],
+                                // The custom calendar expands below the chips. Its
+                                // six week grid is taller on iOS than this header's
+                                // previous 220px cap, which clipped the date picker.
+                                outputRange: [0, Platform.OS === 'ios' && showQuickDatePicker ? 520 : 220],
                             }),
                             opacity: headerFiltersAnim,
                             overflow: 'hidden',
@@ -3227,6 +3244,7 @@ const AppointmentsScreen = () => {
                 animationType="slide"
                 transparent
                 visible={exportModalVisible}
+                onDismiss={() => { void presentPendingExportShare(); }}
                 onRequestClose={() => setExportModalVisible(false)}
             >
                 <View className="flex-1 justify-end bg-black/50">

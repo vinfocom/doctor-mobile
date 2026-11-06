@@ -9,6 +9,7 @@ import {
     StatusBar,
     TextInput,
     Linking,
+    Platform,
 } from 'react-native';
 import {
     User,
@@ -302,6 +303,13 @@ export default function PatientProfileScreen() {
                                 ))}
                             </Animated.View>
                         </>
+                    )}
+
+                    {Platform.OS === 'ios' && (
+                        <TouchableOpacity onPress={() => navigation.navigate('AccountDeletionRequest')} className="mx-5 mb-3 flex-row items-center rounded-2xl bg-white px-4 py-4" accessibilityRole="button">
+                            <Text className="flex-1 text-base font-semibold text-red-600">Delete Account</Text>
+                            <ChevronLeft size={18} color="#dc2626" style={{ transform: [{ rotate: '180deg' }] }} />
+                        </TouchableOpacity>
                     )}
 
                     {/* Logout */}

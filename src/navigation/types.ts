@@ -77,6 +77,7 @@ export type RootStackParamList = {
     };
   };
   PatientProfile: undefined;
+  AccountDeletionRequest: undefined;
   PatientDetails: { patientId: number };
   DoctorAnnouncements: undefined;
 };

@@ -13,6 +13,7 @@ import {
     NativeScrollEvent,
     Image,
     Linking,
+    Platform,
 } from 'react-native';
 import {
     User,
@@ -682,6 +683,12 @@ const ProfileScreen = () => {
                             </View>
                         </Animated.View>
 
+                        {Platform.OS === 'ios' && (
+                            <TouchableOpacity onPress={() => navigation.navigate('AccountDeletionRequest')} className="mb-3 flex-row items-center rounded-2xl bg-white px-4 py-4" accessibilityRole="button">
+                                <Text className="flex-1 text-base font-semibold text-red-600">Delete Account</Text>
+                                <ChevronLeft size={18} color="#dc2626" style={{ transform: [{ rotate: '180deg' }] }} />
+                            </TouchableOpacity>
+                        )}
                         <Animated.View entering={FadeInUp.delay(420).duration(500)} className="mt-4 mb-10">
                             <TouchableOpacity
                                 onPress={handleLogout}
@@ -1121,6 +1128,13 @@ const ProfileScreen = () => {
                             </View>
                         )}
                     </Animated.View>
+
+                    {Platform.OS === 'ios' && (
+                        <TouchableOpacity onPress={() => navigation.navigate('AccountDeletionRequest')} className="mb-3 flex-row items-center rounded-2xl bg-white px-4 py-4" accessibilityRole="button">
+                            <Text className="flex-1 text-base font-semibold text-red-600">Delete Account</Text>
+                            <ChevronLeft size={18} color="#dc2626" style={{ transform: [{ rotate: '180deg' }] }} />
+                        </TouchableOpacity>
+                    )}
 
                     {/* Logout */}
                     <Animated.View entering={FadeInUp.delay(700).duration(500)} className="mt-4 mb-10">

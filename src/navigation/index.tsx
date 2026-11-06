@@ -1,4 +1,5 @@
 import React from 'react';
+import { Platform } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { RootStackParamList } from './types';
 
@@ -20,6 +21,7 @@ import StaffFormScreen from '../screens/StaffFormScreen';
 import PatientDetailsScreen from '../screens/PatientDetails';
 import DoctorAnnouncementsScreen from '../screens/DoctorAnnouncementsScreen';
 import PatientProfileScreen from '../screens/PatientProfileScreen';
+import AccountDeletionRequestScreen from '../screens/AccountDeletionRequestScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -136,6 +138,13 @@ const AppNavigator = ({ initialRouteName }: { initialRouteName: keyof RootStackP
                 component={PatientProfileScreen}
                 options={{ animation: 'slide_from_right' }}
             />
+            {Platform.OS === 'ios' ? (
+                <Stack.Screen
+                    name="AccountDeletionRequest"
+                    component={AccountDeletionRequestScreen}
+                    options={{ animation: 'slide_from_right' }}
+                />
+            ) : null}
         </Stack.Navigator>
     );
 };

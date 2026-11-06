@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Image, Platform, View } from 'react-native';
-import { Bell, CalendarDays, FileHeart, Flower2, Home } from 'lucide-react-native';
+import { Image, View } from 'react-native';
+import { Bell, CalendarDays, FileHeart, Home } from 'lucide-react-native';
 import type { PatientTabParamList } from './types';
 import PatientHomeScreen from '../screens/PatientHomeScreen';
 import PatientAnnouncementsScreen from '../screens/PatientAnnouncementsScreen';
@@ -90,11 +90,6 @@ export default function PatientTabNavigator() {
 }
 
 function LotusTabIcon({ size, focused }: { size: number; focused: boolean }) {
-    if (Platform.OS === 'ios') {
-        return <View style={{ width: size + 10, height: size + 6, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: focused ? '#2563eb' : 'transparent' }}>
-            <Flower2 size={size} color={focused ? '#ffffff' : '#808080'} />
-        </View>;
-    }
     const frameSize = size * 1.25;
     const iconSize = size * (focused ? 1.9 : 1.8);
     const offset = (frameSize - iconSize) / 2;

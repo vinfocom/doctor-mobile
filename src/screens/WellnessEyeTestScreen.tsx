@@ -71,11 +71,18 @@ const C_PATH = 'M 143 17 L 136 17 L 135 18 L 124 18 L 123 19 L 117 19 L 116 20 L
 function EyeOptotype({ trial, size }: { trial: Trial; size: number }) {
     const viewBox = trial.type === 'E' ? '0 0 1041 1041' : '0 0 292 292';
     const center = trial.type === 'E' ? '520.5 520.5' : '146 146';
+    const iosRotationStyle = Platform.OS === 'ios' && trial.rotation
+        ? { transform: [{ rotate: `${trial.rotation}deg` }] as const, overflow: 'visible' as const }
+        : undefined;
     return (
-        <Svg width={size} height={size} viewBox={viewBox} accessibilityLabel={`${trial.type} symbol`}>
-            <G transform={trial.rotation ? `rotate(${trial.rotation} ${center})` : undefined}>
-                {trial.type === 'E' ? <Path d={E_PATH} fill="#000000" fillRule="evenodd" transform="translate(9 0)" /> : <Path d={C_PATH} fill="#000000" fillRule="evenodd" transform={Platform.OS === 'ios' ? 'translate(146 146) scale(1.05) translate(-139.5 -138.5)' : 'translate(146 146) scale(1.1) translate(-146 -146) translate(16 0)'} />}
-            </G>
+        <Svg width={size} height={size} viewBox={viewBox} accessibilityLabel={`${trial.type} symbol`} style={iosRotationStyle}>
+            {Platform.OS === 'ios' ? <>
+                {trial.type === 'E'
+                    ? <Path d={E_PATH} fill="#000000" fillRule="evenodd" transform="translate(9 0)" />
+                    : <Path d={C_PATH} fill="#000000" fillRule="evenodd" transform="translate(146 146) scale(1.05) translate(-139.5 -138.5)" />}
+            </> : <G transform={trial.rotation ? `rotate(${trial.rotation} ${center})` : undefined}>
+                {trial.type === 'E' ? <Path d={E_PATH} fill="#000000" fillRule="evenodd" transform="translate(9 0)" /> : <Path d={C_PATH} fill="#000000" fillRule="evenodd" transform="translate(146 146) scale(1.1) translate(-146 -146) translate(16 0)" />}
+            </G>}
         </Svg>
     );
 }

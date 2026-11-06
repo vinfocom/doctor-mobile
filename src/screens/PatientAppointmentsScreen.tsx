@@ -156,8 +156,6 @@ export default function PatientAppointmentsScreen() {
     const [selectedAppointment, setSelectedAppointment] = useState<AppointmentItem | null>(null);
     const [showDoctorSearch, setShowDoctorSearch] = useState(false);
     const [showClinicSelect, setShowClinicSelect] = useState(false);
-    const [pickerAfterBookingDismiss, setPickerAfterBookingDismiss] = useState<'doctor' | 'clinic' | null>(null);
-    const [reopenBookingAfterPickerDismiss, setReopenBookingAfterPickerDismiss] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [availableDates, setAvailableDates] = useState<Set<string>>(new Set());
     const [loadingDates, setLoadingDates] = useState(false);
@@ -323,12 +321,7 @@ export default function PatientAppointmentsScreen() {
         const specialization = String(route.params?.prefillSpecialization || '').trim();
         if (specialization || route.params?.openDoctorSearch) {
             setSearchQuery(specialization);
-            if (Platform.OS === 'ios') {
-                setOpen(false);
-                setShowDoctorSearch(true);
-            } else {
-                setShowDoctorSearch(true);
-            }
+            setShowDoctorSearch(true);
         }
         navigation.setParams?.({ openCreate: undefined, prefillSpecialization: undefined, openDoctorSearch: undefined });
     }, [navigation, patientName, route.params?.openCreate, route.params?.openDoctorSearch, route.params?.prefillSpecialization]);
@@ -533,33 +526,23 @@ export default function PatientAppointmentsScreen() {
     };
 
     const closeDoctorSearch = () => {
-        if (Platform.OS === 'ios') setReopenBookingAfterPickerDismiss(true);
         setShowDoctorSearch(false);
     };
 
     const closeClinicSelect = () => {
-        if (Platform.OS === 'ios') setReopenBookingAfterPickerDismiss(true);
         setShowClinicSelect(false);
     };
 
     const openDoctorSearch = () => {
-        if (Platform.OS === 'ios') {
-            setPickerAfterBookingDismiss('doctor');
-            setOpen(false);
-        } else {
-            setShowDoctorSearch(true);
-        }
+        setShowClinicSelect(false);
+        setShowDoctorSearch(true);
         setSearchQuery('');
     };
 
     const openClinicSelect = () => {
         if (!form.doctor_id) return;
-        if (Platform.OS === 'ios') {
-            setPickerAfterBookingDismiss('clinic');
-            setOpen(false);
-        } else {
-            setShowClinicSelect(true);
-        }
+        setShowDoctorSearch(false);
+        setShowClinicSelect(true);
     };
 
     // ── Inline Calendar helpers ──────────────────────────────────────────────
@@ -860,14 +843,44 @@ export default function PatientAppointmentsScreen() {
                 />
             </View>
 
-            <Modal visible={open} transparent animationType="slide" onRequestClose={handleCloseModal} onDismiss={() => {
-                if (Platform.OS !== 'ios' || !pickerAfterBookingDismiss) return;
-                const picker = pickerAfterBookingDismiss;
-                setPickerAfterBookingDismiss(null);
-                if (picker === 'doctor') setShowDoctorSearch(true);
-                else setShowClinicSelect(true);
-            }}>
+            <Modal visible={open} transparent animationType="slide" onRequestClose={handleCloseModal}>
                 <View className="flex-1 justify-end bg-black/50">
+                    {Platform.OS === 'ios' && showDoctorSearch ? (
+                        <View className="bg-white rounded-t-3xl p-6 h-[80%]" style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}>
+                            <View className="flex-row items-center justify-between mb-4">
+                                <Text className="text-xl font-bold text-gray-800">Select Doctor</Text>
+                                <TouchableOpacity onPress={closeDoctorSearch} className="bg-gray-100 p-2 rounded-full"><X size={20} color="#4b5563" /></TouchableOpacity>
+                            </View>
+                            <View className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 flex-row items-center mb-4">
+                                <Search size={18} color="#9ca3af" />
+                                <TextInput className="flex-1 ml-2 text-gray-800 h-10" placeholder="Search doctor or specialization..." value={searchQuery} onChangeText={setSearchQuery} autoCapitalize="none" />
+                                {searchQuery.length > 0 ? <TouchableOpacity onPress={() => setSearchQuery('')}><X size={16} color="#9ca3af" /></TouchableOpacity> : null}
+                            </View>
+                            <ScrollView className="mt-2 text-gray-800" keyboardShouldPersistTaps="handled">
+                                {filteredDoctors.length === 0 ? <View className="py-8 items-center"><Text className="text-gray-500 text-center">No doctors found matching "{searchQuery}"</Text></View> : filteredDoctors.map((item) => (
+                                    <TouchableOpacity key={item.doctor_id} onPress={() => { setForm((p) => ({ ...p, doctor_id: String(item.doctor_id), clinic_id: '', date: '', time: '' })); closeDoctorSearch(); }} className="py-4 border-b border-gray-100 flex-row items-center">
+                                        <View className="bg-blue-50 w-10 h-10 rounded-full items-center justify-center mr-3 overflow-hidden">{item.profile_pic_url ? <Image source={{ uri: item.profile_pic_url }} className="w-10 h-10" resizeMode="cover" /> : <User size={18} color="#1d4ed8" />}</View>
+                                        <View className="flex-1"><Text className="text-gray-800 font-semibold text-base">{formatDoctorName(item.doctor_name)}</Text><View className="mt-1 self-start bg-emerald-100 rounded-full px-2 py-0.5"><Text className="text-[10px] text-emerald-700 font-semibold">{item.specialization || 'General'}</Text></View></View>
+                                    </TouchableOpacity>
+                                ))}
+                            </ScrollView>
+                        </View>
+                    ) : Platform.OS === 'ios' && showClinicSelect ? (
+                        <View className="bg-white rounded-t-3xl p-5 max-h-[75%]" style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}>
+                            <View className="flex-row items-center justify-between mb-4"><Text className="text-lg font-bold text-gray-800">Select Clinic</Text><TouchableOpacity onPress={closeClinicSelect} className="bg-gray-100 rounded-full px-3 py-2"><Text className="text-xs font-semibold text-gray-600">Close</Text></TouchableOpacity></View>
+                            {!form.doctor_id ? <View className="py-8 items-center"><Text className="text-gray-400 text-sm">Select a doctor first</Text></View> : filteredClinics.length === 0 ? <View className="py-8 items-center"><Text className="text-gray-400 text-sm">No clinics available for this doctor</Text></View> : (
+                                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
+                                    {filteredClinics.map((clinic) => {
+                                        const isSelected = String(clinic?.clinic_id) === String(form.clinic_id);
+                                        return <TouchableOpacity key={clinic.clinic_id} onPress={() => { setForm((prev) => ({ ...prev, clinic_id: String(clinic.clinic_id), date: '', time: '' })); closeClinicSelect(); }} activeOpacity={0.85} className={`rounded-2xl border px-4 py-3 mb-3 ${isSelected ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'}`}>
+                                            <Text className={`font-semibold ${isSelected ? 'text-blue-700' : 'text-gray-800'}`}>{clinic.clinic_name || 'Clinic'}</Text>
+                                            {formatClinicAddress(clinic.location) ? <Text className={`text-xs mt-1 ${isSelected ? 'text-blue-600' : 'text-gray-500'}`}>{formatClinicAddress(clinic.location)}</Text> : null}
+                                        </TouchableOpacity>;
+                                    })}
+                                </ScrollView>
+                            )}
+                        </View>
+                    ) : (
                     <View
                         className="bg-white rounded-t-3xl p-6 h-[86%]"
                         style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}
@@ -1108,16 +1121,12 @@ export default function PatientAppointmentsScreen() {
                             </View>
                         </ScrollView>
                     </View>
+                    )}
                 </View>
             </Modal>
 
             {/* Doctor Search Modal */}
-            <Modal visible={showDoctorSearch} transparent animationType="slide" onRequestClose={closeDoctorSearch} onDismiss={() => {
-                if (Platform.OS === 'ios' && reopenBookingAfterPickerDismiss) {
-                    setReopenBookingAfterPickerDismiss(false);
-                    setOpen(true);
-                }
-            }}>
+            <Modal visible={Platform.OS !== 'ios' && showDoctorSearch} transparent animationType="slide" onRequestClose={closeDoctorSearch}>
                 <View className="flex-1 justify-end bg-black/50">
                     <View
                         className="bg-white rounded-t-3xl p-6 h-[80%]"
@@ -1190,12 +1199,7 @@ export default function PatientAppointmentsScreen() {
                 </View>
             </Modal>
 
-            <Modal visible={showClinicSelect} transparent animationType="slide" onRequestClose={closeClinicSelect} onDismiss={() => {
-                if (Platform.OS === 'ios' && reopenBookingAfterPickerDismiss) {
-                    setReopenBookingAfterPickerDismiss(false);
-                    setOpen(true);
-                }
-            }}>
+            <Modal visible={Platform.OS !== 'ios' && showClinicSelect} transparent animationType="slide" onRequestClose={closeClinicSelect}>
                 <View className="flex-1 justify-end bg-black/40">
                     <View
                         className="bg-white rounded-t-3xl p-5 max-h-[75%]"

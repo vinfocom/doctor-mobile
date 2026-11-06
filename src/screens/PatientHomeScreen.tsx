@@ -13,6 +13,7 @@ import {
     TextInput,
     Linking,
     Platform,
+    Share,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CalendarDays, ChevronLeft, ChevronRight, User, MessageCircle, Radio, Settings, FileText, Upload, ImagePlus, ZoomIn, ZoomOut, X, Trash2, Camera, Eye, Download, Stethoscope, Baby, Venus, ScanSearch, Pill, Bone, BriefcaseMedical, LayoutGrid } from 'lucide-react-native';
@@ -1014,9 +1015,12 @@ export default function PatientHomeScreen() {
                     });
                     Alert.alert('Download successful', 'Prescription PDF saved to the selected folder.');
                 } else {
-                    const fileUri = `${FileSystem.documentDirectory}${filename}`;
-                    await FileSystem.copyAsync({ from: tempUri, to: fileUri });
-                    Alert.alert('Download successful', `Prescription PDF saved in app files: ${fileUri}`);
+                    // The iOS share sheet can remain open while the user chooses
+                    // Save to Files. Stop showing the download spinner once the
+                    // PDF has finished downloading; the OS sheet owns the next step.
+                    setEmrPrescriptionDownloadingId(null);
+                    await Share.share({ url: tempUri });
+                    await FileSystem.deleteAsync(tempUri, { idempotent: true }).catch(() => undefined);
                 }
             }
         } catch (error: any) {
@@ -2047,14 +2051,24 @@ export default function PatientHomeScreen() {
                                 )}
                             </ScrollView>
                         </View>
+                        {Platform.OS === 'ios' ? (
+                            <PrescriptionImageViewerModal
+                                visible={prescriptionViewerVisible}
+                                prescription={selectedPrescription}
+                                onClose={closePrescriptionViewer}
+                                embedded
+                            />
+                        ) : null}
                     </View>
                 </Modal>
 
-                <PrescriptionImageViewerModal
-                    visible={prescriptionViewerVisible}
-                    prescription={selectedPrescription}
-                    onClose={closePrescriptionViewer}
-                />
+                {Platform.OS !== 'ios' ? (
+                    <PrescriptionImageViewerModal
+                        visible={prescriptionViewerVisible}
+                        prescription={selectedPrescription}
+                        onClose={closePrescriptionViewer}
+                    />
+                ) : null}
 
                 <Modal visible={Boolean(selectedLiveQueue)} transparent animationType="slide" onRequestClose={() => setSelectedLiveQueue(null)}>
                     <View className="flex-1 justify-end bg-black/40">

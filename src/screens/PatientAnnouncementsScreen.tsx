@@ -22,6 +22,9 @@ interface PatientAnnouncement {
 
 const toISTYMD = (value?: string | null) => {
     if (!value) return null;
+    // API calendar dates are YYYY-MM-DD. Preserve that day instead of parsing
+    // it as midnight UTC and relying on device timezone conversion.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return null;
     return date.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -99,10 +102,17 @@ export default function PatientAnnouncementsScreen() {
             if (!String(message?.content || '').startsWith('Announcement:')) return;
             void fetchAnnouncements().catch(() => undefined);
         });
+        const handleAnnouncementReceived = (announcement: any) => {
+            if (announcement?.sender !== 'DOCTOR' || Number(announcement?.patient_id) !== patientId) return;
+            if (!doctorIds.includes(Number(announcement?.doctor_id))) return;
+            void fetchAnnouncements().catch(() => undefined);
+        };
+        socket.on('announcement_received', handleAnnouncementReceived);
         if (socket.connected) joinAllRooms();
         return () => {
             socket.off('connect', joinAllRooms);
             socket.off('receive_message');
+            socket.off('announcement_received', handleAnnouncementReceived);
             socket.disconnect();
             if (socketRef.current === socket) socketRef.current = null;
         };

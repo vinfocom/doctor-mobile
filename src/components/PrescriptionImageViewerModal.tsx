@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Modal, Platform, Text, TouchableOpacity, View, Image, useWindowDimensions } from 'react-native';
+import { Modal, Platform, StyleSheet, Text, TouchableOpacity, View, Image, useWindowDimensions } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Gesture, GestureDetector, Directions, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
@@ -30,6 +30,7 @@ interface PrescriptionImageViewerModalProps {
     visible: boolean;
     prescription: PrescriptionRecordItem | null;
     onClose: () => void;
+    embedded?: boolean;
 }
 
 const MIN_SCALE = 1;
@@ -45,6 +46,7 @@ export default function PrescriptionImageViewerModal({
     visible,
     prescription,
     onClose,
+    embedded = false,
 }: PrescriptionImageViewerModalProps) {
     const [pageIndex, setPageIndex] = useState(0);
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -193,10 +195,7 @@ export default function PrescriptionImageViewerModal({
         ],
     }));
 
-    if (!visible) return null;
-
-    return (
-        <Modal visible={visible} transparent={false} animationType="fade" onRequestClose={onClose}>
+    const viewerContent = (
             <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000000' }}>
                 <View className="flex-1 bg-black">
                     <ModalSafeAreaProvider>
@@ -295,6 +294,20 @@ export default function PrescriptionImageViewerModal({
                     </ModalSafeAreaProvider>
                 </View>
             </GestureHandlerRootView>
+    );
+
+    if (embedded) {
+        if (!visible) return null;
+        return (
+            <View style={[StyleSheet.absoluteFillObject, { zIndex: 100, elevation: 100 }]}>
+                {viewerContent}
+            </View>
+        );
+    }
+
+    return (
+        <Modal visible={visible} transparent={false} animationType="fade" onRequestClose={onClose}>
+            {viewerContent}
         </Modal>
     );
 }
